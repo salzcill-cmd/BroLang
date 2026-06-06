@@ -1,0 +1,367 @@
+"""
+Optimizer BroLang
+=================
+
+Optimizer melakukan optimasi pada AST sebelum eksekusi atau kompilasi.
+Optimasi yang diimplementasikan:
+
+1. Constant Folding:
+   2 + 3 → 5
+   "a" + "b" → "ab"
+   bukan benar → salah
+
+2. Dead Code Elimination:
+   Hapus kode yang tidak akan pernah dieksekusi.
+
+3. Simplifikasi Expression:
+   -(-x) → x
+   x + 0 → x
+   x * 1 → x
+   x * 0 → 0
+
+Pipeline:
+    AST → Semantic Analyzer → [Optimizer] → Optimized AST → Interpreter
+"""
+
+from typing import Optional, Any, List
+from brolang.ast.nodes import (
+    ASTNode, ASTVisitor,
+    ProgramNode, NumberNode, DecimalNode, StringNode,
+    BooleanNode, KosongNode, IdentifierNode, VariableNode,
+    AssignmentNode, BinaryOpNode, UnaryOpNode,
+    IfNode, WhileNode, ForNode, BreakNode, ContinueNode,
+    FunctionNode, ReturnNode, CallNode,
+    ClassNode, MethodNode, AttributeNode,
+    ImportNode, FromImportNode,
+    TryNode, CatchNode,
+    ListNode, IndexNode, ObjectNode, ObjectAccessNode,
+    PrintNode, InputNode,
+)
+
+
+class Optimizer(ASTVisitor):
+    """Optimizer untuk AST BroLang.
+
+    Melakukan berbagai optimasi pada AST untuk meningkatkan
+    performa eksekusi dan menghasilkan kode yang lebih efisien.
+    """
+
+    def __init__(self, optimization_level: int = 1):
+        self.optimization_level = optimization_level
+        self.optimized_count = 0
+
+    def optimize(self, node: ASTNode) -> ASTNode:
+        """Menjalankan optimasi pada AST.
+
+        Args:
+            node: Root AST node
+
+        Returns:
+            ASTNode: Optimized AST
+        """
+        return self.visit(node)
+
+    def visit(self, node: ASTNode) -> Any:
+        """Visit node dengan optimasi."""
+        method_name = f"visit_{node.__class__.__name__}"
+        visitor = getattr(self, method_name, self.generic_visit)
+        return visitor(node)
+
+    def generic_visit(self, node: ASTNode) -> ASTNode:
+        """Default: kunjungi children."""
+        return node
+
+    # ============= Constant Folding =============
+
+    def visit_BinaryOpNode(self, node: BinaryOpNode) -> ASTNode:
+        """Optimasi operasi biner dengan constant folding."""
+        left = self.visit(node.left)
+        right = self.visit(node.right)
+
+        # Coba constant folding jika kedua operand adalah literal
+        if isinstance(left, (NumberNode, DecimalNode, StringNode, BooleanNode)) and \
+           isinstance(right, (NumberNode, DecimalNode, StringNode, BooleanNode)):
+            folded = self._try_fold(node.operator, left, right)
+            if folded is not None:
+                self.optimized_count += 1
+                return folded
+
+        # Simplifikasi aljabar
+        simplified = self._try_simplify(node.operator, left, right)
+        if simplified is not None:
+            self.optimized_count += 1
+            return simplified
+
+        return BinaryOpNode(left=left, operator=node.operator, right=right,
+                            line=node.line, column=node.column)
+
+    def _try_fold(self, operator: str, left: ASTNode, right: ASTNode) -> Optional[ASTNode]:
+        """Mencoba melakukan constant folding."""
+        try:
+            if operator == "+":
+                if isinstance(left, NumberNode) and isinstance(right, NumberNode):
+                    return NumberNode(value=left.value + right.value, line=left.line, column=left.column)
+                if isinstance(left, DecimalNode) and isinstance(right, DecimalNode):
+                    return DecimalNode(value=left.value + right.value, line=left.line, column=left.column)
+                if isinstance(left, (NumberNode, DecimalNode)) and isinstance(right, (NumberNode, DecimalNode)):
+                    return DecimalNode(value=float(left.value) + float(right.value))
+                if isinstance(left, StringNode) and isinstance(right, StringNode):
+                    return StringNode(value=left.value + right.value, line=left.line, column=left.column)
+                if isinstance(left, StringNode):
+                    return StringNode(value=left.value + str(right.value), line=left.line, column=left.column)
+
+            elif operator == "-":
+                if isinstance(left, NumberNode) and isinstance(right, NumberNode):
+                    return NumberNode(value=left.value - right.value, line=left.line, column=left.column)
+                if isinstance(left, DecimalNode) and isinstance(right, DecimalNode):
+                    return DecimalNode(value=left.value - right.value, line=left.line, column=left.column)
+                if isinstance(left, (NumberNode, DecimalNode)) and isinstance(right, (NumberNode, DecimalNode)):
+                    return DecimalNode(value=float(left.value) - float(right.value))
+
+            elif operator == "*":
+                if isinstance(left, NumberNode) and isinstance(right, NumberNode):
+                    return NumberNode(value=left.value * right.value, line=left.line, column=left.column)
+                if isinstance(left, DecimalNode) and isinstance(right, DecimalNode):
+                    return DecimalNode(value=left.value * right.value, line=left.line, column=left.column)
+                if isinstance(left, (NumberNode, DecimalNode)) and isinstance(right, (NumberNode, DecimalNode)):
+                    return DecimalNode(value=float(left.value) * float(right.value))
+
+            elif operator == "/":
+                if isinstance(left, NumberNode) and isinstance(right, NumberNode):
+                    if right.value != 0:
+                        return DecimalNode(value=left.value / right.value, line=left.line, column=left.column)
+                if isinstance(left, DecimalNode) and isinstance(right, DecimalNode):
+                    if right.value != 0:
+                        return DecimalNode(value=left.value / right.value, line=left.line, column=left.column)
+
+            elif operator == "%":
+                if isinstance(left, NumberNode) and isinstance(right, NumberNode):
+                    if right.value != 0:
+                        return NumberNode(value=left.value % right.value, line=left.line, column=left.column)
+
+            elif operator == "**":
+                if isinstance(left, NumberNode) and isinstance(right, NumberNode):
+                    return NumberNode(value=left.value ** right.value, line=left.line, column=left.column)
+
+            elif operator == "==":
+                if isinstance(left, (NumberNode, DecimalNode, StringNode, BooleanNode)) and \
+                   isinstance(right, (NumberNode, DecimalNode, StringNode, BooleanNode)):
+                    return BooleanNode(value=left.value == right.value, line=left.line, column=left.column)
+
+            elif operator == "!=":
+                if isinstance(left, (NumberNode, DecimalNode, StringNode, BooleanNode)) and \
+                   isinstance(right, (NumberNode, DecimalNode, StringNode, BooleanNode)):
+                    return BooleanNode(value=left.value != right.value, line=left.line, column=left.column)
+
+            elif operator == ">":
+                if isinstance(left, (NumberNode, DecimalNode)) and isinstance(right, (NumberNode, DecimalNode)):
+                    return BooleanNode(value=left.value > right.value)
+
+            elif operator == "<":
+                if isinstance(left, (NumberNode, DecimalNode)) and isinstance(right, (NumberNode, DecimalNode)):
+                    return BooleanNode(value=left.value < right.value)
+
+            elif operator == ">=":
+                if isinstance(left, (NumberNode, DecimalNode)) and isinstance(right, (NumberNode, DecimalNode)):
+                    return BooleanNode(value=left.value >= right.value)
+
+            elif operator == "<=":
+                if isinstance(left, (NumberNode, DecimalNode)) and isinstance(right, (NumberNode, DecimalNode)):
+                    return BooleanNode(value=left.value <= right.value)
+
+            elif operator == "dan":
+                if isinstance(left, BooleanNode) and isinstance(right, BooleanNode):
+                    return BooleanNode(value=left.value and right.value)
+
+            elif operator == "atau":
+                if isinstance(left, BooleanNode) and isinstance(right, BooleanNode):
+                    return BooleanNode(value=left.value or right.value)
+
+        except (TypeError, ZeroDivisionError):
+            pass
+
+        return None
+
+    def _try_simplify(self, operator: str, left: ASTNode, right: ASTNode) -> Optional[ASTNode]:
+        """Mencoba simplifikasi aljabar."""
+        # x + 0 → x
+        if operator == "+" and isinstance(right, (NumberNode, DecimalNode)) and right.value == 0:
+            return left
+        # 0 + x → x
+        if operator == "+" and isinstance(left, (NumberNode, DecimalNode)) and left.value == 0:
+            return right
+        # x * 1 → x
+        if operator == "*" and isinstance(right, (NumberNode, DecimalNode)) and right.value == 1:
+            return left
+        # 1 * x → x
+        if operator == "*" and isinstance(left, (NumberNode, DecimalNode)) and left.value == 1:
+            return right
+        # x * 0 → 0
+        if operator == "*" and isinstance(right, (NumberNode, DecimalNode)) and right.value == 0:
+            return NumberNode(value=0)
+        # 0 * x → 0
+        if operator == "*" and isinstance(left, (NumberNode, DecimalNode)) and left.value == 0:
+            return NumberNode(value=0)
+        # x - 0 → x
+        if operator == "-" and isinstance(right, (NumberNode, DecimalNode)) and right.value == 0:
+            return left
+        # x / 1 → x
+        if operator == "/" and isinstance(right, (NumberNode, DecimalNode)) and right.value == 1:
+            return left
+
+        return None
+
+    def visit_UnaryOpNode(self, node: UnaryOpNode) -> ASTNode:
+        """Optimasi operasi unary."""
+        operand = self.visit(node.operand)
+
+        # -(-x) → x
+        if node.operator == "-" and isinstance(operand, UnaryOpNode) and operand.operator == "-":
+            self.optimized_count += 1
+            return operand.operand
+
+        # -0 → 0
+        if node.operator == "-" and isinstance(operand, NumberNode) and operand.value == 0:
+            return operand
+
+        # bukan bukan x → x
+        if node.operator == "bukan" and isinstance(operand, UnaryOpNode) and operand.operator == "bukan":
+            self.optimized_count += 1
+            return operand.operand
+
+        # Constant fold: -5, bukan(true)
+        if isinstance(operand, (NumberNode, DecimalNode, BooleanNode)):
+            if node.operator == "-":
+                if isinstance(operand, NumberNode):
+                    return NumberNode(value=-operand.value)
+                if isinstance(operand, DecimalNode):
+                    return DecimalNode(value=-operand.value)
+            if node.operator == "bukan" and isinstance(operand, BooleanNode):
+                return BooleanNode(value=not operand.value)
+
+        return UnaryOpNode(operator=node.operator, operand=operand,
+                           line=node.line, column=node.column)
+
+    def visit_IfNode(self, node: IfNode) -> ASTNode:
+        """Optimasi if statement."""
+        condition = self.visit(node.condition)
+        body = [self.visit(stmt) for stmt in node.body]
+
+        elif_conditions = [self.visit(ec) for ec in node.elif_conditions]
+        elif_bodies = [[self.visit(stmt) for stmt in eb] for eb in node.elif_bodies]
+        else_body = [self.visit(stmt) for stmt in node.else_body]
+
+        # If condition is constant
+        if isinstance(condition, BooleanNode):
+            self.optimized_count += 1
+            if condition.value:
+                # Always execute body
+                result = []
+                for stmt in body:
+                    result.append(stmt)
+                # Create a block node or just return the first statement
+                if len(result) == 1:
+                    return result[0]
+                return ProgramNode(statements=result)
+            else:
+                # Check elif/else
+                for i, ec in enumerate(elif_conditions):
+                    if isinstance(ec, BooleanNode) and ec.value:
+                        result = []
+                        for stmt in elif_bodies[i]:
+                            result.append(stmt)
+                        if len(result) == 1:
+                            return result[0]
+                        return ProgramNode(statements=result)
+                # Execute else
+                result = []
+                for stmt in else_body:
+                    result.append(stmt)
+                if len(result) == 1:
+                    return result[0]
+                return ProgramNode(statements=result)
+
+        return IfNode(
+            condition=condition, body=body,
+            else_body=else_body,
+            elif_conditions=elif_conditions,
+            elif_bodies=elif_bodies,
+            line=node.line, column=node.column,
+        )
+
+    def visit_WhileNode(self, node: WhileNode) -> ASTNode:
+        """Optimasi while loop."""
+        condition = self.visit(node.condition)
+        body = [self.visit(stmt) for stmt in node.body]
+
+        # while false → dead code
+        if isinstance(condition, BooleanNode) and not condition.value:
+            self.optimized_count += 1
+            return ProgramNode(statements=[])
+
+        return WhileNode(condition=condition, body=body,
+                         line=node.line, column=node.column)
+
+    def visit_ProgramNode(self, node: ProgramNode) -> ProgramNode:
+        """Optimasi program."""
+        statements = []
+        for stmt in node.statements:
+            optimized = self.visit(stmt)
+            if isinstance(optimized, ProgramNode):
+                statements.extend(optimized.statements)
+            elif optimized is not None:
+                statements.append(optimized)
+        return ProgramNode(statements=statements, name=node.name)
+
+    def visit_AssignmentNode(self, node: AssignmentNode) -> AssignmentNode:
+        value = self.visit(node.value) if node.value else None
+        return AssignmentNode(target=node.target, value=value if value else node.value,
+                              is_declaration=node.is_declaration,
+                              line=node.line, column=node.column)
+
+    def visit_FunctionNode(self, node: FunctionNode) -> FunctionNode:
+        body = [self.visit(stmt) for stmt in node.body]
+        return FunctionNode(name=node.name, params=node.params, body=body,
+                            line=node.line, column=node.column)
+
+    def visit_ReturnNode(self, node: ReturnNode) -> ReturnNode:
+        value = self.visit(node.value) if node.value else None
+        return ReturnNode(value=value if value else node.value,
+                          line=node.line, column=node.column)
+
+    def visit_PrintNode(self, node: PrintNode) -> PrintNode:
+        expr = self.visit(node.expression)
+        args = [self.visit(arg) for arg in node.args]
+        return PrintNode(expression=expr, args=args, line=node.line, column=node.column)
+
+    def visit_ListNode(self, node: ListNode) -> ListNode:
+        elements = [self.visit(elem) for elem in node.elements]
+        return ListNode(elements=elements, line=node.line, column=node.column)
+
+    def visit_ObjectNode(self, node: ObjectNode) -> ObjectNode:
+        entries = {k: self.visit(v) for k, v in node.entries.items()}
+        return ObjectNode(entries=entries, line=node.line, column=node.column)
+
+    def visit_StringNode(self, node: StringNode) -> StringNode:
+        return node
+
+    def visit_NumberNode(self, node: NumberNode) -> NumberNode:
+        return node
+
+    def visit_DecimalNode(self, node: DecimalNode) -> DecimalNode:
+        return node
+
+    def visit_BooleanNode(self, node: BooleanNode) -> BooleanNode:
+        return node
+
+    def visit_KosongNode(self, node: KosongNode) -> KosongNode:
+        return node
+
+    def visit_IdentifierNode(self, node: IdentifierNode) -> IdentifierNode:
+        return node
+
+    def visit_CallNode(self, node: CallNode) -> CallNode:
+        func = self.visit(node.function)
+        args = [self.visit(arg) for arg in node.args]
+        return CallNode(function=func, args=args, is_method=node.is_method,
+                        object_name=node.object_name, line=node.line, column=node.column)
