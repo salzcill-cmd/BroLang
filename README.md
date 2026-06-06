@@ -52,7 +52,7 @@ tulis "Halo Dunia!"
 
 ```bash
 # Clone repo
-git clone https://github.com/brolang/brolang.git
+git clone https://github.com/salzcill-cmd/BroLang.git
 cd brolang
 
 # Install
