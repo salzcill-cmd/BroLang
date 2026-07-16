@@ -23,7 +23,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

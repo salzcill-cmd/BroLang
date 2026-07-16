@@ -1,6 +1,6 @@
 """
 Standard Library BroLang
-=========================
+========================
 
 Standard library menyediakan modul-modul bawaan yang dapat
 digunakan dalam program BroLang.
@@ -14,9 +14,20 @@ Modul yang tersedia:
 - jaringan   : HTTP client
 - acak       : Random number generation
 
+Modul Game:
+- vektor     : Vektor 2D/3D (Vec2, Vec3) untuk game
+- grafis     : Rendering 2D (Pygame wrapper)
+- audio      : Sound effects & musik
+- input      : Keyboard & mouse input
+- game       : Game loop & scene management
+
 Contoh:
     impor matematika
     matematika.akar(25)
+
+    impor game
+    game.buat_jendela(800, 600, "Gameku")
+    game.mulai()
 """
 
 from typing import Any, Dict, Optional
@@ -77,3 +88,18 @@ def _load_module(name: str) -> None:
     elif name == "acak":
         from brolang.stdlib.acak import module as acak_module
         register_module("acak", acak_module)
+    elif name == "vektor":
+        from brolang.stdlib.vektor import module as vektor_module
+        register_module("vektor", vektor_module)
+    elif name == "grafis":
+        from brolang.stdlib.grafis import module as grafis_module
+        register_module("grafis", grafis_module)
+    elif name == "audio":
+        from brolang.stdlib.audio import module as audio_module
+        register_module("audio", audio_module)
+    elif name == "input":
+        from brolang.stdlib import input as input_module
+        register_module("input", input_module.module)
+    elif name == "game":
+        from brolang.stdlib.game import module as game_module
+        register_module("game", game_module)

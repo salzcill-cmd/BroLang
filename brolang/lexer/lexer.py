@@ -250,6 +250,69 @@ class Lexer:
         }
         return escape_map.get(char, char)
 
+    def _read_fstring(self, quote: str) -> Token:
+        '''Membaca f-string: f"...{expr}..."
+        
+        F-strings mendukung interpolasi variabel dan ekspresi.
+        Hasilnya adalah token TOKEN_FSTRING dengan value berisi
+        list of (type, value) tuples:
+        - ("literal", "teks")
+        - ("expr", ASTNode)
+        '''
+        start_line = self.line
+        start_col = self.column - 2  # -2 for 'f' and quote
+        parts = []
+        current_literal = []
+
+        while self._current() is not None:
+            if self._current() == '\\' and self._peek() is not None:
+                current_literal.append(self._read_escape())
+            elif self._current() == '{' and self._peek() != '{':
+                # Save literal so far
+                if current_literal:
+                    parts.append(("literal", ''.join(current_literal)))
+                    current_literal = []
+                # Read expression inside {}
+                self._advance()  # consume {
+                expr_chars = []
+                depth = 1
+                while self._current() is not None and depth > 0:
+                    if self._current() == '{':
+                        depth += 1
+                    elif self._current() == '}':
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    if self._current() == '\n':
+                        raise self._error(
+                            message='Ekspresi dalam f-string tidak boleh multi-baris.',
+                            solution='Gunakan variabel atau ekspresi sederhana dalam {}.',
+                        )
+                    expr_chars.append(self._advance())
+                if depth != 0:
+                    raise self._error(
+                        message='Kurung kurawal f-string tidak ditutup.',
+                        solution='Tambahkan } setelah ekspresi.',
+                    )
+                self._advance()  # consume }
+                expr_str = ''.join(expr_chars).strip()
+                parts.append(("expr", expr_str))
+            elif self._current() == quote:
+                self._advance()  # consume closing quote
+                break
+            elif self._current() == '\n':
+                raise self._error(
+                    message='F-string tidak boleh multi-baris tanpa kutip tiga.',
+                    solution='Gunakan """...""" untuk f-string multi-baris.',
+                )
+            else:
+                current_literal.append(self._advance())
+
+        if current_literal:
+            parts.append(("literal", ''.join(current_literal)))
+
+        return Token(TokenType.TOKEN_FSTRING, parts, start_line, start_col)
+
     def _read_number(self) -> Token:
         '''Membaca number literal (angka dan desimal).'''
         result = []
@@ -337,6 +400,9 @@ class Lexer:
         if char == '!' and self._current() == '=':
             self._advance()
             return Token(TokenType.TOKEN_NEQ, None, start_line, start_col)
+        if char == '=' and self._current() == '>':
+            self._advance()
+            return Token(TokenType.TOKEN_ARROW_FAT, '=>', start_line, start_col)
         if char == '=' and self._current() == '=':
             self._advance()
             return Token(TokenType.TOKEN_EQ, None, start_line, start_col)
@@ -415,6 +481,13 @@ class Lexer:
 
             if char == '#' or (char == '|' and self._peek() == '#'):
                 self._skip_comment()
+                continue
+
+            if char == 'f' and self._peek() in ('"', "'"):
+                # f-string: f"..." or f'...'
+                self._advance()  # consume 'f'
+                quote = self._advance()
+                self.tokens.append(self._read_fstring(quote))
                 continue
 
             if char in ('"', "'"):

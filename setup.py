@@ -12,7 +12,7 @@ with open("README.md", "r", encoding="utf-8") as f:
 
 setup(
     name="brolang",
-    version="1.0.0",
+    version="2.0.0",
     description="BroLang - Bahasa Pemrograman Edukatif Profesional",
     long_description=long_description,
     long_description_content_type="text/markdown",

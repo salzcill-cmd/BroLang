@@ -18,6 +18,7 @@ class TokenType(Enum):
     TOKEN_NUMBER = auto()
     TOKEN_DECIMAL = auto()
     TOKEN_STRING = auto()
+    TOKEN_FSTRING = auto()     # f-string interpolation (v2)
     TOKEN_BOOLEAN = auto()
     TOKEN_KOSONG = auto()
 
@@ -93,6 +94,19 @@ class TokenType(Enum):
     # Built-in Functions
     TOKEN_INPUT = auto()       # input
 
+    # Lambda & Comprehension (v2)
+    TOKEN_LALU = auto()        # lalu (lambda/comprehension)
+    TOKEN_ARROW_FAT = auto()   # =>
+
+    # Pattern Matching (v2)
+    TOKEN_COCOKKAN = auto()    # cocokkan (match)
+    TOKEN_PATERN = auto()      # _ (wildcard in match)
+
+    # Data Types (v2)
+    TOKEN_ENUM = auto()        # enum
+    TOKEN_STRUKTUR = auto()    # struktur (struct)
+    TOKEN_CETAK = auto()       # cetak (screenshot/print to file - reserved)
+
     # Special
     TOKEN_EOF = auto()
 
@@ -125,6 +139,12 @@ KEYWORDS: dict[str, TokenType] = {
     "salah": TokenType.TOKEN_SALAH,
     "kosong": TokenType.TOKEN_KOSONG_KW,
     "input": TokenType.TOKEN_INPUT,
+    # v2 keywords
+    "lalu": TokenType.TOKEN_LALU,
+    "cocokkan": TokenType.TOKEN_COCOKKAN,
+    "enum": TokenType.TOKEN_ENUM,
+    "struktur": TokenType.TOKEN_STRUKTUR,
+    "cetak": TokenType.TOKEN_CETAK,
 }
 
 

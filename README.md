@@ -1,4 +1,4 @@
-# BroLang
+# BroLang v2.0
 
 **Bahasa Pemrograman Edukatif Profesional**
 
@@ -24,6 +24,12 @@ tulis "Halo Dunia!"
   - [List](#list)
   - [Objek](#objek)
 - [Fungsi](#fungsi)
+- [Lambda](#lambda)
+- [List Comprehension](#list-comprehension)
+- [F-String (Interpolasi String)](#f-string-interpolasi-string)
+- [Enum](#enum)
+- [Struktur (Struct)](#struktur-struct)
+- [Pattern Matching (Match/Case)](#pattern-matching-matchcase)
 - [Kelas & OOP](#kelas--oop)
 - [Error Handling](#error-handling)
 - [Modul & Import](#modul--import)
@@ -314,6 +320,146 @@ selesai
 
 ---
 
+## Lambda
+
+Fungsi anonymous (tanpa nama) dengan `lalu`:
+
+```python
+# Lambda sederhana
+buat tambah_dua = lalu(x) x + 2
+tulis tambah_dua(5)  # 7
+
+# Lambda dengan beberapa parameter
+buat kali = lalu(a, b) a * b
+tulis kali(3, 4)  # 12
+
+# Lambda sebagai argumen fungsi
+buat angka = [1, 2, 3, 4, 5]
+buat hasil = peta(lalu(x) x * 2, angka)
+tulis hasil  # [2, 4, 6, 8, 10]
+```
+
+---
+
+## List Comprehension
+
+Membuat list baru dengan ekspresi di dalam `[]` menggunakan `lalu`:
+
+```python
+# Dasar
+buat angka = [1, 2, 3, 4, 5]
+buat genap = [x * 2 lalu x dalam angka]
+tulis genap  # [2, 4, 6, 8, 10]
+
+# Dengan filter (jika)
+buat besar = [x lalu x dalam angka jika x > 3]
+tulis besar  # [4, 5]
+
+# Comprehension dengan range
+buat kuadrat = [x ** 2 lalu x dalam range(5)]
+tulis kuadrat  # [0, 1, 4, 9, 16]
+```
+
+---
+
+## F-String (Interpolasi String)
+
+String dengan ekspresi di dalam `{}`:
+
+```python
+buat nama = "Budi"
+buat umur = 17
+tulis f"Halo {nama}, umur kamu {umur} tahun"
+# Output: Halo Budi, umur kamu 17 tahun
+
+# Dengan ekspresi
+buat x = 10
+tulis f"Hasil: {x * 2 + 5}"
+# Output: Hasil: 25
+```
+
+---
+
+## Enum
+
+Tipe data enumerasi dengan konstanta bernama:
+
+```python
+enum Warna {
+    MERAH,
+    BIRU,
+    HIJAU
+}
+
+buat warna_sekarang = Warna.MERAH
+tulis warna_sekarang  # Warna.MERAH
+
+# Percabangan dengan enum
+cocokkan warna_sekarang {
+    Warna.MERAH: tulis "Merah!"
+    Warna.BIRU: tulis "Biru!"
+    _: tulis "Warna lain"
+}
+```
+
+---
+
+## Struktur (Struct)
+
+Tipe data terstruktur dengan field-field:
+
+```python
+struktur Titik {
+    x,
+    y
+}
+
+buat p = Titik(10, 20)
+tulis p  # Titik(10, 20)
+tulis p.x  # 10
+tulis p.y  # 20
+
+# Struct untuk data game
+struktur Pemain {
+    nama,
+    hp,
+    skor
+}
+
+buat hero = Pemain("Budi", 100, 0)
+tulis f"{hero.nama} HP: {hero.hp}"
+```
+
+---
+
+## Pattern Matching (Match/Case)
+
+Pencocokan pola dengan `cocokkan`:
+
+```python
+buat x = 2
+
+cocokkan x {
+    1: tulis "satu"
+    2: tulis "dua"
+    3: tulis "tiga"
+    _: tulis "lainnya"
+}
+# Output: dua
+
+# Dengan enum
+enum Status { HIDUP, MATI }
+
+buat status = Status.HIDUP
+cocokkan status {
+    Status.HIDUP: tulis "Masih hidup!"
+    Status.MATI: tulis "Game over!"
+    _: tulis "Status tidak dikenal"
+}
+```
+
+---
+
 ## Kelas & OOP
 
 ```python
@@ -536,6 +682,170 @@ acak.seed(42)                             # Set seed
 
 ---
 
+## Game Development
+
+BroLang mendukung game development dengan modul-modul game bawaan. Membutuhkan `pygame`:
+
+```bash
+pip install pygame
+```
+
+### Memulai Game Baru
+
+```bash
+bro new-game nama_game
+cd nama_game
+bro run-game main.bro
+```
+
+### Struktur Proyek Game
+
+```
+nama_game/
+  main.bro           <- File utama game
+  assets/
+    gambar/          <- Sprite, gambar
+    suara/           <- Sound effect, musik
+```
+
+### Modul Game
+
+#### game — Game Loop & Scene Management
+
+```python
+impor game
+
+game.buat_jendela(800, 600, "Gameku")
+game.atur_fps(60)
+
+# Scene management
+game.tambah_scene("menu", update_menu, gambar_menu)
+game.tambah_scene("main", update_main, gambar_main)
+game.ganti_scene("menu")
+
+# Data global game
+game.dapatkan_data()["skor"] = 0
+
+# Mulai game loop (block sampai selesai)
+game.mulai()
+game.berhenti()
+```
+
+#### grafis — Rendering 2D
+
+```python
+impor grafis
+
+# Jendela
+grafis.mulai_jendela(800, 600, "Judul")
+grafis.bersihkan("hitam")
+grafis.perbarui()
+grafis.tutup()
+
+# Menggambar
+grafis.segi_panjang(100, 100, 50, 50, "biru")
+grafis.lingkaran(400, 300, 30, "merah")
+grafis.garis(0, 0, 800, 600, "putih", 2)
+grafis.segitiga(400, 100, 350, 200, 450, 200, "hijau")
+grafis.persegi(100, 100, 50, "kuning")
+
+# Teks
+grafis.tulis_teks("Skor: 100", 10, 10, "kuning", 32)
+
+# Gambar/Sprite
+buat img = grafis.muat_gambar("assets/player.png")
+grafis.gambar_gambar(img, 100, 200)
+grafis.gambar_gambar_putar(img, 100, 200, 45)
+grafis.gambar_gambar_scala(img, 100, 200, 2.0, 2.0)
+
+# Deteksi tabrakan
+grafis.tabrakan_segi_panjang(x1, y1, w1, h1, x2, y2, w2, h2)
+grafis.tabrakan_lingkaran(x1, y1, r1, x2, y2, r2)
+grafis.tabrakan_titik_segi_panjang(px, py, rx, ry, rw, rh)
+
+# Frame rate
+grafis.atur_fps(60)
+grafis.dapatkan_fps()
+grafis.dapatkan_delta()
+```
+
+#### input — Keyboard & Mouse
+
+```python
+impor input
+
+# Keyboard (held down)
+jika input.tombol_ditekan("LEFT") maka
+    # ...
+selesai
+
+# Keyboard (single press)
+jika input.tombol_baru_ditekan("SPACE") maka
+    # ...
+selesai
+
+# Mouse
+buat pos = input.tikus_posisi()    # (x, y)
+jika input.tikus_tombol_ditekan(0) maka  # 0=kiri
+    # ...
+selesai
+```
+
+#### audio — Sound & Musik
+
+```python
+impor audio
+
+# Musik latar
+audio.muat_musik("assets/suara/bgm.mp3")
+audio.mainkan_musik()              # Loop forever
+audio.atur_volume_musik(0.5)
+audio.hentikan_musik()
+
+# Sound effects
+buat sfx = audio.muat_suara("assets/suara/tembak.wav")
+audio.mainkan_suara(sfx)
+audio.mainkan_suara(sfx, 0.5)     # Volume 50%
+```
+
+#### vektor — Vektor 2D/3D
+
+```python
+impor vektor
+
+buat pos = vektor.Vec2(100, 200)
+buat vel = vektor.Vec2(50, 0)
+
+# Operasi
+buat pos_baru = pos + vel
+buat jarak = pos.panjang()
+buat norm = pos.normalisasi()
+buat dot = pos.dot(vel)
+buat rotasi = pos.rotate(3.14)
+buat interpolated = pos.lerp(pos_baru, 0.5)
+
+# Vec3 juga tersedia
+buat pos3 = vektor.Vec3(100, 200, 50)
+```
+
+### Contoh Game
+
+Lihat `examples/` untuk contoh game:
+
+| File | Deskripsi |
+|------|-----------|
+| `game_paddle.bro` | Paddle & Ball — game sederhana |
+| `game_pong.bro` | Pong 2 pemain |
+
+### Jalankan Game
+
+```bash
+bro run-game examples/game_paddle.bro
+bro run-game examples/game_pong.bro
+```
+
+---
+
 ## CLI
 
 ```bash
@@ -548,6 +858,8 @@ bro repl                # REPL interaktif
 bro fmt file.bro        # Format kode
 bro fmt file.bro --check  # Cek format saja
 bro lint file.bro       # Analisis statis
+bro new-game nama_game  # Buat proyek game baru
+bro run-game main.bro   # Jalankan file game
 bro version             # Info versi
 bro --help              # Bantuan
 ```
@@ -693,6 +1005,9 @@ Contoh lain di `examples/`:
 | `error_handling.bro` | Try-catch |
 | `stdlib.bro` | Standard library |
 | `brolang_comprehensive.bro` | Semua fitur |
+| `game_paddle.bro` | Game Paddle & Ball |
+| `game_pong.bro` | Game Pong 2 pemain |
+| `v2_demo.bro` | Demo semua fitur v2 |
 
 ---
 

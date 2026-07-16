@@ -29,6 +29,9 @@ from brolang.ast.nodes import (
     TryNode, CatchNode,
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
+    LambdaNode, ComprehensionNode, FStringNode,
+    EnumNode, StructNode, StructInstanceNode,
+    MatchNode, WildcardNode,
 )
 from brolang.exceptions import SemanticError
 
@@ -623,3 +626,108 @@ class SemanticAnalyzer(ASTVisitor):
         if node.prompt:
             self.visit(node.prompt)
         return "teks"
+
+    # ============= V2: Lambda =============
+
+    def visit_LambdaNode(self, node: LambdaNode) -> str:
+        """Memeriksa lambda expression."""
+        self._enter_scope("lambda")
+        for param in node.params:
+            self.current_scope.define(
+                name=param,
+                kind="parameter",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
+        self.visit(node.body)
+        self._exit_scope()
+        return "fungsi"
+
+    # ============= V2: Comprehension =============
+
+    def visit_ComprehensionNode(self, node: ComprehensionNode) -> str:
+        """Memeriksa list comprehension."""
+        self.visit(node.iterable)
+        self._enter_scope("comprehension")
+        self.current_scope.define(
+            name=node.variable,
+            kind="variable",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+        if node.condition:
+            self.visit(node.condition)
+        self.visit(node.expr)
+        self._exit_scope()
+        return "list"
+
+    # ============= V2: F-String =============
+
+    def visit_FStringNode(self, node: FStringNode) -> str:
+        """Memeriksa f-string."""
+        for ptype, pval in node.parts:
+            if ptype == "expr" and isinstance(pval, ASTNode):
+                self.visit(pval)
+        return "teks"
+
+    # ============= V2: Enum =============
+
+    def visit_EnumNode(self, node: EnumNode) -> None:
+        """Memeriksa enum declaration."""
+        self.current_scope.define(
+            name=node.name,
+            kind="class",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+
+    # ============= V2: Struct =============
+
+    def visit_StructNode(self, node: StructNode) -> None:
+        """Memeriksa struktur declaration."""
+        self.current_scope.define(
+            name=node.name,
+            kind="class",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+
+    def visit_StructInstanceNode(self, node: StructInstanceNode) -> str:
+        """Memeriksa struktur instantiation."""
+        info = self.current_scope.lookup(node.struct_name)
+        if info is None:
+            raise self._error(
+                message=f"Struktur '{node.struct_name}' belum didefinisikan.",
+                line=node.line,
+                column=node.column,
+                solution=f"Definisikan struktur '{node.struct_name}' terlebih dahulu.",
+            )
+        for arg in node.args:
+            self.visit(arg)
+        return node.struct_name
+
+    # ============= V2: Match/Case =============
+
+    def visit_MatchNode(self, node: MatchNode) -> None:
+        """Memeriksa match/case."""
+        self.visit(node.value)
+        for pattern, body in node.cases:
+            if not isinstance(pattern, WildcardNode):
+                self.visit(pattern)
+            self._enter_scope("match_case")
+            for stmt in body:
+                self.visit(stmt)
+            self._exit_scope()
+        if node.default_case:
+            self._enter_scope("match_default")
+            for stmt in node.default_case:
+                self.visit(stmt)
+            self._exit_scope()
+
+    def visit_WildcardNode(self, node: WildcardNode) -> None:
+        """Memeriksa wildcard."""
+        pass

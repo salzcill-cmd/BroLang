@@ -28,6 +28,9 @@ from brolang.ast.nodes import (
     TryNode, CatchNode,
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
+    LambdaNode, ComprehensionNode, FStringNode,
+    EnumNode, StructNode, StructInstanceNode,
+    MatchNode, WildcardNode,
 )
 from brolang.exceptions import (
     RuntimeError_, TypeError_, NameError_,
@@ -97,6 +100,15 @@ class BreakException(Exception):
 class ContinueException(Exception):
     """Exception untuk continue."""
     pass
+
+
+def _struct_init(instance, fields, args):
+    """Helper untuk inisialisasi struct instance."""
+    for i, field in enumerate(fields):
+        if i < len(args):
+            setattr(instance, field, args[i])
+        else:
+            setattr(instance, field, None)
 
 
 class BroLangClass:
@@ -756,3 +768,134 @@ class Interpreter(ASTVisitor):
             prompt = str(self.visit(node.prompt))
             return input(prompt)
         return input()
+
+    # ============= V2: Lambda =============
+
+    def visit_LambdaNode(self, node: LambdaNode) -> Callable:
+        """Lambda expression: lalu(x) x + 1"""
+        def lambda_func(*args):
+            old_env = self.current_env
+            self._push_env()
+            for i, param in enumerate(node.params):
+                if i < len(args):
+                    self.current_env.define_variable(param, args[i])
+                else:
+                    self.current_env.define_variable(param, None)
+            try:
+                result = self.visit(node.body)
+                self._pop_env()
+                self.current_env = old_env
+                return result
+            except ReturnException as e:
+                self._pop_env()
+                self.current_env = old_env
+                return e.value
+            except Exception as e:
+                self._pop_env()
+                self.current_env = old_env
+                raise e
+        return lambda_func
+
+    # ============= V2: Comprehension =============
+
+    def visit_ComprehensionNode(self, node: ComprehensionNode) -> List[Any]:
+        """List comprehension: [expr lalu var dalam iterable]"""
+        iterable = self.visit(node.iterable)
+        result = []
+        for item in iterable:
+            self._push_env()
+            self.current_env.define_variable(node.variable, item)
+            if node.condition:
+                cond_val = self.visit(node.condition)
+                if cond_val:
+                    result.append(self.visit(node.expr))
+            else:
+                result.append(self.visit(node.expr))
+            self._pop_env()
+        return result
+
+    # ============= V2: F-String =============
+
+    def visit_FStringNode(self, node: FStringNode) -> str:
+        """F-string interpolation: f"Halo {nama}" """
+        result = []
+        for ptype, pval in node.parts:
+            if ptype == "literal":
+                result.append(str(pval))
+            elif ptype == "expr":
+                val = self.visit(pval)
+                result.append(str(val))
+        return ''.join(result)
+
+    # ============= V2: Enum =============
+
+    def visit_EnumNode(self, node: EnumNode) -> None:
+        """Enum declaration: enum Warna { MERAH, BIRU, HIJAU }"""
+        enum_members = {}
+        enum_class = type(node.name, (), {
+            '__init__': lambda self, val=None: setattr(self, 'value', val),
+            '__repr__': lambda self: f"{self.__class__.__name__}.{getattr(self, '_member_name', '?')}",
+            '__eq__': lambda self, other: isinstance(other, type(self)) and self.value == other.value,
+            '__hash__': lambda self: hash(getattr(self, 'value', 0)),
+        })
+        for i, member in enumerate(node.members):
+            instance = enum_class(val=i)
+            instance._member_name = member
+            instance._enum_name = node.name
+            enum_members[member] = instance
+            setattr(enum_class, member, instance)
+        enum_class._members = enum_members
+        enum_class._member_names = node.members
+        self.current_env.variables[node.name] = enum_class
+
+    # ============= V2: Struct =============
+
+    def visit_StructNode(self, node: StructNode) -> None:
+        """Struct declaration: struktur Titik { x, y }"""
+        struct_class = type(node.name, (), {
+            '__init__': lambda self, *args: _struct_init(self, node.fields, args),
+            '__repr__': lambda self: f"{node.name}({', '.join(str(getattr(self, f)) for f in node.fields)})",
+        })
+        struct_class._fields = node.fields
+        self.current_env.variables[node.name] = struct_class
+
+    def visit_StructInstanceNode(self, node: StructInstanceNode) -> Any:
+        """Struct instantiation: Titik(10, 20)"""
+        struct_class = self.current_env.get_variable(node.struct_name)
+        args = [self.visit(arg) for arg in node.args]
+        return struct_class(*args)
+
+    # ============= V2: Match/Case =============
+
+    def visit_MatchNode(self, node: MatchNode) -> Any:
+        """Match/case: cocokkan expr { pattern: body, ... }"""
+        value = self.visit(node.value)
+        for pattern, body in node.cases:
+            if isinstance(pattern, WildcardNode):
+                continue
+            pattern_val = self.visit(pattern)
+            if value == pattern_val:
+                self._push_env()
+                result = None
+                for stmt in body:
+                    result = self.visit(stmt)
+                    if self.current_env.should_return:
+                        break
+                self._pop_env()
+                return result
+
+        # Default case (_)
+        if node.default_case:
+            self._push_env()
+            result = None
+            for stmt in node.default_case:
+                result = self.visit(stmt)
+                if self.current_env.should_return:
+                    break
+            self._pop_env()
+            return result
+
+        return None
+
+    def visit_WildcardNode(self, node: WildcardNode) -> None:
+        return None

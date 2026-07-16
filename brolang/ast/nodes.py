@@ -402,3 +402,109 @@ class ProgramNode(ASTNode):
 
     def get_children(self) -> List[Any]:
         return self.statements
+
+
+# ============= V2: Lambda =============
+
+@dataclass
+class LambdaNode(ASTNode):
+    """Node untuk lambda: lalu(x) x + 1"""
+    params: List[str] = field(default_factory=list)
+    body: ASTNode = field(default_factory=lambda: NumberNode(0))
+
+    def get_children(self) -> List[Any]:
+        return [self.body]
+
+
+# ============= V2: List Comprehension =============
+
+@dataclass
+class ComprehensionNode(ASTNode):
+    """Node untuk list comprehension: [expr lalu var dalam iterable]"""
+    expr: ASTNode = field(default_factory=lambda: NumberNode(0))
+    variable: str = ""
+    iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    condition: Optional[ASTNode] = None  # optional filter
+
+    def get_children(self) -> List[Any]:
+        children = [self.expr, self.iterable]
+        if self.condition:
+            children.append(self.condition)
+        return children
+
+
+# ============= V2: F-String =============
+
+@dataclass
+class FStringNode(ASTNode):
+    """Node untuk f-string: f"Halo {nama}" """
+    parts: List[tuple] = field(default_factory=list)  # [("literal", str), ("expr", ASTNode)]
+
+    def get_children(self) -> List[Any]:
+        children = []
+        for ptype, pval in self.parts:
+            if ptype == "expr" and isinstance(pval, ASTNode):
+                children.append(pval)
+        return children
+
+
+# ============= V2: Enum =============
+
+@dataclass
+class EnumNode(ASTNode):
+    """Node untuk enum: enum Warna { MERAH, BIRU, HIJAU }"""
+    name: str = ""
+    members: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+# ============= V2: Struct =============
+
+@dataclass
+class StructNode(ASTNode):
+    """Node untuk struktur: struktur Titik { x, y }"""
+    name: str = ""
+    fields: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+# ============= V2: Struct Instantiation =============
+
+@dataclass
+class StructInstanceNode(ASTNode):
+    """Node untuk struct instantiation: Titik(10, 20)"""
+    struct_name: str = ""
+    args: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.args
+
+
+# ============= V2: Match/Case =============
+
+@dataclass
+class MatchNode(ASTNode):
+    """Node untuk match/case: cocokkan expr { ... }"""
+    value: ASTNode = field(default_factory=lambda: NumberNode(0))
+    cases: List[tuple] = field(default_factory=list)  # [(pattern_node, body_nodes)]
+    default_case: Optional[List[ASTNode]] = None  # _ case
+
+    def get_children(self) -> List[Any]:
+        children = [self.value]
+        for pattern, body in self.cases:
+            if isinstance(pattern, ASTNode):
+                children.append(pattern)
+            children.extend(body)
+        if self.default_case:
+            children.extend(self.default_case)
+        return children
+
+
+@dataclass
+class WildcardNode(ASTNode):
+    """Node untuk wildcard _ dalam match."""
+    pass

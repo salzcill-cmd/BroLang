@@ -57,6 +57,9 @@ from brolang.ast.nodes import (
     TryNode, CatchNode,
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
+    LambdaNode, ComprehensionNode, FStringNode,
+    EnumNode, StructNode, StructInstanceNode,
+    MatchNode, WildcardNode,
 )
 from brolang.exceptions import ParserError
 
@@ -185,6 +188,12 @@ class Parser:
             return self._parse_from_import()
         elif token_type == TokenType.TOKEN_COBA:
             return self._parse_try()
+        elif token_type == TokenType.TOKEN_COCOKKAN:
+            return self._parse_match()
+        elif token_type == TokenType.TOKEN_ENUM:
+            return self._parse_enum()
+        elif token_type == TokenType.TOKEN_STRUKTUR:
+            return self._parse_struct()
         elif token_type == TokenType.TOKEN_KEMBALI:
             return self._parse_return()
         elif token_type == TokenType.TOKEN_BREAK:
@@ -616,6 +625,137 @@ class Parser:
 
         return TryNode(body=body, catch_var=var_name, catch_body=catch_body, line=token.line, column=token.column)
 
+    # ============= V2: Match/Case =============
+
+    def _parse_match(self) -> MatchNode:
+        """cocokkan expression { pattern: body, ... }"""
+        token = self._advance()  # cocokkan
+        value = self._parse_expression()
+
+        self._expect(
+            TokenType.TOKEN_LBRACE,
+            message="Setelah 'cocokkan', harus ada '{'.",
+            solution="Tambahkan '{' setelah ekspresi.",
+        )
+
+        # Consume NEWLINE + INDENT if present
+        self._match(TokenType.TOKEN_NEWLINE)
+        self._match(TokenType.TOKEN_INDENT)
+
+        cases = []
+        default_case = None
+
+        while not self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
+            # Skip commas and newlines between cases
+            while self._match(TokenType.TOKEN_COMMA) or self._match(TokenType.TOKEN_NEWLINE):
+                pass
+            if self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
+                break
+
+            # Parse pattern
+            if self._check(TokenType.TOKEN_IDENTIFIER) and self.current_token.value == "_":
+                self._advance()  # consume _
+                pattern = WildcardNode(line=self.current_token.line, column=self.current_token.column)
+                self._expect(TokenType.TOKEN_COLON, message="Setelah '_', harus ada ':'.")
+                body = self._parse_match_case_body()
+                default_case = body
+            else:
+                pattern = self._parse_expression()
+                self._expect(TokenType.TOKEN_COLON, message="Setelah pattern, harus ada ':'.")
+                body = self._parse_match_case_body()
+                cases.append((pattern, body))
+
+        # Consume DEDENT if present
+        self._match(TokenType.TOKEN_DEDENT)
+        self._expect(TokenType.TOKEN_RBRACE, message="Match harus ditutup dengan '}'.")
+
+        return MatchNode(value=value, cases=cases, default_case=default_case,
+                         line=token.line, column=token.column)
+
+    def _parse_match_case_body(self) -> List[ASTNode]:
+        """Parse body of a match case (single statement or block)."""
+        body = []
+        # Skip newlines
+        while self._match(TokenType.TOKEN_NEWLINE):
+            pass
+
+        # Single statement on same line or next
+        if not self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT,
+                          TokenType.TOKEN_COMMA, TokenType.TOKEN_NEWLINE, TokenType.TOKEN_EOF):
+            stmt = self._parse_statement()
+            if stmt:
+                body.append(stmt)
+        return body
+
+    # ============= V2: Enum =============
+
+    def _parse_enum(self) -> EnumNode:
+        """enum Name { MEMBER1, MEMBER2, ... }"""
+        token = self._advance()  # enum
+        name_token = self._expect(
+            TokenType.TOKEN_IDENTIFIER,
+            message="Setelah 'enum', harus ada nama enum.",
+        )
+        self._expect(TokenType.TOKEN_LBRACE, message="Setelah nama enum, harus ada '{'.")
+
+        members = []
+        if not self._check(TokenType.TOKEN_RBRACE):
+            member_token = self._expect(
+                TokenType.TOKEN_IDENTIFIER,
+                message="Setelah '{', harus ada nama member enum.",
+            )
+            members.append(member_token.value)
+            while self._match(TokenType.TOKEN_COMMA):
+                member_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                members.append(member_token.value)
+
+        self._expect(TokenType.TOKEN_RBRACE, message="Enum harus ditutup dengan '}'.")
+
+        return EnumNode(name=name_token.value, members=members,
+                        line=token.line, column=token.column)
+
+    # ============= V2: Struct =============
+
+    def _parse_struct(self) -> StructNode:
+        """struktur Name { field1, field2, ... }"""
+        token = self._advance()  # struktur
+        name_token = self._expect(
+            TokenType.TOKEN_IDENTIFIER,
+            message="Setelah 'struktur', harus ada nama struktur.",
+        )
+        self._expect(TokenType.TOKEN_LBRACE, message="Setelah nama struktur, harus ada '{'.")
+
+        fields = []
+        if not self._check(TokenType.TOKEN_RBRACE):
+            field_token = self._expect(
+                TokenType.TOKEN_IDENTIFIER,
+                message="Setelah '{', harus ada nama field.",
+            )
+            fields.append(field_token.value)
+            while self._match(TokenType.TOKEN_COMMA):
+                field_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                fields.append(field_token.value)
+
+        self._expect(TokenType.TOKEN_RBRACE, message="Struktur harus ditutup dengan '}'.")
+
+        return StructNode(name=name_token.value, fields=fields,
+                          line=token.line, column=token.column)
+
+    # ============= V2: Lambda =============
+
+    def _parse_lambda(self) -> LambdaNode:
+        """lalu(params) expr"""
+        token = self._advance()  # lalu
+        self._expect(TokenType.TOKEN_LPAREN, message="Setelah 'lalu', harus ada '('.")
+        params = self._parse_parameter_list()
+        self._expect(TokenType.TOKEN_RPAREN, message="Parameter lambda tidak ditutup.")
+
+        # Single expression body (no block)
+        body = self._parse_expression()
+
+        return LambdaNode(params=params, body=body,
+                          line=token.line, column=token.column)
+
     # ============= Return =============
 
     def _parse_return(self) -> ReturnNode:
@@ -783,6 +923,8 @@ class Parser:
         elif self._check(TokenType.TOKEN_STRING):
             token = self._advance()
             node = StringNode(value=token.value, line=token.line, column=token.column)
+        elif self._check(TokenType.TOKEN_FSTRING):
+            node = self._parse_fstring()
         elif self._check(TokenType.TOKEN_BOOLEAN):
             token = self._advance()
             node = BooleanNode(value=token.value, line=token.line, column=token.column)
@@ -800,6 +942,8 @@ class Parser:
             node = self._parse_list_literal()
         elif self._check(TokenType.TOKEN_LBRACE):
             node = self._parse_object_literal()
+        elif self._check(TokenType.TOKEN_LALU):
+            node = self._parse_lambda()
         elif self._check(TokenType.TOKEN_IDENTIFIER):
             token = self._advance()
             node = self._parse_identifier_continuation(token)
@@ -913,12 +1057,42 @@ class Parser:
                 args.append(self._parse_expression())
         return args
 
-    def _parse_list_literal(self) -> ListNode:
-        """[expression (, expression)*]"""
+    def _parse_list_literal(self) -> ASTNode:
+        """[expression (, expression)*] atau [expr lalu var dalam iterable]"""
         token = self._advance()  # [
         elements = []
         if not self._check(TokenType.TOKEN_RBRACKET):
-            elements.append(self._parse_expression())
+            first_expr = self._parse_expression()
+
+            # Check if this is a comprehension: [expr lalu var dalam iterable]
+            if self._check(TokenType.TOKEN_LALU):
+                self._advance()  # lalu
+                var_token = self._expect(
+                    TokenType.TOKEN_IDENTIFIER,
+                    message="Setelah 'lalu', harus ada nama variabel.",
+                )
+                self._expect(
+                    TokenType.TOKEN_DALAM,
+                    message="Setelah variabel, harus ada 'dalam'.",
+                )
+                iterable = self._parse_expression()
+
+                # Optional filter: [expr lalu var dalam iterable jika kondisi]
+                condition = None
+                if self._check(TokenType.TOKEN_JIKA):
+                    self._advance()  # jika
+                    condition = self._parse_expression()
+
+                self._expect(TokenType.TOKEN_RBRACKET,
+                             message="List comprehension tidak ditutup.",
+                             solution="Tambahkan ']' setelah iterable.")
+                return ComprehensionNode(
+                    expr=first_expr, variable=var_token.value,
+                    iterable=iterable, condition=condition,
+                    line=token.line, column=token.column,
+                )
+
+            elements.append(first_expr)
             while self._match(TokenType.TOKEN_COMMA):
                 elements.append(self._parse_expression())
         self._expect(TokenType.TOKEN_RBRACKET,
@@ -955,6 +1129,23 @@ class Parser:
                      solution="Tambahkan '}' setelah entry objek.",
                      example='{"nama": "Budi"}')
         return ObjectNode(entries=entries, line=token.line, column=token.column)
+
+    def _parse_fstring(self) -> FStringNode:
+        """Parse f-string: f"...{expr}..." """
+        token = self._advance()  # TOKEN_FSTRING
+        parts = []
+        for ptype, pval in token.value:
+            if ptype == "literal":
+                parts.append(("literal", pval))
+            elif ptype == "expr":
+                # Parse the expression string
+                from brolang.lexer import Lexer
+                inner_lexer = Lexer(pval, file_path=self.file_path)
+                inner_tokens = inner_lexer.tokenize()
+                inner_parser = Parser(inner_tokens, file_path=self.file_path)
+                expr = inner_parser._parse_expression()
+                parts.append(("expr", expr))
+        return FStringNode(parts=parts, line=token.line, column=token.column)
 
     def _parse_input(self) -> InputNode:
         """input(prompt?)"""
