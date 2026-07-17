@@ -25,6 +25,8 @@ from brolang.ast.nodes import (
     TryNode, CatchNode,
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
+    AugmentedAssignmentNode, TernaryNode, RaiseNode,
+    GlobalNode, NonlocalNode,
 )
 from brolang.optimizer import Optimizer
 

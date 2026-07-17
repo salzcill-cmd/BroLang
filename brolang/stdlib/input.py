@@ -43,8 +43,8 @@ def _update():
 
     keys_now = set()
     key_state = pygame.key.get_pressed()
-    for i, pressed in enumerate(key_state):
-        if pressed:
+    for i in range(512):
+        if key_state[i]:
             keys_now.add(i)
 
     for key in keys_now:

@@ -68,6 +68,12 @@ class TokenType(Enum):
 
     # Assignment
     TOKEN_ASSIGN = auto()      # =
+    TOKEN_PLUS_ASSIGN = auto()    # +=
+    TOKEN_MINUS_ASSIGN = auto()   # -=
+    TOKEN_MULTIPLY_ASSIGN = auto() # *=
+    TOKEN_DIVIDE_ASSIGN = auto()  # /=
+    TOKEN_MODULO_ASSIGN = auto()  # %=
+    TOKEN_POWER_ASSIGN = auto()   # **=
 
     # Delimiters
     TOKEN_LPAREN = auto()      # (
@@ -81,6 +87,11 @@ class TokenType(Enum):
     TOKEN_COLON = auto()       # :
     TOKEN_ARROW = auto()       # ->
     TOKEN_PIPE = auto()        # |
+    TOKEN_AMPERSAND = auto()   # &
+    TOKEN_CARET = auto()       # ^
+    TOKEN_TILDE = auto()       # ~
+    TOKEN_LSHIFT = auto()      # <<
+    TOKEN_RSHIFT = auto()      # >>
 
     # Newline and Indentation
     TOKEN_NEWLINE = auto()
@@ -106,6 +117,10 @@ class TokenType(Enum):
     TOKEN_ENUM = auto()        # enum
     TOKEN_STRUKTUR = auto()    # struktur (struct)
     TOKEN_CETAK = auto()       # cetak (screenshot/print to file - reserved)
+    TOKEN_LEMPAR = auto()      # lempar (raise)
+    TOKEN_AKHIRNYA = auto()    # akhirnya (finally)
+    TOKEN_GLOBAL = auto()      # global
+    TOKEN_NONLOKAL = auto()    # nonlokal (nonlocal)
 
     # Special
     TOKEN_EOF = auto()
@@ -145,6 +160,10 @@ KEYWORDS: dict[str, TokenType] = {
     "enum": TokenType.TOKEN_ENUM,
     "struktur": TokenType.TOKEN_STRUKTUR,
     "cetak": TokenType.TOKEN_CETAK,
+    "lempar": TokenType.TOKEN_LEMPAR,
+    "akhirnya": TokenType.TOKEN_AKHIRNYA,
+    "global": TokenType.TOKEN_GLOBAL,
+    "nonlokal": TokenType.TOKEN_NONLOKAL,
 }
 
 

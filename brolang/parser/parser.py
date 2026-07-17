@@ -60,6 +60,8 @@ from brolang.ast.nodes import (
     LambdaNode, ComprehensionNode, FStringNode,
     EnumNode, StructNode, StructInstanceNode,
     MatchNode, WildcardNode,
+    AugmentedAssignmentNode, TernaryNode, RaiseNode,
+    GlobalNode, NonlocalNode,
 )
 from brolang.exceptions import ParserError
 
@@ -196,6 +198,12 @@ class Parser:
             return self._parse_struct()
         elif token_type == TokenType.TOKEN_KEMBALI:
             return self._parse_return()
+        elif token_type == TokenType.TOKEN_LEMPAR:
+            return self._parse_raise()
+        elif token_type == TokenType.TOKEN_GLOBAL:
+            return self._parse_global()
+        elif token_type == TokenType.TOKEN_NONLOKAL:
+            return self._parse_nonlocal()
         elif token_type == TokenType.TOKEN_BREAK:
             self._advance()
             return BreakNode(line=self.current_token.line, column=self.current_token.column)
@@ -203,10 +211,16 @@ class Parser:
             self._advance()
             return ContinueNode(line=self.current_token.line, column=self.current_token.column)
         elif token_type == TokenType.TOKEN_IDENTIFIER:
-            # Could be reassignment, method call, or expression
+            # Could be reassignment, augmented assignment, method call, or expression
             # Peek ahead to see if it's assignment
             if self._peek(1) == TokenType.TOKEN_ASSIGN:
                 return self._parse_reassignment()
+            elif self._peek(1) in (
+                TokenType.TOKEN_PLUS_ASSIGN, TokenType.TOKEN_MINUS_ASSIGN,
+                TokenType.TOKEN_MULTIPLY_ASSIGN, TokenType.TOKEN_DIVIDE_ASSIGN,
+                TokenType.TOKEN_MODULO_ASSIGN, TokenType.TOKEN_POWER_ASSIGN,
+            ):
+                return self._parse_augmented_assignment()
             elif self._peek(1) == TokenType.TOKEN_DOT:
                 # Could be self.attr = value
                 # Parse the full expression first
@@ -278,6 +292,61 @@ class Parser:
             line=id_token.line,
             column=id_token.column,
         )
+
+    def _parse_augmented_assignment(self) -> AugmentedAssignmentNode:
+        """Augmented assignment: x += 1, x -= 2, x *= 3, dll."""
+        id_token = self._advance()  # identifier
+        target = IdentifierNode(name=id_token.value, line=id_token.line, column=id_token.column)
+
+        op_token = self._advance()  # +=, -=, *=, /=, %=, **=
+        op_map = {
+            TokenType.TOKEN_PLUS_ASSIGN: "+=",
+            TokenType.TOKEN_MINUS_ASSIGN: "-=",
+            TokenType.TOKEN_MULTIPLY_ASSIGN: "*=",
+            TokenType.TOKEN_DIVIDE_ASSIGN: "/=",
+            TokenType.TOKEN_MODULO_ASSIGN: "%=",
+            TokenType.TOKEN_POWER_ASSIGN: "**=",
+        }
+        operator = op_map[op_token.type]
+
+        value = self._parse_expression()
+        return AugmentedAssignmentNode(
+            target=target,
+            operator=operator,
+            value=value,
+            line=id_token.line,
+            column=id_token.column,
+        )
+
+    def _parse_raise(self) -> RaiseNode:
+        """lempar expression"""
+        token = self._advance()  # lempar
+        value = self._parse_expression()
+        return RaiseNode(value=value, line=token.line, column=token.column)
+
+    def _parse_global(self) -> GlobalNode:
+        """global name (, name)*"""
+        token = self._advance()  # global
+        names = []
+        name_token = self._expect(TokenType.TOKEN_IDENTIFIER,
+                                  message="Setelah 'global', harus ada nama variabel.")
+        names.append(name_token.value)
+        while self._match(TokenType.TOKEN_COMMA):
+            name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            names.append(name_token.value)
+        return GlobalNode(names=names, line=token.line, column=token.column)
+
+    def _parse_nonlocal(self) -> NonlocalNode:
+        """nonlokal name (, name)*"""
+        token = self._advance()  # nonlokal
+        names = []
+        name_token = self._expect(TokenType.TOKEN_IDENTIFIER,
+                                  message="Setelah 'nonlokal', harus ada nama variabel.")
+        names.append(name_token.value)
+        while self._match(TokenType.TOKEN_COMMA):
+            name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            names.append(name_token.value)
+        return NonlocalNode(names=names, line=token.line, column=token.column)
 
     # ============= Print =============
 
@@ -438,7 +507,7 @@ class Parser:
             message="Setelah nama fungsi, harus ada '('.",
         )
 
-        params = self._parse_parameter_list()
+        params, defaults = self._parse_parameter_list()
 
         self._expect(
             TokenType.TOKEN_RPAREN,
@@ -456,24 +525,39 @@ class Parser:
         return FunctionNode(
             name=name,
             params=params,
+            defaults=defaults,
             body=body,
             line=token.line,
             column=token.column,
         )
 
-    def _parse_parameter_list(self) -> List[str]:
-        """Mem-parse daftar parameter."""
+    def _parse_parameter_list(self) -> tuple:
+        """Mem-parse daftar parameter dengan default values.
+
+        Returns:
+            Tuple of (params: List[str], defaults: List[Optional[ASTNode]])
+        """
         params = []
+        defaults = []
         if self._check(TokenType.TOKEN_IDENTIFIER):
             token = self._advance()
             params.append(token.value)
+            default_val = None
+            if self._match(TokenType.TOKEN_ASSIGN):
+                default_val = self._parse_expression()
+            defaults.append(default_val)
+
             while self._match(TokenType.TOKEN_COMMA):
                 token = self._expect(
                     TokenType.TOKEN_IDENTIFIER,
                     message="Setelah koma, harus ada nama parameter.",
                 )
                 params.append(token.value)
-        return params
+                default_val = None
+                if self._match(TokenType.TOKEN_ASSIGN):
+                    default_val = self._parse_expression()
+                defaults.append(default_val)
+        return params, defaults
 
     # ============= Class =============
 
@@ -533,20 +617,29 @@ class Parser:
         """impor identifier (. identifier)*"""
         token = self._advance()  # impor
         parts = []
-        id_token = self._expect(
-            TokenType.TOKEN_IDENTIFIER,
-            message="Setelah 'impor', harus ada nama modul.",
-            solution="Tulis nama modul setelah 'impor'.",
-            example="impor matematika",
-        )
-        parts.append(id_token.value)
+        # Accept identifier or keyword tokens as module names (e.g. 'impor input')
+        if self.current_token and self.current_token.type in (
+            TokenType.TOKEN_IDENTIFIER, TokenType.TOKEN_INPUT, TokenType.TOKEN_CETAK,
+        ):
+            id_token = self._advance()
+            parts.append(id_token.value)
+        else:
+            raise self._error(
+                message="Setelah 'impor', harus ada nama modul.",
+                solution="Tulis nama modul setelah 'impor'.",
+                example="impor matematika",
+            )
 
         while self._match(TokenType.TOKEN_DOT):
-            id_token = self._expect(
-                TokenType.TOKEN_IDENTIFIER,
-                message="Setelah '.', harus ada nama submodul.",
-            )
-            parts.append(id_token.value)
+            if self.current_token and self.current_token.type in (
+                TokenType.TOKEN_IDENTIFIER, TokenType.TOKEN_INPUT, TokenType.TOKEN_CETAK,
+            ):
+                id_token = self._advance()
+                parts.append(id_token.value)
+            else:
+                raise self._error(
+                    message="Setelah '.', harus ada nama submodul.",
+                )
 
         module = ".".join(parts)
 
@@ -600,7 +693,7 @@ class Parser:
     # ============= Try-Catch =============
 
     def _parse_try(self) -> TryNode:
-        """coba block tangkap identifier block selesai"""
+        """coba block tangkap identifier block (akhirnya block)? selesai"""
         token = self._advance()  # coba
         body = self._parse_block()
 
@@ -618,12 +711,18 @@ class Parser:
 
         catch_body = self._parse_block()
 
+        finally_body = None
+        if self._check(TokenType.TOKEN_AKHIRNYA):
+            self._advance()  # akhirnya
+            finally_body = self._parse_block()
+
         self._expect(
             TokenType.TOKEN_SELESAI,
             message="Blok 'coba' harus ditutup dengan 'selesai'.",
         )
 
-        return TryNode(body=body, catch_var=var_name, catch_body=catch_body, line=token.line, column=token.column)
+        return TryNode(body=body, catch_var=var_name, catch_body=catch_body,
+                       finally_body=finally_body, line=token.line, column=token.column)
 
     # ============= V2: Match/Case =============
 
@@ -747,7 +846,7 @@ class Parser:
         """lalu(params) expr"""
         token = self._advance()  # lalu
         self._expect(TokenType.TOKEN_LPAREN, message="Setelah 'lalu', harus ada '('.")
-        params = self._parse_parameter_list()
+        params, _ = self._parse_parameter_list()
         self._expect(TokenType.TOKEN_RPAREN, message="Parameter lambda tidak ditutup.")
 
         # Single expression body (no block)
@@ -813,7 +912,21 @@ class Parser:
 
     def _parse_expression(self) -> ASTNode:
         """Expression dengan precedence climbing."""
-        return self._parse_or()
+        return self._parse_ternary()
+
+    def _parse_ternary(self) -> ASTNode:
+        """Ternary: expr jika kondisi lainnya expr"""
+        left = self._parse_or()
+        if self._check(TokenType.TOKEN_JIKA):
+            if_token = self._advance()
+            condition = self._parse_expression()
+            self._expect(TokenType.TOKEN_LAINNYA,
+                         message="Ternary membutuhkan 'lainnya'.",
+                         solution="Gunakan: nilai_a jika kondisi lainnya nilai_b")
+            false_val = self._parse_ternary()
+            return TernaryNode(true_value=left, condition=condition, false_value=false_val,
+                               line=if_token.line, column=if_token.column)
+        return left
 
     def _parse_or(self) -> ASTNode:
         left = self._parse_and()
@@ -839,7 +952,25 @@ class Parser:
             operand = self._parse_not()
             return UnaryOpNode(operator="bukan", operand=operand,
                                line=op_token.line, column=op_token.column)
-        return self._parse_comparison()
+        return self._parse_bitwise()
+
+    def _parse_bitwise(self) -> ASTNode:
+        """Bitwise operators: & | ^ << >>"""
+        left = self._parse_comparison()
+        while self._check(TokenType.TOKEN_AMPERSAND, TokenType.TOKEN_PIPE,
+                         TokenType.TOKEN_CARET, TokenType.TOKEN_LSHIFT, TokenType.TOKEN_RSHIFT):
+            op_token = self._advance()
+            op_map = {
+                TokenType.TOKEN_AMPERSAND: "&",
+                TokenType.TOKEN_PIPE: "|",
+                TokenType.TOKEN_CARET: "^",
+                TokenType.TOKEN_LSHIFT: "<<",
+                TokenType.TOKEN_RSHIFT: ">>",
+            }
+            right = self._parse_comparison()
+            left = BinaryOpNode(left=left, operator=op_map[op_token.type], right=right,
+                                line=op_token.line, column=op_token.column)
+        return left
 
     def _parse_comparison(self) -> ASTNode:
         left = self._parse_addition()
@@ -897,6 +1028,11 @@ class Parser:
             op_token = self._advance()
             operand = self._parse_unary()
             return UnaryOpNode(operator="+", operand=operand,
+                               line=op_token.line, column=op_token.column)
+        if self._check(TokenType.TOKEN_TILDE):
+            op_token = self._advance()
+            operand = self._parse_unary()
+            return UnaryOpNode(operator="~", operand=operand,
                                line=op_token.line, column=op_token.column)
         return self._parse_power()
 

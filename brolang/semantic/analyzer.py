@@ -32,6 +32,8 @@ from brolang.ast.nodes import (
     LambdaNode, ComprehensionNode, FStringNode,
     EnumNode, StructNode, StructInstanceNode,
     MatchNode, WildcardNode,
+    AugmentedAssignmentNode, TernaryNode, RaiseNode,
+    GlobalNode, NonlocalNode,
 )
 from brolang.exceptions import SemanticError
 
@@ -251,7 +253,7 @@ class SemanticAnalyzer(ASTVisitor):
 
         # Skip type checking when return type is unknown
         if left_type is None or right_type is None:
-            return "teks"
+            return None
 
         # Numerical operations
         if op in ("+", "-", "*", "/", "%", "**"):
@@ -265,6 +267,10 @@ class SemanticAnalyzer(ASTVisitor):
                 return "teks"
             if op == "*" and left_type == "teks" and right_type == "angka":
                 return "teks"
+            if op == "+" and left_type == "list" and right_type == "list":
+                return "list"
+            if op == "+" and left_type == "list":
+                return "list"
             raise self._error(
                 message=f"Operator '{op}' tidak bisa digunakan untuk tipe {left_type} dan {right_type}.",
                 line=node.line,
@@ -286,6 +292,18 @@ class SemanticAnalyzer(ASTVisitor):
                 return "boolean"
             raise self._error(
                 message=f"Operator '{op}' hanya bisa digunakan untuk tipe boolean.",
+                line=node.line,
+                column=node.column,
+            )
+
+        # Bitwise operations
+        if op in ("&", "|", "^", "<<", ">>"):
+            if left_type is None or right_type is None:
+                return None
+            if left_type in ("angka", "desimal") and right_type in ("angka", "desimal"):
+                return "angka"
+            raise self._error(
+                message=f"Operator '{op}' hanya bisa digunakan untuk tipe angka.",
                 line=node.line,
                 column=node.column,
             )
@@ -408,14 +426,17 @@ class SemanticAnalyzer(ASTVisitor):
         self._enter_scope(f"function:{node.name}")
 
         # Define parameters
-        for param in node.params:
+        for i, param in enumerate(node.params):
+            type_hint = "angka"
+            if i < len(node.defaults) and node.defaults[i] is not None:
+                self.visit(node.defaults[i])
             self.current_scope.define(
                 name=param,
                 kind="parameter",
                 line=node.line,
                 column=node.column,
                 is_initialized=True,
-                type_hint="angka",  # Default type for parameters
+                type_hint=type_hint,
             )
 
         # Parse body
@@ -533,10 +554,10 @@ class SemanticAnalyzer(ASTVisitor):
         """Memeriksa akses atribut."""
         self.visit(node.object)
 
-    def visit_ObjectAccessNode(self, node: ObjectAccessNode) -> str:
+    def visit_ObjectAccessNode(self, node: ObjectAccessNode) -> Optional[str]:
         """Memeriksa akses properti objek."""
         self.visit(node.object)
-        return "teks"
+        return None
 
     def visit_ImportNode(self, node: ImportNode) -> None:
         """Memeriksa import statement."""
@@ -560,7 +581,7 @@ class SemanticAnalyzer(ASTVisitor):
             )
 
     def visit_TryNode(self, node: TryNode) -> None:
-        """Memeriksa try-catch."""
+        """Memeriksa try-catch-finally."""
         self._enter_scope("try")
         for stmt in node.body:
             self.visit(stmt)
@@ -577,6 +598,12 @@ class SemanticAnalyzer(ASTVisitor):
         for stmt in node.catch_body:
             self.visit(stmt)
         self._exit_scope()
+
+        if node.finally_body:
+            self._enter_scope("finally")
+            for stmt in node.finally_body:
+                self.visit(stmt)
+            self._exit_scope()
 
     def visit_ListNode(self, node: ListNode) -> str:
         """Memeriksa list literal."""
@@ -607,7 +634,7 @@ class SemanticAnalyzer(ASTVisitor):
                 column=node.column,
             )
 
-        return "teks"
+        return None
 
     def visit_ObjectNode(self, node: ObjectNode) -> str:
         """Memeriksa object literal."""
@@ -731,3 +758,64 @@ class SemanticAnalyzer(ASTVisitor):
     def visit_WildcardNode(self, node: WildcardNode) -> None:
         """Memeriksa wildcard."""
         pass
+
+    # ============= V3: Augmented Assignment =============
+
+    def visit_AugmentedAssignmentNode(self, node: AugmentedAssignmentNode) -> None:
+        """Memeriksa augmented assignment: x += 1, x -= 2, dll."""
+        if isinstance(node.target, IdentifierNode):
+            name = node.target.name
+            info = self.current_scope.lookup(name)
+            if info is None:
+                raise self._error(
+                    message=f"Variabel '{name}' belum dideklarasikan.",
+                    line=node.line,
+                    column=node.column,
+                    solution=f"Deklarasikan '{name}' dengan 'buat {name} = ...' terlebih dahulu.",
+                )
+        self.visit(node.value)
+
+    # ============= V3: Ternary Expression =============
+
+    def visit_TernaryNode(self, node: TernaryNode) -> str:
+        """Memeriksa ternary expression."""
+        self.visit(node.condition)
+        true_type = self.visit(node.true_value)
+        false_type = self.visit(node.false_value)
+        if true_type and false_type:
+            return true_type
+        return None
+
+    # ============= V3: Raise Statement =============
+
+    def visit_RaiseNode(self, node: RaiseNode) -> None:
+        """Memeriksa raise statement."""
+        self.visit(node.value)
+
+    # ============= V3: Global/Nonlocal =============
+
+    def visit_GlobalNode(self, node: GlobalNode) -> None:
+        """Memeriksa global statement."""
+        for name in node.names:
+            info = self.current_scope.lookup(name)
+            if info is None:
+                self.current_scope.define(
+                    name=name,
+                    kind="variable",
+                    line=node.line,
+                    column=node.column,
+                    is_initialized=True,
+                )
+
+    def visit_NonlocalNode(self, node: NonlocalNode) -> None:
+        """Memeriksa nonlocal statement."""
+        for name in node.names:
+            info = self.current_scope.lookup(name)
+            if info is None:
+                self.current_scope.define(
+                    name=name,
+                    kind="variable",
+                    line=node.line,
+                    column=node.column,
+                    is_initialized=True,
+                )

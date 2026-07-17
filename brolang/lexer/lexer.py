@@ -379,42 +379,52 @@ class Lexer:
 
         if char == '+' and self._current() == '=':
             self._advance()
-            return Token(TokenType.TOKEN_PLUS, None, start_line, start_col)
+            return Token(TokenType.TOKEN_PLUS_ASSIGN, '+=', start_line, start_col)
         if char == '-' and self._current() == '>':
             self._advance()
             return Token(TokenType.TOKEN_ARROW, '->', start_line, start_col)
         if char == '-' and self._current() == '=':
             self._advance()
-            return Token(TokenType.TOKEN_MINUS, None, start_line, start_col)
+            return Token(TokenType.TOKEN_MINUS_ASSIGN, '-=', start_line, start_col)
         if char == '*' and self._current() == '*':
             self._advance()
             if self._current() == '=':
                 self._advance()
-            return Token(TokenType.TOKEN_POW, None, start_line, start_col)
+                return Token(TokenType.TOKEN_POWER_ASSIGN, '**=', start_line, start_col)
+            return Token(TokenType.TOKEN_POW, '**', start_line, start_col)
         if char == '*' and self._current() == '=':
             self._advance()
-            return Token(TokenType.TOKEN_MULTIPLY, None, start_line, start_col)
+            return Token(TokenType.TOKEN_MULTIPLY_ASSIGN, '*=', start_line, start_col)
         if char == '/' and self._current() == '=':
             self._advance()
-            return Token(TokenType.TOKEN_DIVIDE, None, start_line, start_col)
+            return Token(TokenType.TOKEN_DIVIDE_ASSIGN, '/=', start_line, start_col)
+        if char == '%' and self._current() == '=':
+            self._advance()
+            return Token(TokenType.TOKEN_MODULO_ASSIGN, '%=', start_line, start_col)
         if char == '!' and self._current() == '=':
             self._advance()
-            return Token(TokenType.TOKEN_NEQ, None, start_line, start_col)
+            return Token(TokenType.TOKEN_NEQ, '!=', start_line, start_col)
         if char == '=' and self._current() == '>':
             self._advance()
             return Token(TokenType.TOKEN_ARROW_FAT, '=>', start_line, start_col)
         if char == '=' and self._current() == '=':
             self._advance()
-            return Token(TokenType.TOKEN_EQ, None, start_line, start_col)
+            return Token(TokenType.TOKEN_EQ, '==', start_line, start_col)
         if char == '>' and self._current() == '=':
             self._advance()
-            return Token(TokenType.TOKEN_GTE, None, start_line, start_col)
+            return Token(TokenType.TOKEN_GTE, '>=', start_line, start_col)
         if char == '<' and self._current() == '=':
             self._advance()
-            return Token(TokenType.TOKEN_LTE, None, start_line, start_col)
+            return Token(TokenType.TOKEN_LTE, '<=', start_line, start_col)
+        if char == '<' and self._current() == '<':
+            self._advance()
+            return Token(TokenType.TOKEN_LSHIFT, '<<', start_line, start_col)
+        if char == '>' and self._current() == '>':
+            self._advance()
+            return Token(TokenType.TOKEN_RSHIFT, '>>', start_line, start_col)
         if char == '|' and self._current() == '|':
             self._advance()
-            return Token(TokenType.TOKEN_ATAU, None, start_line, start_col)
+            return Token(TokenType.TOKEN_ATAU, '||', start_line, start_col)
 
         operator_map = {
             '+': TokenType.TOKEN_PLUS,
@@ -435,6 +445,9 @@ class Lexer:
             '.': TokenType.TOKEN_DOT,
             ':': TokenType.TOKEN_COLON,
             '|': TokenType.TOKEN_PIPE,
+            '&': TokenType.TOKEN_AMPERSAND,
+            '^': TokenType.TOKEN_CARET,
+            '~': TokenType.TOKEN_TILDE,
         }
 
         token_type = operator_map.get(char)

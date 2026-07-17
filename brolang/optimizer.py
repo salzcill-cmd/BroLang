@@ -36,6 +36,8 @@ from brolang.ast.nodes import (
     TryNode, CatchNode,
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
+    AugmentedAssignmentNode, TernaryNode, RaiseNode,
+    GlobalNode, NonlocalNode,
 )
 
 
@@ -321,7 +323,7 @@ class Optimizer(ASTVisitor):
 
     def visit_FunctionNode(self, node: FunctionNode) -> FunctionNode:
         body = [self.visit(stmt) for stmt in node.body]
-        return FunctionNode(name=node.name, params=node.params, body=body,
+        return FunctionNode(name=node.name, params=node.params, defaults=node.defaults, body=body,
                             line=node.line, column=node.column)
 
     def visit_ReturnNode(self, node: ReturnNode) -> ReturnNode:

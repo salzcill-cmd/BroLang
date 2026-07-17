@@ -224,6 +224,7 @@ class FunctionNode(ASTNode):
     """Node untuk deklarasi fungsi: fungsi nama(params) ... selesai"""
     name: str = ""
     params: List[str] = field(default_factory=list)
+    defaults: List[Optional[ASTNode]] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
 
     def get_children(self) -> List[Any]:
@@ -312,13 +313,17 @@ class FromImportNode(ASTNode):
 
 @dataclass
 class TryNode(ASTNode):
-    """Node untuk try-catch: coba ... tangkap error ... selesai"""
+    """Node untuk try-catch-finally: coba ... tangkap error ... akhirnya ... selesai"""
     body: List[ASTNode] = field(default_factory=list)
     catch_var: str = "error"
     catch_body: List[ASTNode] = field(default_factory=list)
+    finally_body: Optional[List[ASTNode]] = None
 
     def get_children(self) -> List[Any]:
-        return self.body + self.catch_body
+        children = self.body + self.catch_body
+        if self.finally_body:
+            children.extend(self.finally_body)
+        return children
 
 
 @dataclass
@@ -508,3 +513,60 @@ class MatchNode(ASTNode):
 class WildcardNode(ASTNode):
     """Node untuk wildcard _ dalam match."""
     pass
+
+
+# ============= V3: Augmented Assignment =============
+
+@dataclass
+class AugmentedAssignmentNode(ASTNode):
+    """Node untuk augmented assignment: x += 1, x -= 2, dll."""
+    target: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    operator: str = "+="
+    value: ASTNode = field(default_factory=lambda: NumberNode())
+
+    def get_children(self) -> List[Any]:
+        return [self.target, self.value]
+
+
+# ============= V3: Ternary Expression =============
+
+@dataclass
+class TernaryNode(ASTNode):
+    """Node untuk ternary: nilai_a jika kondisi lainnya nilai_b"""
+    true_value: ASTNode = field(default_factory=lambda: NumberNode())
+    condition: ASTNode = field(default_factory=lambda: BooleanNode())
+    false_value: ASTNode = field(default_factory=lambda: NumberNode())
+
+    def get_children(self) -> List[Any]:
+        return [self.true_value, self.condition, self.false_value]
+
+
+# ============= V3: Raise Statement =============
+
+@dataclass
+class RaiseNode(ASTNode):
+    """Node untuk raise: lempar nilai"""
+    value: ASTNode = field(default_factory=lambda: StringNode(""))
+
+    def get_children(self) -> List[Any]:
+        return [self.value]
+
+
+# ============= V3: Global/Nonlocal =============
+
+@dataclass
+class GlobalNode(ASTNode):
+    """Node untuk global: global nama_var"""
+    names: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+@dataclass
+class NonlocalNode(ASTNode):
+    """Node untuk nonlokal: nonlokal nama_var"""
+    names: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return []

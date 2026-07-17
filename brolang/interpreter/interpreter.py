@@ -31,6 +31,8 @@ from brolang.ast.nodes import (
     LambdaNode, ComprehensionNode, FStringNode,
     EnumNode, StructNode, StructInstanceNode,
     MatchNode, WildcardNode,
+    AugmentedAssignmentNode, TernaryNode, RaiseNode,
+    GlobalNode, NonlocalNode,
 )
 from brolang.exceptions import (
     RuntimeError_, TypeError_, NameError_,
@@ -347,6 +349,18 @@ class Interpreter(ASTVisitor):
         elif op == "**":
             return left ** right
 
+        # Bitwise operators
+        elif op == "&":
+            return int(left) & int(right)
+        elif op == "|":
+            return int(left) | int(right)
+        elif op == "^":
+            return int(left) ^ int(right)
+        elif op == "<<":
+            return int(left) << int(right)
+        elif op == ">>":
+            return int(left) >> int(right)
+
         raise RuntimeError_(
             message=f"Operator '{op}' tidak dikenal.",
             line=node.line, column=node.column,
@@ -362,6 +376,8 @@ class Interpreter(ASTVisitor):
             return +operand
         elif node.operator == "bukan":
             return not operand
+        elif node.operator == "~":
+            return ~int(operand)
 
         raise RuntimeError_(
             message=f"Operator unary '{node.operator}' tidak dikenal.",
@@ -465,10 +481,17 @@ class Interpreter(ASTVisitor):
             old_env = self.current_env
             self._push_env()
 
-            # Bind parameters
+            # Bind parameters with default values
             for i, param in enumerate(node.params):
                 if i < len(args):
                     self.current_env.define_variable(param, args[i])
+                elif i < len(node.defaults):
+                    dv = node.defaults[i]
+                    if dv is not None:
+                        default_val = self.visit(dv)
+                        self.current_env.define_variable(param, default_val)
+                    else:
+                        self.current_env.define_variable(param, None)
                 else:
                     self.current_env.define_variable(param, None)
 
@@ -524,6 +547,21 @@ class Interpreter(ASTVisitor):
                     bound_method = getattr(obj, method_name)
                     if callable(bound_method):
                         return bound_method(*args)
+                # List methods
+                if isinstance(obj, list):
+                    methods = self._get_list_methods(obj)
+                    if method_name in methods:
+                        return methods[method_name](*args)
+                # Dict methods
+                if isinstance(obj, dict):
+                    methods = self._get_dict_methods(obj)
+                    if method_name in methods:
+                        return methods[method_name](*args)
+                # String methods
+                if isinstance(obj, str):
+                    methods = self._get_string_methods(obj)
+                    if method_name in methods:
+                        return methods[method_name](*args)
                 raise RuntimeError_(
                     message=f"Objek tidak memiliki method '{method_name}'.",
                 )
@@ -647,8 +685,38 @@ class Interpreter(ASTVisitor):
         if isinstance(obj, dict):
             if prop in obj:
                 return obj[prop]
+            methods = self._get_dict_methods(obj)
+            if prop in methods:
+                return methods[prop]
             raise RuntimeError_(
                 message=f"Objek tidak memiliki properti '{prop}'.",
+                line=node.line, column=node.column,
+            )
+
+        if isinstance(obj, list):
+            methods = self._get_list_methods(obj)
+            if prop in methods:
+                return methods[prop]
+            raise RuntimeError_(
+                message=f"List tidak memiliki method '{prop}'.",
+                line=node.line, column=node.column,
+            )
+
+        if isinstance(obj, str):
+            methods = self._get_string_methods(obj)
+            if prop in methods:
+                return methods[prop]
+            raise RuntimeError_(
+                message=f"String tidak memiliki method '{prop}'.",
+                line=node.line, column=node.column,
+            )
+
+        if isinstance(obj, str):
+            methods = self._get_string_methods(obj)
+            if prop in methods:
+                return methods[prop]
+            raise RuntimeError_(
+                message=f"String tidak memiliki method '{prop}'.",
                 line=node.line, column=node.column,
             )
 
@@ -706,13 +774,18 @@ class Interpreter(ASTVisitor):
                 )
 
     def visit_TryNode(self, node: TryNode) -> Optional[Any]:
-        """Try-catch execution."""
+        """Try-catch-finally execution."""
         try:
             self._push_env()
             result = None
             for stmt in node.body:
                 result = self.visit(stmt)
             self._pop_env()
+            if node.finally_body:
+                self._push_env()
+                for stmt in node.finally_body:
+                    self.visit(stmt)
+                self._pop_env()
             return result
         except Exception as e:
             self._pop_env()
@@ -722,6 +795,11 @@ class Interpreter(ASTVisitor):
             for stmt in node.catch_body:
                 result = self.visit(stmt)
             self._pop_env()
+            if node.finally_body:
+                self._push_env()
+                for stmt in node.finally_body:
+                    self.visit(stmt)
+                self._pop_env()
             return result
 
     def visit_ListNode(self, node: ListNode) -> List[Any]:
@@ -899,3 +977,224 @@ class Interpreter(ASTVisitor):
 
     def visit_WildcardNode(self, node: WildcardNode) -> None:
         return None
+
+    # ============= V3: Augmented Assignment =============
+
+    def visit_AugmentedAssignmentNode(self, node: AugmentedAssignmentNode) -> Any:
+        """Augmented assignment: x += 1, x -= 2, dll."""
+        if not isinstance(node.target, IdentifierNode):
+            raise RuntimeError_(
+                message="Target augmented assignment harus berupa variabel.",
+                line=node.line, column=node.column,
+            )
+
+        name = node.target.name
+        current = self.current_env.get_variable(name)
+        right = self.visit(node.value)
+
+        op = node.operator
+        if op == "+=":
+            result = current + right
+        elif op == "-=":
+            result = current - right
+        elif op == "*=":
+            result = current * right
+        elif op == "/=":
+            if right == 0:
+                raise ZeroDivisionError_(
+                    message="Tidak bisa membagi dengan nol.",
+                    line=node.line, column=node.column,
+                )
+            result = current / right
+        elif op == "%=":
+            if right == 0:
+                raise ZeroDivisionError_(
+                    message="Tidak bisa modulo dengan nol.",
+                    line=node.line, column=node.column,
+                )
+            result = current % right
+        elif op == "**=":
+            result = current ** right
+        else:
+            raise RuntimeError_(
+                message=f"Operator augmented assignment '{op}' tidak dikenal.",
+                line=node.line, column=node.column,
+            )
+
+        self.current_env.set_variable(name, result)
+        return result
+
+    # ============= V3: Ternary Expression =============
+
+    def visit_TernaryNode(self, node: TernaryNode) -> Any:
+        """Ternary: nilai_a jika kondisi lainnya nilai_b"""
+        condition = self.visit(node.condition)
+        if condition:
+            return self.visit(node.true_value)
+        return self.visit(node.false_value)
+
+    # ============= V3: Raise Statement =============
+
+    def visit_RaiseNode(self, node: RaiseNode) -> None:
+        """Raise: lempar nilai"""
+        value = self.visit(node.value)
+        raise RuntimeError_(
+            message=str(value),
+            line=node.line,
+            column=node.column,
+        )
+
+    # ============= V3: Global/Nonlocal =============
+
+    def visit_GlobalNode(self, node: GlobalNode) -> None:
+        """Global statement: global nama_var"""
+        pass  # Global is handled by set_variable walking up scopes
+
+    def visit_NonlocalNode(self, node: NonlocalNode) -> None:
+        """Nonlocal statement: nonlokal nama_var"""
+        pass  # Nonlocal is handled by set_variable walking up scopes
+
+    # ============= V3: List/Dict Methods =============
+
+    def _get_list_methods(self, lst: list) -> dict:
+        """Membuat method dictionary untuk list."""
+        def tambah(item):
+            lst.append(item)
+            return None
+
+        def sisipkan(index, item):
+            lst.insert(index, item)
+            return None
+
+        def urutkan():
+            lst.sort()
+            return lst
+
+        def balik():
+            lst.reverse()
+            return lst
+
+        def hapus(item):
+            try:
+                lst.remove(item)
+            except ValueError:
+                raise RuntimeError_(
+                    message=f"Elemen '{item}' tidak ditemukan dalam list.",
+                )
+            return None
+
+        def pop(index=None):
+            if index is None:
+                return lst.pop()
+            return lst.pop(index)
+
+        def jumlah():
+            return len(lst)
+
+        def indeks(item):
+            try:
+                return lst.index(item)
+            except ValueError:
+                return -1
+
+        def hitung(item):
+            return lst.count(item)
+
+        def perpanjang(other):
+            lst.extend(other)
+            return None
+
+        def salin():
+            return lst[:]
+
+        def kosongkan():
+            lst.clear()
+            return None
+
+        return {
+            "tambah": tambah,
+            "sisipkan": sisipkan,
+            "urutkan": urutkan,
+            "balik": balik,
+            "hapus": hapus,
+            "pop": pop,
+            "jumlah": jumlah,
+            "indeks": indeks,
+            "hitung": hitung,
+            "perpanjang": perpanjang,
+            "salin": salin,
+            "kosongkan": kosongkan,
+        }
+
+    def _get_dict_methods(self, d: dict) -> dict:
+        """Membuat method dictionary untuk dict."""
+        def kunci():
+            return list(d.keys())
+
+        def nilai():
+            return list(d.values())
+
+        def item():
+            return list(d.items())
+
+        def ambil(key, default=None):
+            return d.get(key, default)
+
+        def hapus_kunci(key):
+            try:
+                del d[key]
+            except KeyError:
+                raise RuntimeError_(
+                    message=f"Kunci '{key}' tidak ditemukan dalam objek.",
+                )
+            return None
+
+        def pop(key, default=None):
+            return d.pop(key, default)
+
+        def jumlah():
+            return len(d)
+
+        def punya(key):
+            return key in d
+
+        def perbarui(other):
+            d.update(other)
+            return None
+
+        def kosongkan():
+            d.clear()
+            return None
+
+        def salin():
+            return d.copy()
+
+        return {
+            "kunci": kunci,
+            "nilai": nilai,
+            "item": item,
+            "ambil": ambil,
+            "hapus_kunci": hapus_kunci,
+            "pop": pop,
+            "jumlah": jumlah,
+            "punya": punya,
+            "perbarui": perbarui,
+            "kosongkan": kosongkan,
+            "salin": salin,
+        }
+
+    def _get_string_methods(self, s: str) -> dict:
+        """Membuat method dictionary untuk string."""
+        return {
+            "atas": lambda: s.upper(),
+            "bawah": lambda: s.lower(),
+            "kapital": lambda: s.capitalize(),
+            "judul": lambda: s.title(),
+            "potong": lambda *a: s.split(*a),
+            "ganti": lambda old, new: s.replace(old, new),
+            "cari": lambda sub: s.find(sub),
+            "mulai": lambda prefix: s.startswith(prefix),
+            "berakhir": lambda suffix: s.endswith(suffix),
+            "strip": lambda: s.strip(),
+            "panjang": lambda: len(s),
+        }
