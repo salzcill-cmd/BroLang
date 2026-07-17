@@ -66,4 +66,26 @@ from brolang.ast.nodes import (
     ProgramNode,
     # Visitor
     ASTVisitor,
+    # V2
+    LambdaNode,
+    ComprehensionNode,
+    FStringNode,
+    EnumNode,
+    StructNode,
+    StructInstanceNode,
+    MatchNode,
+    WildcardNode,
+    # V3
+    AugmentedAssignmentNode,
+    TernaryNode,
+    RaiseNode,
+    GlobalNode,
+    NonlocalNode,
+    # V3.1
+    PassNode,
+    DelNode,
+    AssertNode,
+    TupleNode,
+    SetNode,
+    DictComprehensionNode,
 )

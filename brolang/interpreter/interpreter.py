@@ -33,6 +33,8 @@ from brolang.ast.nodes import (
     MatchNode, WildcardNode,
     AugmentedAssignmentNode, TernaryNode, RaiseNode,
     GlobalNode, NonlocalNode,
+    PassNode, DelNode, AssertNode,
+    TupleNode, SetNode, DictComprehensionNode,
 )
 from brolang.exceptions import (
     RuntimeError_, TypeError_, NameError_,
@@ -317,6 +319,12 @@ class Interpreter(ASTVisitor):
             return left >= right
         elif op == "<=":
             return left <= right
+        elif op == "is":
+            return left is right
+        elif op == "is not":
+            return left is not right
+        elif op == "dalam":
+            return left in right
 
         # Logical operators
         elif op == "dan":
@@ -424,7 +432,8 @@ class Interpreter(ASTVisitor):
         return None
 
     def visit_WhileNode(self, node: WhileNode) -> None:
-        """While loop execution."""
+        """While loop execution with optional else clause."""
+        broke = False
         while True:
             condition = self.visit(node.condition)
             if not condition:
@@ -440,14 +449,23 @@ class Interpreter(ASTVisitor):
                 self._pop_env()
             except BreakException:
                 self._pop_env()
+                broke = True
                 break
             except ContinueException:
                 self._pop_env()
                 continue
 
+        # Execute else clause if loop completed normally (not via break)
+        if not broke and node.else_body:
+            self._push_env()
+            for stmt in node.else_body:
+                self.visit(stmt)
+            self._pop_env()
+
     def visit_ForNode(self, node: ForNode) -> None:
-        """For loop execution."""
+        """For loop execution with optional else clause."""
         iterable = self.visit(node.iterable)
+        broke = False
 
         for item in iterable:
             self._push_env()
@@ -462,10 +480,18 @@ class Interpreter(ASTVisitor):
                 self._pop_env()
             except BreakException:
                 self._pop_env()
+                broke = True
                 break
             except ContinueException:
                 self._pop_env()
                 continue
+
+        # Execute else clause if loop completed normally (not via break)
+        if not broke and node.else_body:
+            self._push_env()
+            for stmt in node.else_body:
+                self.visit(stmt)
+            self._pop_env()
 
     def visit_BreakNode(self, node: BreakNode) -> None:
         """Break statement."""
@@ -475,11 +501,86 @@ class Interpreter(ASTVisitor):
         """Continue statement."""
         raise ContinueException()
 
+    def visit_PassNode(self, node: PassNode) -> None:
+        """Pass statement (no-op)."""
+        pass
+
+    def visit_DelNode(self, node: DelNode) -> None:
+        """Del statement."""
+        if isinstance(node.target, IdentifierNode):
+            name = node.target.name
+            # Search for variable in environments
+            env = self.current_env
+            while env is not None:
+                if name in env.variables:
+                    del env.variables[name]
+                    return
+                env = env.parent
+            raise NameError_(
+                message=f"Variabel '{name}' tidak ditemukan untuk dihapus.",
+                line=node.line, column=node.column,
+            )
+        elif isinstance(node.target, IndexNode):
+            target = self.visit(node.target.target)
+            index = self.visit(node.target.index)
+            if isinstance(target, (list, dict)):
+                try:
+                    del target[index]
+                except Exception as e:
+                    raise RuntimeError_(
+                        message=f"Gagal menghapus elemen: {e}",
+                        line=node.line, column=node.column,
+                    )
+            else:
+                raise TypeError_(
+                    message=f"Tipe {type(target).__name__} tidak bisa dihapus elemennya.",
+                    line=node.line, column=node.column,
+                )
+        elif isinstance(node.target, ObjectAccessNode):
+            obj = self.visit(node.target.object)
+            prop = node.target.property
+            if isinstance(obj, dict):
+                if prop in obj:
+                    del obj[prop]
+                else:
+                    raise RuntimeError_(
+                        message=f"Kunci '{prop}' tidak ditemukan.",
+                        line=node.line, column=node.column,
+                    )
+            elif isinstance(obj, BroLangInstance):
+                if prop in obj.attributes:
+                    del obj.attributes[prop]
+                else:
+                    raise RuntimeError_(
+                        message=f"Atribut '{prop}' tidak ditemukan.",
+                        line=node.line, column=node.column,
+                    )
+        else:
+            raise RuntimeError_(
+                message="Target 'hapus' tidak valid.",
+                line=node.line, column=node.column,
+            )
+
+    def visit_AssertNode(self, node: AssertNode) -> None:
+        """Assert statement."""
+        condition = self.visit(node.condition)
+        if not condition:
+            msg = self.visit(node.message) if node.message else "Assertion gagal"
+            raise RuntimeError_(
+                message=f"Pastikan: {msg}",
+                line=node.line, column=node.column,
+            )
+
     def visit_FunctionNode(self, node: FunctionNode) -> None:
-        """Deklarasi fungsi."""
+        """Deklarasi fungsi dengan closure support."""
+        # Capture the enclosing environment at definition time (closure)
+        closure_env = self.current_env
+        
         def bro_function(*args):
             old_env = self.current_env
             self._push_env()
+            # Set parent to captured closure env for proper scope chain
+            self.current_env.parent = closure_env
 
             # Bind parameters with default values
             for i, param in enumerate(node.params):
@@ -806,12 +907,64 @@ class Interpreter(ASTVisitor):
         """List literal."""
         return [self.visit(elem) for elem in node.elements]
 
+    def visit_TupleNode(self, node: TupleNode) -> tuple:
+        """Tuple literal."""
+        return tuple(self.visit(elem) for elem in node.elements)
+
+    def visit_SetNode(self, node: SetNode) -> set:
+        """Set literal."""
+        return set(self.visit(elem) for elem in node.elements)
+
+    def visit_DictComprehensionNode(self, node: DictComprehensionNode) -> Dict[str, Any]:
+        """Dict comprehension."""
+        iterable = self.visit(node.iterable)
+        result = {}
+        for item in iterable:
+            self._push_env()
+            if node.value_var:
+                self.current_env.define_variable(node.key_var, item[0])
+                self.current_env.define_variable(node.value_var, item[1])
+            else:
+                self.current_env.define_variable(node.key_var, item)
+            
+            if node.condition:
+                cond_result = self.visit(node.condition)
+                if not cond_result:
+                    self._pop_env()
+                    continue
+            
+            key = self.visit(node.key_expr)
+            value = self.visit(node.value_expr)
+            result[key] = value
+            self._pop_env()
+        return result
+
     def visit_IndexNode(self, node: IndexNode) -> Any:
-        """Indexing operation."""
+        """Indexing or slicing operation."""
         target = self.visit(node.target)
+
+        if node.is_slice:
+            # Slicing operation
+            if not isinstance(target, (list, str)):
+                raise TypeError_(
+                    message=f"Tipe {type(target).__name__} tidak bisa di-slice.",
+                    line=node.line, column=node.column,
+                )
+            start = self.visit(node.slice_start) if node.slice_start else None
+            stop = self.visit(node.slice_stop) if node.slice_stop else None
+            step = self.visit(node.slice_step) if node.slice_step else None
+            try:
+                return target[start:stop:step]
+            except Exception as e:
+                raise RuntimeError_(
+                    message=f"Error slicing: {e}",
+                    line=node.line, column=node.column,
+                )
+
+        # Regular indexing
         index = self.visit(node.index)
 
-        if isinstance(target, (list, str)):
+        if isinstance(target, (list, str, tuple)):
             try:
                 return target[index]
             except IndexError:
@@ -850,10 +1003,15 @@ class Interpreter(ASTVisitor):
     # ============= V2: Lambda =============
 
     def visit_LambdaNode(self, node: LambdaNode) -> Callable:
-        """Lambda expression: lalu(x) x + 1"""
+        """Lambda expression with closure: lalu(x) x + 1"""
+        # Capture the enclosing environment at definition time (closure)
+        closure_env = self.current_env
+        
         def lambda_func(*args):
             old_env = self.current_env
+            # Create new env with captured closure env as parent
             self._push_env()
+            self.current_env.parent = closure_env
             for i, param in enumerate(node.params):
                 if i < len(args):
                     self.current_env.define_variable(param, args[i])

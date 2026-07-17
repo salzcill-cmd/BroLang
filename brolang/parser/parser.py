@@ -62,6 +62,8 @@ from brolang.ast.nodes import (
     MatchNode, WildcardNode,
     AugmentedAssignmentNode, TernaryNode, RaiseNode,
     GlobalNode, NonlocalNode,
+    PassNode, DelNode, AssertNode,
+    TupleNode, SetNode, DictComprehensionNode,
 )
 from brolang.exceptions import ParserError
 
@@ -210,6 +212,13 @@ class Parser:
         elif token_type == TokenType.TOKEN_CONTINUE:
             self._advance()
             return ContinueNode(line=self.current_token.line, column=self.current_token.column)
+        elif token_type == TokenType.TOKEN_PASS:
+            self._advance()
+            return PassNode(line=self.current_token.line, column=self.current_token.column)
+        elif token_type == TokenType.TOKEN_HAPUS:
+            return self._parse_del()
+        elif token_type == TokenType.TOKEN_PASTIKAN:
+            return self._parse_assert()
         elif token_type == TokenType.TOKEN_IDENTIFIER:
             # Could be reassignment, augmented assignment, method call, or expression
             # Peek ahead to see if it's assignment
@@ -348,6 +357,21 @@ class Parser:
             names.append(name_token.value)
         return NonlocalNode(names=names, line=token.line, column=token.column)
 
+    def _parse_del(self) -> DelNode:
+        """hapus target"""
+        token = self._advance()  # hapus
+        target = self._parse_expression()
+        return DelNode(target=target, line=token.line, column=token.column)
+
+    def _parse_assert(self) -> AssertNode:
+        """pastikan kondisi (, pesan)?"""
+        token = self._advance()  # pastikan
+        condition = self._parse_expression()
+        message = None
+        if self._match(TokenType.TOKEN_COMMA):
+            message = self._parse_expression()
+        return AssertNode(condition=condition, message=message, line=token.line, column=token.column)
+
     # ============= Print =============
 
     def _parse_print(self) -> PrintNode:
@@ -422,7 +446,7 @@ class Parser:
     # ============= While Loop =============
 
     def _parse_while(self) -> WhileNode:
-        """selama expression lakukan block selesai"""
+        """selama expression lakukan block (lainnya block)? selesai"""
         token = self._advance()  # selama
         condition = self._parse_expression()
 
@@ -435,6 +459,12 @@ class Parser:
 
         body = self._parse_block()
 
+        # Check for else clause (lainnya) BEFORE selesai
+        else_body = None
+        if self._check(TokenType.TOKEN_LAINNYA):
+            self._advance()  # consume 'lainnya'
+            else_body = self._parse_block()
+
         self._expect(
             TokenType.TOKEN_SELESAI,
             message="Blok 'selama' harus ditutup dengan 'selesai'.",
@@ -442,12 +472,12 @@ class Parser:
             example="selama x < 10 lakukan\n    tulis x\nselesai",
         )
 
-        return WhileNode(condition=condition, body=body, line=token.line, column=token.column)
+        return WhileNode(condition=condition, body=body, else_body=else_body, line=token.line, column=token.column)
 
     # ============= For Loop =============
 
     def _parse_for(self) -> ForNode:
-        """untuk identifier dalam expression lakukan block selesai"""
+        """untuk identifier dalam expression lakukan block (lainnya block)? selesai"""
         token = self._advance()  # untuk
         id_token = self._expect(
             TokenType.TOKEN_IDENTIFIER,
@@ -475,6 +505,12 @@ class Parser:
 
         body = self._parse_block()
 
+        # Check for else clause (lainnya) BEFORE selesai
+        else_body = None
+        if self._check(TokenType.TOKEN_LAINNYA):
+            self._advance()  # consume 'lainnya'
+            else_body = self._parse_block()
+
         self._expect(
             TokenType.TOKEN_SELESAI,
             message="Blok 'untuk' harus ditutup dengan 'selesai'.",
@@ -485,6 +521,7 @@ class Parser:
             variable=variable,
             iterable=iterable,
             body=body,
+            else_body=else_body,
             line=token.line,
             column=token.column,
         )
@@ -978,19 +1015,35 @@ class Parser:
             TokenType.TOKEN_EQ, TokenType.TOKEN_NEQ,
             TokenType.TOKEN_GT, TokenType.TOKEN_LT,
             TokenType.TOKEN_GTE, TokenType.TOKEN_LTE,
+            TokenType.TOKEN_IS, TokenType.TOKEN_DALAM,
         ):
             op_token = self._advance()
-            right = self._parse_addition()
-            op_map = {
-                TokenType.TOKEN_EQ: "==",
-                TokenType.TOKEN_NEQ: "!=",
-                TokenType.TOKEN_GT: ">",
-                TokenType.TOKEN_LT: "<",
-                TokenType.TOKEN_GTE: ">=",
-                TokenType.TOKEN_LTE: "<=",
-            }
-            left = BinaryOpNode(left=left, operator=op_map[op_token.type], right=right,
-                                line=op_token.line, column=op_token.column)
+            # Handle "is bukan" (is not)
+            if op_token.type == TokenType.TOKEN_IS and self._check(TokenType.TOKEN_BUKAN):
+                self._advance()  # consume "bukan"
+                right = self._parse_addition()
+                left = BinaryOpNode(left=left, operator="is not", right=right,
+                                    line=op_token.line, column=op_token.column)
+            elif op_token.type == TokenType.TOKEN_IS:
+                right = self._parse_addition()
+                left = BinaryOpNode(left=left, operator="is", right=right,
+                                    line=op_token.line, column=op_token.column)
+            elif op_token.type == TokenType.TOKEN_DALAM:
+                right = self._parse_addition()
+                left = BinaryOpNode(left=left, operator="dalam", right=right,
+                                    line=op_token.line, column=op_token.column)
+            else:
+                op_map = {
+                    TokenType.TOKEN_EQ: "==",
+                    TokenType.TOKEN_NEQ: "!=",
+                    TokenType.TOKEN_GT: ">",
+                    TokenType.TOKEN_LT: "<",
+                    TokenType.TOKEN_GTE: ">=",
+                    TokenType.TOKEN_LTE: "<=",
+                }
+                right = self._parse_addition()
+                left = BinaryOpNode(left=left, operator=op_map[op_token.type], right=right,
+                                    line=op_token.line, column=op_token.column)
         return left
 
     def _parse_addition(self) -> ASTNode:
@@ -1069,11 +1122,28 @@ class Parser:
             node = KosongNode(line=token.line, column=token.column)
         elif self._check(TokenType.TOKEN_LPAREN):
             self._advance()  # (
-            node = self._parse_expression()
-            self._expect(TokenType.TOKEN_RPAREN,
-                         message="Tanda kurung tidak ditutup.",
-                         solution="Tambahkan ')' setelah ekspresi.",
-                         example="(1 + 2)")
+            # Check for empty tuple
+            if self._check(TokenType.TOKEN_RPAREN):
+                self._advance()
+                node = TupleNode(elements=[], line=self.current_token.line, column=self.current_token.column)
+            else:
+                first_expr = self._parse_expression()
+                # Check if it's a tuple (has comma)
+                if self._check(TokenType.TOKEN_COMMA):
+                    elements = [first_expr]
+                    while self._match(TokenType.TOKEN_COMMA):
+                        if self._check(TokenType.TOKEN_RPAREN):
+                            break  # trailing comma
+                        elements.append(self._parse_expression())
+                    self._expect(TokenType.TOKEN_RPAREN)
+                    node = TupleNode(elements=elements, line=self.current_token.line, column=self.current_token.column)
+                else:
+                    # Just a grouped expression
+                    self._expect(TokenType.TOKEN_RPAREN,
+                                 message="Tanda kurung tidak ditutup.",
+                                 solution="Tambahkan ')' setelah ekspresi.",
+                                 example="(1 + 2)")
+                    node = first_expr
         elif self._check(TokenType.TOKEN_LBRACKET):
             node = self._parse_list_literal()
         elif self._check(TokenType.TOKEN_LBRACE):
@@ -1128,14 +1198,48 @@ class Parser:
                 self._expect(TokenType.TOKEN_RPAREN)
                 node = CallNode(function=node, args=args, line=node.line, column=node.column)
             elif self._check(TokenType.TOKEN_LBRACKET):
-                # Indexing
+                # Indexing or slicing
                 self._advance()  # [
-                index = self._parse_expression()
-                self._expect(TokenType.TOKEN_RBRACKET,
-                             message="Indexing tidak ditutup.",
-                             solution="Tambahkan ']' setelah indeks.",
-                             example="list[0]")
-                node = IndexNode(target=node, index=index, line=node.line, column=node.column)
+                # Check for slice syntax
+                if self._check(TokenType.TOKEN_COLON):
+                    # [:stop] or [::step]
+                    self._advance()  # :
+                    slice_stop = None
+                    slice_step = None
+                    if not self._check(TokenType.TOKEN_COLON, TokenType.TOKEN_RBRACKET):
+                        slice_stop = self._parse_expression()
+                    if self._check(TokenType.TOKEN_COLON):
+                        self._advance()  # :
+                        if not self._check(TokenType.TOKEN_RBRACKET):
+                            slice_step = self._parse_expression()
+                    self._expect(TokenType.TOKEN_RBRACKET)
+                    node = IndexNode(target=node, index=NumberNode(0),
+                                     slice_start=None, slice_stop=slice_stop, slice_step=slice_step,
+                                     is_slice=True, line=node.line, column=node.column)
+                else:
+                    first_expr = self._parse_expression()
+                    if self._check(TokenType.TOKEN_COLON):
+                        # [start:stop] or [start:stop:step]
+                        self._advance()  # :
+                        slice_stop = None
+                        slice_step = None
+                        if not self._check(TokenType.TOKEN_COLON, TokenType.TOKEN_RBRACKET):
+                            slice_stop = self._parse_expression()
+                        if self._check(TokenType.TOKEN_COLON):
+                            self._advance()  # :
+                            if not self._check(TokenType.TOKEN_RBRACKET):
+                                slice_step = self._parse_expression()
+                        self._expect(TokenType.TOKEN_RBRACKET)
+                        node = IndexNode(target=node, index=NumberNode(0),
+                                         slice_start=first_expr, slice_stop=slice_stop, slice_step=slice_step,
+                                         is_slice=True, line=node.line, column=node.column)
+                    else:
+                        # Regular indexing
+                        self._expect(TokenType.TOKEN_RBRACKET,
+                                     message="Indexing tidak ditutup.",
+                                     solution="Tambahkan ']' setelah indeks.",
+                                     example="list[0]")
+                        node = IndexNode(target=node, index=first_expr, line=node.line, column=node.column)
             elif self._check(TokenType.TOKEN_DOT):
                 # Attribute/method access
                 self._advance()  # .
@@ -1237,34 +1341,46 @@ class Parser:
                      example="[1, 2, 3]")
         return ListNode(elements=elements, line=token.line, column=token.column)
 
-    def _parse_object_literal(self) -> ObjectNode:
-        """{string: expression (, string: expression)*}"""
+    def _parse_object_literal(self):
+        """{string: expression} for dict, or {expr, expr} for set"""
         token = self._advance()  # {
-        entries = {}
-        if not self._check(TokenType.TOKEN_RBRACE):
-            key_token = self._expect(
-                TokenType.TOKEN_STRING,
-                message="Kunci objek harus berupa string.",
-                solution="Gunakan string sebagai kunci.",
-                example='{"nama": "Budi"}',
-            )
-            self._expect(TokenType.TOKEN_COLON,
-                         message="Setelah kunci, harus ada ':'.",
-                         example='{"nama": "Budi"}')
+        
+        # Check for empty dict/set
+        if self._check(TokenType.TOKEN_RBRACE):
+            self._advance()
+            return ObjectNode(entries={}, line=token.line, column=token.column)
+        
+        # Peek at first element to determine if it's a dict or set
+        # Dict: {"key": value} - string followed by colon
+        # Set: {value, value} - any expression followed by comma or }
+        if self._check(TokenType.TOKEN_STRING) and self._peek(1) == TokenType.TOKEN_COLON:
+            # It's a dict
+            entries = {}
+            key_token = self._advance()  # string key
+            self._expect(TokenType.TOKEN_COLON)
             value = self._parse_expression()
             entries[key_token.value] = value
 
             while self._match(TokenType.TOKEN_COMMA):
+                if self._check(TokenType.TOKEN_RBRACE):
+                    break  # trailing comma
                 key_token = self._expect(TokenType.TOKEN_STRING)
                 self._expect(TokenType.TOKEN_COLON)
                 value = self._parse_expression()
                 entries[key_token.value] = value
 
-        self._expect(TokenType.TOKEN_RBRACE,
-                     message="Objek literal tidak ditutup.",
-                     solution="Tambahkan '}' setelah entry objek.",
-                     example='{"nama": "Budi"}')
-        return ObjectNode(entries=entries, line=token.line, column=token.column)
+            self._expect(TokenType.TOKEN_RBRACE)
+            return ObjectNode(entries=entries, line=token.line, column=token.column)
+        else:
+            # It's a set
+            elements = []
+            elements.append(self._parse_expression())
+            while self._match(TokenType.TOKEN_COMMA):
+                if self._check(TokenType.TOKEN_RBRACE):
+                    break  # trailing comma
+                elements.append(self._parse_expression())
+            self._expect(TokenType.TOKEN_RBRACE)
+            return SetNode(elements=elements, line=token.line, column=token.column)
 
     def _parse_fstring(self) -> FStringNode:
         """Parse f-string: f"...{expr}..." """

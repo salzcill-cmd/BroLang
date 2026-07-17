@@ -25,8 +25,13 @@ from brolang.ast.nodes import (
     TryNode, CatchNode,
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
+    LambdaNode, ComprehensionNode, FStringNode,
+    EnumNode, StructNode, StructInstanceNode,
+    MatchNode, WildcardNode,
     AugmentedAssignmentNode, TernaryNode, RaiseNode,
     GlobalNode, NonlocalNode,
+    PassNode, DelNode, AssertNode,
+    TupleNode, SetNode, DictComprehensionNode,
 )
 from brolang.optimizer import Optimizer
 
@@ -216,6 +221,46 @@ class PythonCodeGenerator(ASTVisitor):
 
     def visit_ContinueNode(self, node: ContinueNode) -> None:
         self._emit("continue")
+
+    def visit_PassNode(self, node: PassNode) -> None:
+        self._emit("pass")
+
+    def visit_DelNode(self, node: DelNode) -> None:
+        target = self._expr(node.target)
+        self._emit(f"del {target}")
+
+    def visit_AssertNode(self, node: AssertNode) -> None:
+        cond = self._expr(node.condition)
+        if node.message:
+            msg = self._expr(node.message)
+            self._emit(f"assert {cond}, {msg}")
+        else:
+            self._emit(f"assert {cond}")
+
+    def visit_TupleNode(self, node: TupleNode) -> None:
+        elements = ", ".join(self._expr(e) for e in node.elements)
+        self._emit_line(f"({elements})")
+
+    def visit_SetNode(self, node: SetNode) -> None:
+        elements = ", ".join(self._expr(e) for e in node.elements)
+        self._emit_line(f"{{{elements}}}")
+
+    def visit_DictComprehensionNode(self, node: DictComprehensionNode) -> None:
+        key = self._expr(node.key_expr)
+        val = self._expr(node.value_expr)
+        var = node.key_var
+        iterable = self._expr(node.iterable)
+        if node.condition:
+            cond = self._expr(node.condition)
+            if node.value_var:
+                self._emit_line(f"{{{key}: {val} for {var}, {node.value_var} in {iterable} if {cond}}}")
+            else:
+                self._emit_line(f"{{{key}: {val} for {var} in {iterable} if {cond}}}")
+        else:
+            if node.value_var:
+                self._emit_line(f"{{{key}: {val} for {var}, {node.value_var} in {iterable}}}")
+            else:
+                self._emit_line(f"{{{key}: {val} for {var} in {iterable}}}")
 
     def visit_FunctionNode(self, node: FunctionNode) -> None:
         params = ", ".join(node.params)

@@ -122,6 +122,13 @@ class TokenType(Enum):
     TOKEN_GLOBAL = auto()      # global
     TOKEN_NONLOKAL = auto()    # nonlokal (nonlocal)
 
+    # v3.1 Keywords
+    TOKEN_IS = auto()          # is (identity comparison)
+    TOKEN_PASS = auto()        # pass (no-op)
+    TOKEN_HAPUS = auto()       # hapus (del)
+    TOKEN_PASTIKAN = auto()    # pastikan (assert)
+    TOKEN_DENGAN = auto()      # dengan (with)
+
     # Special
     TOKEN_EOF = auto()
 
@@ -164,6 +171,12 @@ KEYWORDS: dict[str, TokenType] = {
     "akhirnya": TokenType.TOKEN_AKHIRNYA,
     "global": TokenType.TOKEN_GLOBAL,
     "nonlokal": TokenType.TOKEN_NONLOKAL,
+    # v3.1 keywords
+    "is": TokenType.TOKEN_IS,
+    "pass": TokenType.TOKEN_PASS,
+    "hapus": TokenType.TOKEN_HAPUS,
+    "pastikan": TokenType.TOKEN_PASTIKAN,
+    "dengan": TokenType.TOKEN_DENGAN,
 }
 
 

@@ -186,23 +186,31 @@ class IfNode(ASTNode):
 
 @dataclass
 class WhileNode(ASTNode):
-    """Node untuk while loop: selama kondisi lakukan ... selesai"""
+    """Node untuk while loop: selama kondisi lakukan ... lainnya ... selesai"""
     condition: ASTNode = field(default_factory=lambda: BooleanNode())
     body: List[ASTNode] = field(default_factory=list)
+    else_body: Optional[List[ASTNode]] = None
 
     def get_children(self) -> List[Any]:
-        return [self.condition] + self.body
+        children = [self.condition] + self.body
+        if self.else_body:
+            children.extend(self.else_body)
+        return children
 
 
 @dataclass
 class ForNode(ASTNode):
-    """Node untuk for loop: untuk item dalam iterable lakukan ... selesai"""
+    """Node untuk for loop: untuk item dalam iterable lakukan ... lainnya ... selesai"""
     variable: str = ""
     iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
     body: List[ASTNode] = field(default_factory=list)
+    else_body: Optional[List[ASTNode]] = None
 
     def get_children(self) -> List[Any]:
-        return [self.iterable] + self.body
+        children = [self.iterable] + self.body
+        if self.else_body:
+            children.extend(self.else_body)
+        return children
 
 
 @dataclass
@@ -215,6 +223,84 @@ class BreakNode(ASTNode):
 class ContinueNode(ASTNode):
     """Node untuk continue: lanjutkan"""
     pass
+
+
+# ============= V3.1: Pass Statement =============
+
+@dataclass
+class PassNode(ASTNode):
+    """Node untuk pass: pass (no-op placeholder)"""
+    pass
+
+
+# ============= V3.1: Del Statement =============
+
+@dataclass
+class DelNode(ASTNode):
+    """Node untuk del: hapus variabel/indeks"""
+    target: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+
+    def get_children(self) -> List[Any]:
+        return [self.target]
+
+
+# ============= V3.1: Assert Statement =============
+
+@dataclass
+class AssertNode(ASTNode):
+    """Node untuk assert: pastikan kondisi"""
+    condition: ASTNode = field(default_factory=lambda: BooleanNode())
+    message: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        children = [self.condition]
+        if self.message:
+            children.append(self.message)
+        return children
+
+
+# ============= V3.1: Tuple Type =============
+
+@dataclass
+class TupleNode(ASTNode):
+    """Node untuk tuple literal: (1, 2, 3)"""
+    elements: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.elements
+
+
+# ============= V3.1: Set Type =============
+
+@dataclass
+class SetNode(ASTNode):
+    """Node untuk set literal: {1, 2, 3}"""
+    elements: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.elements
+
+
+# ============= V3.1: Dictionary Comprehension =============
+
+@dataclass
+class DictComprehensionNode(ASTNode):
+    """Node untuk dict comprehension: {k: v for k, v in items}"""
+    key_expr: ASTNode = field(default_factory=lambda: NumberNode(0))
+    value_expr: ASTNode = field(default_factory=lambda: NumberNode(0))
+    key_var: str = ""
+    value_var: Optional[str] = None
+    iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    condition: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        children = [self.key_expr, self.value_expr, self.iterable]
+        if self.condition:
+            children.append(self.condition)
+        return children
+
+
+# ============= V3.1: For-Else / While-Else =============
 
 
 # ============= Functions =============
@@ -349,12 +435,23 @@ class ListNode(ASTNode):
 
 @dataclass
 class IndexNode(ASTNode):
-    """Node untuk indexing: list[indeks]"""
+    """Node untuk indexing: list[indeks] atau list[start:stop:step]"""
     target: ASTNode = field(default_factory=lambda: IdentifierNode(""))
     index: ASTNode = field(default_factory=lambda: NumberNode())
+    slice_start: Optional[ASTNode] = None
+    slice_stop: Optional[ASTNode] = None
+    slice_step: Optional[ASTNode] = None
+    is_slice: bool = False
 
     def get_children(self) -> List[Any]:
-        return [self.target, self.index]
+        children = [self.target, self.index]
+        if self.slice_start:
+            children.append(self.slice_start)
+        if self.slice_stop:
+            children.append(self.slice_stop)
+        if self.slice_step:
+            children.append(self.slice_step)
+        return children
 
 
 @dataclass

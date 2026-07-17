@@ -36,8 +36,13 @@ from brolang.ast.nodes import (
     TryNode, CatchNode,
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
+    LambdaNode, ComprehensionNode, FStringNode,
+    EnumNode, StructNode, StructInstanceNode,
+    MatchNode, WildcardNode,
     AugmentedAssignmentNode, TernaryNode, RaiseNode,
     GlobalNode, NonlocalNode,
+    PassNode, DelNode, AssertNode,
+    TupleNode, SetNode, DictComprehensionNode,
 )
 
 
@@ -301,8 +306,27 @@ class Optimizer(ASTVisitor):
             self.optimized_count += 1
             return ProgramNode(statements=[])
 
-        return WhileNode(condition=condition, body=body,
+        # Optimize else body too
+        else_body = None
+        if node.else_body:
+            else_body = [self.visit(stmt) for stmt in node.else_body]
+
+        return WhileNode(condition=condition, body=body, else_body=else_body,
                          line=node.line, column=node.column)
+
+    def visit_ForNode(self, node: ForNode) -> ASTNode:
+        """Optimasi for loop."""
+        iterable = self.visit(node.iterable)
+        body = [self.visit(stmt) for stmt in node.body]
+
+        # Optimize else body too
+        else_body = None
+        if node.else_body:
+            else_body = [self.visit(stmt) for stmt in node.else_body]
+
+        return ForNode(variable=node.variable, iterable=iterable,
+                       body=body, else_body=else_body,
+                       line=node.line, column=node.column)
 
     def visit_ProgramNode(self, node: ProgramNode) -> ProgramNode:
         """Optimasi program."""
@@ -340,9 +364,49 @@ class Optimizer(ASTVisitor):
         elements = [self.visit(elem) for elem in node.elements]
         return ListNode(elements=elements, line=node.line, column=node.column)
 
+    def visit_TupleNode(self, node: TupleNode) -> TupleNode:
+        elements = [self.visit(elem) for elem in node.elements]
+        return TupleNode(elements=elements, line=node.line, column=node.column)
+
+    def visit_SetNode(self, node: SetNode) -> SetNode:
+        elements = [self.visit(elem) for elem in node.elements]
+        return SetNode(elements=elements, line=node.line, column=node.column)
+
     def visit_ObjectNode(self, node: ObjectNode) -> ObjectNode:
         entries = {k: self.visit(v) for k, v in node.entries.items()}
         return ObjectNode(entries=entries, line=node.line, column=node.column)
+
+    def visit_PassNode(self, node: PassNode) -> PassNode:
+        return node
+
+    def visit_DelNode(self, node: DelNode) -> DelNode:
+        return DelNode(target=node.target, line=node.line, column=node.column)
+
+    def visit_AssertNode(self, node: AssertNode) -> AssertNode:
+        condition = self.visit(node.condition)
+        message = self.visit(node.message) if node.message else None
+        return AssertNode(condition=condition, message=message,
+                          line=node.line, column=node.column)
+
+    def visit_IndexNode(self, node: IndexNode) -> IndexNode:
+        target = self.visit(node.target)
+        index = self.visit(node.index)
+        slice_start = self.visit(node.slice_start) if node.slice_start else None
+        slice_stop = self.visit(node.slice_stop) if node.slice_stop else None
+        slice_step = self.visit(node.slice_step) if node.slice_step else None
+        return IndexNode(target=target, index=index,
+                         slice_start=slice_start, slice_stop=slice_stop, slice_step=slice_step,
+                         is_slice=node.is_slice, line=node.line, column=node.column)
+
+    def visit_DictComprehensionNode(self, node: DictComprehensionNode) -> DictComprehensionNode:
+        key_expr = self.visit(node.key_expr)
+        value_expr = self.visit(node.value_expr)
+        iterable = self.visit(node.iterable)
+        condition = self.visit(node.condition) if node.condition else None
+        return DictComprehensionNode(key_expr=key_expr, value_expr=value_expr,
+                                     key_var=node.key_var, value_var=node.value_var,
+                                     iterable=iterable, condition=condition,
+                                     line=node.line, column=node.column)
 
     def visit_StringNode(self, node: StringNode) -> StringNode:
         return node

@@ -34,6 +34,8 @@ from brolang.ast.nodes import (
     MatchNode, WildcardNode,
     AugmentedAssignmentNode, TernaryNode, RaiseNode,
     GlobalNode, NonlocalNode,
+    PassNode, DelNode, AssertNode,
+    TupleNode, SetNode, DictComprehensionNode,
 )
 from brolang.exceptions import SemanticError
 
@@ -324,13 +326,8 @@ class SemanticAnalyzer(ASTVisitor):
             )
 
         if node.operator == "bukan":
-            if operand_type == "boolean":
-                return "boolean"
-            raise self._error(
-                message=f"Operator 'bukan' hanya bisa digunakan untuk tipe boolean.",
-                line=node.line,
-                column=node.column,
-            )
+            # bukan works with any type (like Python's not)
+            return "boolean"
 
         if node.operator == "+":
             return operand_type
@@ -408,6 +405,39 @@ class SemanticAnalyzer(ASTVisitor):
                 line=node.line,
                 column=node.column,
             )
+
+    def visit_PassNode(self, node: PassNode) -> None:
+        """Pass statement - no-op."""
+        pass
+
+    def visit_DelNode(self, node: DelNode) -> None:
+        """Del statement."""
+        self.visit(node.target)
+
+    def visit_AssertNode(self, node: AssertNode) -> None:
+        """Assert statement."""
+        self.visit(node.condition)
+        if node.message:
+            self.visit(node.message)
+
+    def visit_TupleNode(self, node: TupleNode) -> str:
+        """Tuple literal type."""
+        for elem in node.elements:
+            self.visit(elem)
+        return "tuple"
+
+    def visit_SetNode(self, node: SetNode) -> None:
+        """Set literal."""
+        for elem in node.elements:
+            self.visit(elem)
+
+    def visit_DictComprehensionNode(self, node: DictComprehensionNode) -> None:
+        """Dict comprehension."""
+        self.visit(node.key_expr)
+        self.visit(node.value_expr)
+        self.visit(node.iterable)
+        if node.condition:
+            self.visit(node.condition)
 
     def visit_FunctionNode(self, node: FunctionNode) -> None:
         """Memeriksa deklarasi fungsi."""
@@ -619,12 +649,12 @@ class SemanticAnalyzer(ASTVisitor):
         target_type = self.visit(node.target)
         index_type = self.visit(node.index)
 
-        if target_type not in ("list", "teks"):
+        if target_type not in ("list", "teks", "tuple"):
             raise self._error(
                 message=f"Tipe {target_type} tidak bisa di-index.",
                 line=node.line,
                 column=node.column,
-                solution="Indexing hanya untuk list dan string.",
+                solution="Indexing hanya untuk list, string, dan tuple.",
             )
 
         if index_type not in ("angka", None):
