@@ -59,7 +59,7 @@ tulis "Halo Dunia!"
 ```bash
 # Clone repo
 git clone https://github.com/salzcill-cmd/BroLang.git
-cd brolang
+cd BroLang
 
 # Install
 pip install -e .
