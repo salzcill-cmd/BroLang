@@ -1,166 +1,308 @@
-# BroLang v2.0
+<div align="center">
 
-**Bahasa Pemrograman Edukatif Profesional**
+# 🇮🇩 BroLang v3.0
 
-BroLang adalah bahasa pemrograman dengan sintaks Bahasa Indonesia yang dirancang untuk memudahkan pembelajaran pemrograman bagi pemula berbahasa Indonesia. Dibangun dengan Python, BroLang memiliki fitur lengkap bahasa pemrograman modern.
+### **Bahasa Pemrograman Indonesia yang Serius (Tapi Fun)**
+
+[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-133%20Passed-brightgreen?style=for-the-badge)](#)
+[![Version](https://img.shields.io/badge/Version-3.0-blue?style=for-the-badge)](#)
 
 ```
-tulis "Halo Dunia!"
+tulis "Halo Dunia!"    ← ini Bahasa BroLang, bukan Python ya bos
 ```
+
+**BroLang itu bahasa pemrograman yang sintaksnya pake Bahasa Indonesia.**
+**Jadi kalo kamu ngoding, rasanya kayak lagi ngetik chat WA tapi isinya program.**
+
+<br>
+
+[![Made with Love](https://img.shields.io/badge/Made_with_%E2%9D%A4_by_a_9th_grader-orange?style=for-the-badge)](#)
+
+</div>
 
 ---
 
-## Daftar Isi
+## 📋 Daftar Isi
 
-- [Instalasi](#instalasi)
-- [Penggunaan Cepat](#penggunaan-cepat)
-- [Dasar Bahasa](#dasar-bahasa)
-  - [Tipe Data](#tipe-data)
-  - [Variabel](#variabel)
-  - [Operator](#operator)
-  - [Percabangan](#percabangan)
-  - [Perulangan](#perulangan)
-  - [String](#string)
-  - [List](#list)
-  - [Objek](#objek)
-- [Fungsi](#fungsi)
-- [Lambda](#lambda)
-- [List Comprehension](#list-comprehension)
-- [F-String (Interpolasi String)](#f-string-interpolasi-string)
-- [Enum](#enum)
-- [Struktur (Struct)](#struktur-struct)
-- [Pattern Matching (Match/Case)](#pattern-matching-matchcase)
-- [Kelas & OOP](#kelas--oop)
-- [Error Handling](#error-handling)
-- [Modul & Import](#modul--import)
-- [Fungsi Bawaan](#fungsi-bawaan)
-- [Standard Library](#standard-library)
-  - [matematika](#matematika)
-  - [teks](#teks)
-  - [waktu](#waktu)
-  - [file](#file)
-  - [json](#json)
-  - [jaringan](#jaringan)
-  - [acak](#acak)
-- [CLI](#cli)
-- [REPL](#repl)
-- [Format Kode](#format-kode)
-- [Linter](#linter)
-- [Kompilasi](#kompilasi)
-- [Package Manager](#package-manager)
-- [LSP](#lsp)
-- [Arsitektur](#arsitektur)
-- [Contoh Lengkap](#contoh-lengkap)
+| # | Topik | Link |
+|---|-------|------|
+| 🚀 | Instalasi | [→ Klik disini](#-instalasi) |
+| ⚡ | Quick Start | [→ Klik disini](#-quick-start) |
+| 📦 | Fitur v3.0 (Baru!) | [→ Klik disini](#-fitur-v30---yang-baru) |
+| 🧱 | Dasar Bahasa | [→ Klik disini](#-dasar-bahasa) |
+| 🔧 | Fungsi & Default Params | [→ Klik disini](#-fungsi) |
+| 🎯 | Advanced Features | [→ Klik disini](#-advanced-features) |
+| 🎮 | Game Development | [→ Klik disini](#-game-development) |
+| 📚 | Standard Library | [→ Klik disini](#-standard-library) |
+| 🛠️ | CLI Tools | [→ Klik disini](#-cli-tools) |
+| 🏗️ | Arsitektur | [→ Klik disini](#-arsitektur) |
 
 ---
 
-## Instalasi
+## 🚀 Instalasi
+
+> **Syarat:** Python 3.10 ke atas. Kalo versi kamu di bawah itu, upgrade dulu ya bos.
 
 ```bash
-# Clone repo
+# 1. Clone repo-nya
 git clone https://github.com/salzcill-cmd/BroLang.git
 cd BroLang
 
-# Install
+# 2. Install (editable mode, biar kalo update ga perlu install ulang)
 pip install -e .
 
-# Cek instalasi
+# 3. Cek apakah udah ke-install
 bro --help
 ```
 
-## Penggunaan Cepat
-
-```bash
-# Jalankan file
-bro contoh.bro
-
-# Atau dengan perintah run
-bro run contoh.bro
-
-# REPL interaktif
-bro repl
-
-# Format kode
-bro fmt contoh.bro
-
-# Lint kode
-bro lint contoh.bro
-
-# Kompilasi ke Python
-bro build contoh.bro -o output.py
-```
+Kalo muncul info kayak gini, berarti udah sukses ✅
 
 ---
 
-## Dasar Bahasa
+## ⚡ Quick Start
+
+### Jalankan File
+
+```bash
+# Cara 1: langsung
+bro contoh.bro
+
+# Cara 2: pake perintah run
+bro run contoh.bro
+```
+
+### Bikin File BroLang Pertama
+
+Buat file `halo.bro`, terus isi kayak gini:
+
+```
+buat nama = "Bro"
+tulis "Halo, " + nama + "! Selamat datang di BroLang!"
+```
+
+Terus jalankan:
+
+```bash
+bro halo.bro
+```
+
+Output:
+
+```
+Halo, Bro! Selamat datang di BroLang!
+```
+
+Gampang kan? 😎
+
+---
+
+## 📦 Fitur v3.0 — Yang Baru!
+
+> **Versi 3.0 ini banyak banget fitur barunya.** Kayak HP upgrade dari Nokia ke Android gitu.
+
+### ✅ Augmented Assignment
+
+```
+buat x = 5
+x += 3       # x jadi 8
+x -= 2       # x jadi 6
+x *= 4       # x jadi 24
+x /= 6       # x jadi 4.0
+x %= 3       # x jadi 1.0
+x **= 2      # x jadi 1.0
+```
+
+**Ga perlu nulis `x = x + 3` lagi, tinggal `x += 3` langsung jadi.** Singkat kan?
+
+---
+
+### 🔀 Ternary Expression
+
+```
+buat umur = 17
+buat status = "Dewasa" jika umur >= 18 lainnya "Anak-anak"
+tulis status  # Output: Anak-anak
+```
+
+**Satu baris langsung dapet hasilnya.** Ga perlu pake `jika...lainnya` yang panjang.
+
+---
+
+### 🌐 Global & Nonlocal
+
+```
+buat x = 10
+
+fungsi ubah_x()
+  global x          # akses variabel global
+  x = 99
+selesai
+
+ubah_x()
+tulis x             # Output: 99
+```
+
+**`global` = akses variabel dari luar fungsi.** Berguna banget kalo lagi bikin game.
+
+---
+
+### 🎯 Default Parameter Value
+
+```
+fungsi sapa(nama = "Dunia")
+  tulis "Halo, " + nama + "!"
+selesai
+
+sapa()              # Output: Halo, Dunia!
+sapa("Budi")        # Output: Halo, Budi!
+```
+
+**Parameter bisa pake nilai default.** Kalo ga dikasih, pake default-nya.
+
+---
+
+### 💥 Raise Statement (Lempar Error)
+
+```
+coba
+  lempar "ada error nih!"
+tangkap e
+  tulis "Error: " + e
+selesai
+
+# Output: Error: ada error nih!
+```
+
+**`lempar`** itu kayak `raise` di Python. Buat nge-throw error sendiri.
+
+---
+
+### 🏁 Finally Block
+
+```
+coba
+  tulis "buka file"
+tangkap e
+  tulis "error: " + e
+akhirnya
+  tulis "tutup file"        # ini JALAN terus, mau error atau ga
+selesai
+```
+
+**`akhirnya`** itu kayak `finally` di Python. Pasti dijalankan, error atau ga.
+
+---
+
+### 📋 List Methods
+
+```
+buat angka = [3, 1, 2]
+angka.tambah(4)           # [3, 1, 2, 4]
+angka.urutkan()           # [1, 2, 3, 4]
+angka.balik()             # [4, 3, 2, 1]
+angka.hapus(4)            # [3, 2, 1]
+angka.sisipkan(1, 99)     # [3, 99, 2, 1]
+tulis angka.jumlah()      # 106 (3+99+2+1)
+```
+
+**Ga perlu pake `teks.gabung` atau cara ribet.** Tinggal `daftar.method()`.
+
+---
+
+### 📖 Dict Methods
+
+```
+buat orang = {"nama": "Budi", "umur": 17}
+tulis orang.kunci()       # ["nama", "umur"]
+tulis orang.nilai()       # ["Budi", 17]
+tulis orang.item()        # [["nama","Budi"], ["umur",17]]
+tulis orang.punya("nama")  # benar
+```
+
+**Dictionary makin gampang di-manage.**
+
+---
+
+### 🔢 Bitwise Operators
+
+```
+tulis 6 & 3       # 2 (AND)
+tulis 6 | 3       # 7 (OR)
+tulis 6 ^ 3       # 5 (XOR)
+tulis 1 << 3      # 8 (LEFT SHIFT)
+tulis 8 >> 1      # 4 (RIGHT SHIFT)
+tulis ~0          # -1 (NOT)
+```
+
+**Berguna buat low-level programming atau kompetisi algorithm.**
+
+---
+
+## 🧱 Dasar Bahasa
 
 ### Tipe Data
 
 | Tipe | Nama BroLang | Contoh |
-|------|--------------|--------|
+|------|-------------|--------|
 | Integer | `angka` | `42` |
 | Float | `desimal` | `3.14` |
 | String | `teks` | `"halo"` |
 | Boolean | `boolean` | `benar`, `salah` |
 | List | `list` | `[1, 2, 3]` |
-| Objek | `objek` | `{"nama": "Budi"}` |
+| Dictionary | `objek` | `{"nama": "Budi"}` |
 | Null | `kosong` | `kosong` |
 
-Cek tipe dengan fungsi `tipe()`:
-
-```python
+```
 tulis tipe(42)         # angka
-tulis tipe(3.14)       # desimal
 tulis tipe("halo")     # teks
 tulis tipe(benar)      # boolean
 tulis tipe([1,2,3])    # list
 tulis tipe(kosong)     # kosong
 ```
 
+---
+
 ### Variabel
 
-```python
+```
 buat nama = "Budi"
 buat umur = 17
 buat tinggi = 170.5
 buat siswa = benar
 buat nilai = kosong
 
-# Reassign (tanpa buat)
+# Reassign (ga perlu "buat" lagi)
 umur = 18
 
 # Multi variable
 buat a = 1, b = 2, c = 3
 ```
 
+> **Catatan:** `buat` cuma dipake waktu pertama kali声明 variabel. Kalo mau ganti nilainya, tinggal tulis nama variabelnya aja.
+
+---
+
 ### Operator
 
 **Aritmatika:**
 
-| Operator | Fungsi |
-|----------|--------|
-| `+` | Penjumlahan |
-| `-` | Pengurangan |
-| `*` | Perkalian |
-| `/` | Pembagian |
-| `%` | Modulo (sisa bagi) |
-| `**` | Pangkat |
-
-```python
-tulis 10 + 3    # 13
-tulis 10 - 3    # 7
-tulis 10 * 3    # 30
-tulis 10 / 3    # 3.333...
-tulis 10 % 3    # 1
-tulis 10 ** 3   # 1000
-```
+| Operator | Fungsi | Contoh |
+|----------|--------|--------|
+| `+` | Penjumlahan | `10 + 3 = 13` |
+| `-` | Pengurangan | `10 - 3 = 7` |
+| `*` | Perkalian | `10 * 3 = 30` |
+| `/` | Pembagian | `10 / 3 = 3.333` |
+| `%` | Modulo (sisa bagi) | `10 % 3 = 1` |
+| `**` | Pangkat | `10 ** 3 = 1000` |
 
 **Perbandingan:**
 
 | Operator | Fungsi |
 |----------|--------|
 | `==` | Sama dengan |
-| `!=` | Tidak sama |
+| `!=` | Tidak sama dengan |
 | `>` | Lebih besar |
 | `<` | Lebih kecil |
 | `>=` | Lebih besar atau sama |
@@ -174,45 +316,46 @@ tulis 10 ** 3   # 1000
 | `atau` | OR |
 | `bukan` | NOT |
 
-```python
-jika umur >= 17 dan memiliki_sim maka
-    tulis "Boleh menyetir"
-selesai
+---
+
+### Percabangan (If/Else)
+
 ```
+buat nilai = 85
 
-### Percabangan
-
-```python
 jika nilai >= 90 maka
-    tulis "Grade A"
+    tulis "Grade A — Mantap!"
 lainnya jika nilai >= 80 maka
-    tulis "Grade B"
+    tulis "Grade B — Lumayan!"
 lainnya jika nilai >= 70 maka
-    tulis "Grade C"
+    tulis "Grade C — Masih oke"
 lainnya
-    tulis "Grade D"
+    tulis "Grade D — Belajar lagi ya"
 selesai
 ```
+
+---
 
 ### Perulangan
 
-**For loop:**
+**For Loop:**
 
-```python
-# Range
+```
+# Pake range
 untuk i dalam range(5) lakukan
     tulis i
 selesai
+# Output: 0 1 2 3 4
 
-# List
+# Pake list langsung
 untuk buah dalam ["apel", "pisang", "jeruk"] lakukan
-    tulis "Buah:", buah
+    tulis "Buah favorit: " + buah
 selesai
 ```
 
-**While loop:**
+**While Loop:**
 
-```python
+```
 buat i = 0
 selama i < 5 lakukan
     tulis i
@@ -220,10 +363,10 @@ selama i < 5 lakukan
 selesai
 ```
 
-**Loop control:**
+**Loop Control:**
 
-```python
-# break
+```
+# break — berhenti di tengah
 untuk i dalam range(10) lakukan
     jika i == 5 maka
         hentikan
@@ -231,7 +374,7 @@ untuk i dalam range(10) lakukan
     tulis i
 selesai
 
-# continue
+# continue — skip satu iterasi
 untuk i dalam range(5) lakukan
     jika i == 2 maka
         lanjutkan
@@ -240,75 +383,80 @@ untuk i dalam range(5) lakukan
 selesai
 ```
 
+---
+
 ### String
 
-```python
+```
 buat s1 = "Hello"
 buat s2 = 'World'
 buat s3 = """Multi-line
-string"""
+string di BroLang"""
 
 # Concatenation
 buat s = "Halo " + "Dunia"
 
 # Escape sequences
-tulis "Baris pertama\nBaris kedua"
-tulis "Tab\tberikutnya"
-tulis "Tanda kutip \" di dalam string"
-
-# String methods (via stdlib teks)
-impor teks
-tulis teks.upper("hello")     # HELLO
-tulis teks.kapital("halo")    # Halo
-tulis teks.potong("a,b,c", ",")  # ["a", "b", "c"]
-```
-
-### List
-
-```python
-buat angka = [1, 2, 3, 4, 5]
-tulis angka[0]          # 1
-tulis angka[-1]         # 5
-tulis len(angka)        # 5
-
-# Nested list
-buat matriks = [[1, 2], [3, 4]]
-tulis matriks[0][1]     # 2
-
-# List operation
-buat list2 = angka + [6, 7]
-```
-
-### Objek
-
-```python
-buat orang = {"nama": "Budi", "umur": 17}
-tulis orang["nama"]
-orang["pekerjaan"] = "Programmer"
+tulis "Baris 1\nBaris 2"
+tulis "Tab\tselanjutnya"
 ```
 
 ---
 
-## Fungsi
+### List
 
-```python
+```
+buat angka = [1, 2, 3, 4, 5]
+tulis angka[0]          # 1
+tulis angka[-1]         # 5
+tulis jumlah(angka)     # 5 (panjang list)
+
+# Nested list
+buat matriks = [[1, 2], [3, 4]]
+tulis matriks[0][1]     # 2
+```
+
+---
+
+### Dictionary (Objek)
+
+```
+buat orang = {
+    "nama": "Budi",
+    "umur": 17,
+    "jurusan": "Informatika"
+}
+
+tulis orang["nama"]              # Budi
+orang["pekerjaan"] = "Programmer"  # Tambah field baru
+```
+
+---
+
+## 🔧 Fungsi
+
+```
 fungsi sapa(nama)
     kembali "Halo " + nama + "!"
 selesai
 
 tulis sapa("Budi")  # Halo Budi!
+```
 
-# Multiple params
-fungsi tambah(a, b)
+### Default Parameter
+
+```
+fungsi tambah(a, b = 10)
     kembali a + b
 selesai
 
-# Default return (kembali None)
-fungsi cetak_pesan(pesan)
-    tulis pesan
-selesai
+tulis tambah(5)      # 15 (pake default b=10)
+tulis tambah(5, 3)   # 8  (b=3)
+```
 
-# Recursive
+### Recursive
+
+```
 fungsi faktorial(n)
     jika n <= 1 maka
         kembali 1
@@ -316,110 +464,60 @@ fungsi faktorial(n)
         kembali n * faktorial(n - 1)
     selesai
 selesai
+
+tulis faktorial(5)   # 120
 ```
 
----
+### Lambda
 
-## Lambda
-
-Fungsi anonymous (tanpa nama) dengan `lalu`:
-
-```python
-# Lambda sederhana
+```
 buat tambah_dua = lalu(x) x + 2
 tulis tambah_dua(5)  # 7
 
-# Lambda dengan beberapa parameter
 buat kali = lalu(a, b) a * b
-tulis kali(3, 4)  # 12
-
-# Lambda sebagai argumen fungsi
-buat angka = [1, 2, 3, 4, 5]
-buat hasil = peta(lalu(x) x * 2, angka)
-tulis hasil  # [2, 4, 6, 8, 10]
+tulis kali(3, 4)     # 12
 ```
 
 ---
 
-## List Comprehension
+## 🎯 Advanced Features
 
-Membuat list baru dengan ekspresi di dalam `[]` menggunakan `lalu`:
+### List Comprehension
 
-```python
-# Dasar
+```
 buat angka = [1, 2, 3, 4, 5]
 buat genap = [x * 2 lalu x dalam angka]
 tulis genap  # [2, 4, 6, 8, 10]
 
-# Dengan filter (jika)
+# Dengan filter
 buat besar = [x lalu x dalam angka jika x > 3]
 tulis besar  # [4, 5]
-
-# Comprehension dengan range
-buat kuadrat = [x ** 2 lalu x dalam range(5)]
-tulis kuadrat  # [0, 1, 4, 9, 16]
 ```
 
----
+### F-String (Interpolasi String)
 
-## F-String (Interpolasi String)
-
-String dengan ekspresi di dalam `{}`:
-
-```python
+```
 buat nama = "Budi"
 buat umur = 17
 tulis f"Halo {nama}, umur kamu {umur} tahun"
 # Output: Halo Budi, umur kamu 17 tahun
-
-# Dengan ekspresi
-buat x = 10
-tulis f"Hasil: {x * 2 + 5}"
-# Output: Hasil: 25
 ```
 
----
+### Enum
 
-## Enum
-
-Tipe data enumerasi dengan konstanta bernama:
-
-```python
+```
 enum Warna {
     MERAH,
     BIRU,
     HIJAU
 }
 
-buat warna_sekarang = Warna.MERAH
-tulis warna_sekarang  # Warna.MERAH
-
-# Percabangan dengan enum
-cocokkan warna_sekarang {
-    Warna.MERAH: tulis "Merah!"
-    Warna.BIRU: tulis "Biru!"
-    _: tulis "Warna lain"
-}
+buat warna = Warna.MERAH
 ```
 
----
+### Struct
 
-## Struktur (Struct)
-
-Tipe data terstruktur dengan field-field:
-
-```python
-struktur Titik {
-    x,
-    y
-}
-
-buat p = Titik(10, 20)
-tulis p  # Titik(10, 20)
-tulis p.x  # 10
-tulis p.y  # 20
-
-# Struct untuk data game
+```
 struktur Pemain {
     nama,
     hp,
@@ -427,16 +525,13 @@ struktur Pemain {
 }
 
 buat hero = Pemain("Budi", 100, 0)
-tulis f"{hero.nama} HP: {hero.hp}"
+tulis hero.nama  # Budi
+tulis hero.hp    # 100
 ```
 
----
+### Pattern Matching
 
-## Pattern Matching (Match/Case)
-
-Pencocokan pola dengan `cocokkan`:
-
-```python
+```
 buat x = 2
 
 cocokkan x {
@@ -445,309 +540,54 @@ cocokkan x {
     3: tulis "tiga"
     _: tulis "lainnya"
 }
-# Output: dua
-
-# Dengan enum
-enum Status { HIDUP, MATI }
-
-buat status = Status.HIDUP
-cocokkan status {
-    Status.HIDUP: tulis "Masih hidup!"
-    Status.MATI: tulis "Game over!"
-    _: tulis "Status tidak dikenal"
-}
 ```
 
----
+### Error Handling
 
-## Kelas & OOP
-
-```python
-kelas Mahasiswa
-
-    fungsi __init__(self, nama, jurusan)
-        buat self.nama = nama
-        buat self.jurusan = jurusan
-        buat self.nilai = []
-    selesai
-
-    fungsi tambah_nilai(self, n)
-        self.nilai = self.nilai + [n]
-    selesai
-
-    fungsi info(self)
-        kembali self.nama + " - " + self.jurusan
-    selesai
-
-selesai
-
-buat mhs = Mahasiswa("Ani", "Informatika")
-mhs.tambah_nilai(85)
-tulis mhs.info()
 ```
-
-**Class dengan pewarisan:**
-
-```python
-kelas Karyawan
-    fungsi __init__(self, nama, gaji)
-        buat self.nama = nama
-        buat self.gaji = gaji
-    selesai
-    fungsi info(self)
-        kembali self.nama + ": Rp" + self.gaji
-    selesai
-selesai
-
-kelas Manager(Karyawan)
-    fungsi __init__(self, nama, gaji, tim)
-        buat self.nama = nama  # atau panggil parent __init__
-        buat self.gaji = gaji
-        buat self.tim = tim
-    selesai
-selesai
-```
-
----
-
-## Error Handling
-
-```python
 coba
     buat hasil = 10 / 0
-    tulis hasil
 tangkap error
-    tulis "Terjadi error:", error
+    tulis "Error: " + error
 selesai
 ```
 
-Error yang bisa ditangkap:
-
-- `Pesan: Tidak bisa membagi dengan nol.` — pembagian dengan nol
-- `Pesan: Variabel 'x' tidak ditemukan.` — variabel tidak terdefinisi
-- `Pesan: Tipe ... tidak bisa di-index.` — indexing salah
-- `Pesan: Indeks ... di luar batas.` — indeks melebihi panjang list
-
 ---
 
-## Modul & Import
+## 🎮 Game Development
 
-```python
-# Import seluruh modul
-impor matematika
-tulis matematika.akar(25)
+> **BroLang bisa bikin game pake Pygame!** Serius, bukan main-main.
 
-# Import spesifik
-dari teks impor upper, lower
-tulis upper("halo")
-
-# Import dengan alias
-impor acak sebagai rnd
-tulis rnd.bulat(1, 10)
-```
-
----
-
-## Fungsi Bawaan
-
-Fungsi-fungsi ini tersedia secara global tanpa perlu import:
-
-| Fungsi | Deskripsi | Contoh |
-|--------|-----------|--------|
-| `len(x)` | Panjang string/list/objek | `len("halo")` |
-| `angka(x)` | Konversi ke integer | `angka("42")` |
-| `desimal(x)` | Konversi ke float | `desimal("3.14")` |
-| `teks(x)` | Konversi ke string | `teks(42)` |
-| `tipe(x)` | Nama tipe data | `tipe(42)` |
-| `range(start, stop, step)` | Membuat range | `range(5)` |
-| `jumlah(iterable)` | Sum elemen | `jumlah([1,2,3])` |
-| `peta(func, iterable)` | Map function | `peta(angka, ["1","2"])` |
-| `saring(func, iterable)` | Filter list | `saring(f, [1,2,3])` |
-| `input(prompt)` | Input dari user | `input("Nama: ")` |
-
----
-
-## Standard Library
-
-### matematika
-
-```python
-impor matematika
-
-matematika.akar(25)          # 5.0
-matematika.sin(3.14/2)       # 0.999...
-matematika.cos(0)            # 1.0
-matematika.tan(0)            # 0.0
-matematika.pangkat(2, 3)     # 8.0
-matematika.absolut(-5)       # 5
-matematika.bulat(3.141, 2)   # 3.14
-matematika.lantai(3.7)       # 3
-matematika.langit(3.2)       # 4
-matematika.log(100, 10)      # 2.0
-matematika.pi()              # 3.141592653589793
-matematika.e()               # 2.718281828459045
-matematika.max(10, 20)       # 20
-matematika.min(10, 20)       # 10
-matematika.faktorial(5)      # 120
-```
-
-### teks
-
-```python
-impor teks
-
-teks.upper("hello")              # HELLO
-teks.lower("HELLO")              # hello
-teks.kapital("hello world")      # Hello world
-teks.judul("hello world")        # Hello World
-teks.potong("a,b,c", ",")        # ["a", "b", "c"]
-teks.gabung(["a", "b", "c"])     # abc
-teks.ganti("hello", "l", "x")    # hexxo
-teks.panjang("hello")            # 5
-teks.strip("  hi  ")             # hi
-teks.cari("hello", "el")         # 1
-teks.mulai("hello", "he")        # benar
-teks.berakhir("hello", "lo")     # benar
-teks.potong_kiri("  hi  ")       # "hi  "
-teks.potong_kanan("  hi  ")      # "  hi"
-```
-
-### waktu
-
-```python
-impor waktu
-
-waktu.sekarang()             # "2026-06-06T12:00:00"
-waktu.tidur(1)               # Tunggu 1 detik
-waktu.waktu()                # 1778654400.0 (UNIX timestamp)
-waktu.tanggal()              # "2026-06-06"
-waktu.jam()                  # "12:00:00"
-waktu.format_waktu("%Y-%m")  # "2026-06"
-```
-
-### file
-
-```python
-impor file
-
-file.baca("data.txt")                    # Baca file teks
-file.tulis("output.txt", "konten")        # Tulis file
-file.tambah("log.txt", "baris baru")      # Append
-file.baca_baris("data.txt")               # Generator baris
-file.ada("data.txt")                      # True/False
-file.hapus("sampah.txt")                  # Hapus file
-file.ukuran("data.txt")                   # Ukuran bytes
-file.daftar("/tmp")                       # List directory
-file.buat_folder("folder_baru")           # Buat folder
-```
-
-### json
-
-```python
-impor json
-
-json.parsing('{"nama": "Budi"}')          # {"nama": "Budi"}
-json.string({"nama": "Budi"})             # '{\n  "nama": "Budi"\n}'
-json.baca("data.json")                    # Baca file JSON
-json.tulis("data.json", {"key": "val"})   # Tulis file JSON
-```
-
-### jaringan
-
-```python
-impor jaringan
-
-# HTTP GET
-hasil = jaringan.dapatkan("https://api.example.com")
-tulis hasil.status
-tulis hasil.data
-
-# HTTP POST
-hasil = jaringan.kirim("https://api.example.com",
-    data='{"nama": "Budi"}', method="POST")
-```
-
-### acak
-
-```python
-impor acak
-
-acak.angka(0, 1)                          # 0.731...
-acak.bulat(1, 100)                        # 42
-acak.pilih(["merah", "biru", "hijau"])    # "biru"
-acak.pilih_beberapa([1,2,3,4,5], 3)       # [2, 5, 1]
-acak.acak_list([1,2,3,4,5])              # [3, 1, 5, 2, 4]
-acak.seed(42)                             # Set seed
-```
-
----
-
-## Game Development
-
-BroLang mendukung game development dengan modul-modul game bawaan. Membutuhkan `pygame`:
+### Persiapan
 
 ```bash
-pip install pygame
+pip install pygame-ce
 ```
 
-### Memulai Game Baru
+### Quick Start
 
 ```bash
+# Bikin project game baru
 bro new-game nama_game
-cd nama_game
+
+# Jalankan game
 bro run-game main.bro
-```
-
-### Struktur Proyek Game
-
-```
-nama_game/
-  main.bro           <- File utama game
-  assets/
-    gambar/          <- Sprite, gambar
-    suara/           <- Sound effect, musik
 ```
 
 ### Modul Game
 
-#### game — Game Loop & Scene Management
+#### 🎨 `grafis` — Rendering 2D
 
-```python
-impor game
-
-game.buat_jendela(800, 600, "Gameku")
-game.atur_fps(60)
-
-# Scene management
-game.tambah_scene("menu", update_menu, gambar_menu)
-game.tambah_scene("main", update_main, gambar_main)
-game.ganti_scene("menu")
-
-# Data global game
-game.dapatkan_data()["skor"] = 0
-
-# Mulai game loop (block sampai selesai)
-game.mulai()
-game.berhenti()
 ```
-
-#### grafis — Rendering 2D
-
-```python
 impor grafis
 
-# Jendela
-grafis.mulai_jendela(800, 600, "Judul")
+grafis.mulai_jendela(800, 600, "Gameku")
 grafis.bersihkan("hitam")
-grafis.perbarui()
-grafis.tutup()
 
-# Menggambar
+# Gambar bentuk
 grafis.segi_panjang(100, 100, 50, 50, "biru")
 grafis.lingkaran(400, 300, 30, "merah")
 grafis.garis(0, 0, 800, 600, "putih", 2)
-grafis.segitiga(400, 100, 350, 200, 450, 200, "hijau")
-grafis.persegi(100, 100, 50, "kuning")
 
 # Teks
 grafis.tulis_teks("Skor: 100", 10, 10, "kuning", 32)
@@ -755,244 +595,247 @@ grafis.tulis_teks("Skor: 100", 10, 10, "kuning", 32)
 # Gambar/Sprite
 buat img = grafis.muat_gambar("assets/player.png")
 grafis.gambar_gambar(img, 100, 200)
-grafis.gambar_gambar_putar(img, 100, 200, 45)
-grafis.gambar_gambar_scala(img, 100, 200, 2.0, 2.0)
 
 # Deteksi tabrakan
 grafis.tabrakan_segi_panjang(x1, y1, w1, h1, x2, y2, w2, h2)
-grafis.tabrakan_lingkaran(x1, y1, r1, x2, y2, r2)
-grafis.tabrakan_titik_segi_panjang(px, py, rx, ry, rw, rh)
 
-# Frame rate
-grafis.atur_fps(60)
-grafis.dapatkan_fps()
-grafis.dapatkan_delta()
+grafis.perbarui()
 ```
 
-#### input — Keyboard & Mouse
+#### 🎵 `audio` — Sound & Musik
 
-```python
+```
+impor audio
+
+audio.muat_musik("assets/bgm.mp3")
+audio.mainkan_musik()
+audio.atur_volume_musik(0.5)
+
+buat sfx = audio.muat_suara("assets/tembak.wav")
+audio.mainkan_suara(sfx)
+```
+
+#### ⌨️ `input` — Keyboard & Mouse
+
+```
 impor input
 
-# Keyboard (held down)
+# Keyboard
 jika input.tombol_ditekan("LEFT") maka
-    # ...
-selesai
-
-# Keyboard (single press)
-jika input.tombol_baru_ditekan("SPACE") maka
-    # ...
+    #Gerak ke kiri
 selesai
 
 # Mouse
-buat pos = input.tikus_posisi()    # (x, y)
-jika input.tikus_tombol_ditekan(0) maka  # 0=kiri
-    # ...
+buat posisi = input.tikus_posisi()
+jika input.tikus_tombol_ditekan(0) maka
+    # Klik kiri
 selesai
 ```
 
-#### audio — Sound & Musik
+#### 🕐 `game` — Game Loop
 
-```python
-impor audio
-
-# Musik latar
-audio.muat_musik("assets/suara/bgm.mp3")
-audio.mainkan_musik()              # Loop forever
-audio.atur_volume_musik(0.5)
-audio.hentikan_musik()
-
-# Sound effects
-buat sfx = audio.muat_suara("assets/suara/tembak.wav")
-audio.mainkan_suara(sfx)
-audio.mainkan_suara(sfx, 0.5)     # Volume 50%
 ```
+impor game
 
-#### vektor — Vektor 2D/3D
+game.buat_jendela(800, 600, "Gameku")
+game.atur_fps(60)
 
-```python
-impor vektor
-
-buat pos = vektor.Vec2(100, 200)
-buat vel = vektor.Vec2(50, 0)
-
-# Operasi
-buat pos_baru = pos + vel
-buat jarak = pos.panjang()
-buat norm = pos.normalisasi()
-buat dot = pos.dot(vel)
-buat rotasi = pos.rotate(3.14)
-buat interpolated = pos.lerp(pos_baru, 0.5)
-
-# Vec3 juga tersedia
-buat pos3 = vektor.Vec3(100, 200, 50)
+game.tambah_scene("menu", update_menu, gambar_menu)
+game.ganti_scene("menu")
+game.mulai()
 ```
 
 ### Contoh Game
 
-Lihat `examples/` untuk contoh game:
+Cek folder `games/` untuk contoh game yang udah jadi:
 
-| File | Deskripsi |
+| Game | Deskripsi |
 |------|-----------|
-| `game_paddle.bro` | Paddle & Ball — game sederhana |
-| `game_pong.bro` | Pong 2 pemain |
-
-### Jalankan Game
+| `space_defender.bro` | Game shoot 'em up — tembak-tembakan di luar angkasa |
 
 ```bash
-bro run-game examples/game_paddle.bro
-bro run-game examples/game_pong.bro
+bro run games/space_defender.bro
 ```
 
 ---
 
-## CLI
+## 📚 Standard Library
 
-```bash
-bro                     # Tampilkan info
-bro file.bro            # Jalankan file (langsung)
-bro run file.bro        # Jalankan file
-bro build file.bro      # Kompilasi ke Python
-bro build file.bro -o output.py  # Simpan hasil kompilasi
-bro repl                # REPL interaktif
-bro fmt file.bro        # Format kode
-bro fmt file.bro --check  # Cek format saja
-bro lint file.bro       # Analisis statis
-bro new-game nama_game  # Buat proyek game baru
-bro run-game main.bro   # Jalankan file game
-bro version             # Info versi
-bro --help              # Bantuan
+### `matematika` — Matematika
+
+```
+impor matematika
+
+matematika.akar(25)          # 5.0
+matematika.sin(3.14/2)       # 0.999...
+matematika.absolut(-5)       # 5
+matematika.faktorial(5)      # 120
+matematika.pi()              # 3.14159...
+matematika.max(10, 20)       # 20
+matematika.min(10, 20)       # 10
+```
+
+### `teks` — String Manipulation
+
+```
+impor teks
+
+teks.upper("hello")              # HELLO
+teks.lower("HELLO")              # hello
+teks.kapital("hello world")      # Hello world
+teks.potong("a,b,c", ",")        # ["a", "b", "c"]
+teks.ganti("hello", "l", "x")    # hexxo
+teks.cari("hello", "el")         # 1
+teks.strip("  hi  ")             # hi
+```
+
+### `waktu` — Waktu
+
+```
+impor waktu
+
+waktu.sekarang()             # "2026-06-06T12:00:00"
+waktu.tidur(1)               # Tunggu 1 detik
+waktu.tanggal()              # "2026-06-06"
+waktu.jam()                  # "12:00:00"
+```
+
+### `file` — File Operations
+
+```
+impor file
+
+file.baca("data.txt")
+file.tulis("output.txt", "konten")
+file.tambah("log.txt", "baris baru")
+file.ada("data.txt")
+file.hapus("sampah.txt")
+```
+
+### `json` — JSON
+
+```
+impor json
+
+json.parsing('{"nama": "Budi"}')
+json.string({"nama": "Budi"})
+json.baca("data.json")
+json.tulis("data.json", {"key": "val"})
+```
+
+### `jaringan` — HTTP Request
+
+```
+impor jaringan
+
+hasil = jaringan.dapatkan("https://api.example.com")
+tulis hasil.status
+tulis hasil.data
+```
+
+### `acak` — Random
+
+```
+impor acak
+
+acak.bulat(1, 100)                        # 42
+acak.pilih(["merah", "biru", "hijau"])    # "biru"
+acak.acak_list([1,2,3,4,5])              # [3, 1, 5, 2, 4]
 ```
 
 ---
 
-## REPL
+## 🛠️ CLI Tools
 
 ```bash
-bro repl
+bro                         # Info singkat
+bro contoh.bro              # Jalankan file
+bro run contoh.bro          # Jalankan file (explicit)
+bro build contoh.bro        # Kompilasi ke Python
+bro build contoh.bro -o out.py  # Simpan hasil kompilasi
+bro repl                    # REPL interaktif
+bro fmt contoh.bro          # Format kode
+bro fmt contoh.bro --check  # Cek format (jangan diubah)
+bro lint contoh.bro         # Analisis statis / cek error
+bro new-game nama_game      # Bikin project game baru
+bro run-game main.bro       # Jalankan game
+bro version                 # Cek versi
+bro --help                  # Bantuan
 ```
 
-Fitur REPL:
-- History perintah (navigasi dengan panah atas/bawah)
-- Multi-line input (enter dua kali untuk eksekusi)
-- Error reporting dengan pesan jelas
-- Auto-completion (via LSP)
-
----
-
-## Format Kode
+### Format Kode
 
 ```bash
-bro fmt file.bro        # Format file
-bro fmt file.bro --check  # Cek tanpa mengubah
+bro fmt contoh.bro          # Auto-format
+bro fmt contoh.bro --check  # Cek doang
 ```
 
-Aturan format:
-- Indentasi 4 spasi
-- Baris baru setelah `maka`, `lakukan`, `selesai`, `lainnya`, `tangkap`
-- Dedent otomatis pada `selesai`, `lainnya`, `tangkap`
-- Mempertahankan komentar dan baris kosong
-
----
-
-## Linter
+### Linter
 
 ```bash
-bro lint file.bro
+bro lint contoh.bro
 ```
-
-Aturan lint:
 
 | Aturan | Severity | Deskripsi |
 |--------|----------|-----------|
-| `line-length` | warning | Maksimal 100 karakter per baris |
-| `trailing-whitespace` | info | Tidak boleh ada spasi di akhir baris |
-| `indentation` | warning | Gunakan spasi (bukan tab), 4 spasi per level |
-| `naming-convention` | info | Minimal 2 karakter, deskriptif |
+| `line-length` | warning | Maks 100 karakter per baris |
+| `trailing-whitespace` | info | Ga boleh ada spasi di akhir baris |
+| `indentation` | warning | Spasi 4, bukan tab |
+| `naming-convention` | info | Minimal 2 karakter |
 
 ---
 
-## Kompilasi
+## 🏗️ Arsitektur
 
-Kompilasi kode BroLang ke Python:
+```
+┌─────────────┐    ┌───────────┐    ┌──────────┐    ┌───────────┐    ┌───────────┐
+│ Source Code  │───▶│   Lexer   │───▶│  Parser  │───▶│ Semantic  │───▶│ Interpreter│
+│   (.bro)     │    │           │    │          │    │ Analyzer  │    │           │
+└─────────────┘    └───────────┘    └──────────┘    └───────────┘    └───────────┘
+                                                                        
+                                                  ┌───────────┐    
+                                                  │ Optimizer │──── (optional)    
+                                                  └───────────┘    
+```
+
+| Tahap | Fungsi |
+|-------|--------|
+| **Lexer** | Pecah source code jadi token. Support Unicode, indent/dedent, komentar |
+| **Parser** | Ubah token stream jadi AST (Abstract Syntax Tree) |
+| **Semantic Analyzer** | Validasi semantik: cek variabel, tipe, scope |
+| **Optimizer** | Constant folding, algebraic simplification, dead code elimination |
+| **Interpreter** | Eksekusi AST pake visitor pattern |
+
+### Compiler Pipeline
+
+```
+Source Code → Lexer → Parser → AST → Compiler → Python AST → Python Bytecode
+```
+
+Kompilasi ke Python murni, bisa dijalankan tanpa BroLang.
+
+---
+
+## 🧪 Testing
 
 ```bash
-bro build program.bro -o output.py
-python output.py        # Jalankan hasil kompilasi
+# Jalankan semua test
+python -m pytest tests/ -x -q
+
+# Dengan verbose
+python -m pytest tests/ -v
+
+# Coverage
+python -m pytest tests/ --cov=brolang --cov-report=term
 ```
 
-Hasil kompilasi adalah kode Python murni yang bisa dijalankan langsung.
+**133 tests — semua passed.** Ga ada yang fail. ✅
 
 ---
 
-## Package Manager
+## 📂 Contoh Program
 
-```bash
-bropm install paket       # Install package
-bropm remove paket        # Hapus package
-bropm update              # Update semua
-bropm update paket        # Update spesifik
-bropm list                # Lihat package terinstall
-bropm search kata_kunci   # Cari package
-```
-
-Packages disimpan di `~/.brolang/packages/`.
-
----
-
-## LSP
-
-BroLang memiliki Language Server Protocol (LSP) server yang kompatibel dengan VS Code, Neovim, dan editor lainnya.
-
-```bash
-bro-lsp  # Jalankan LSP server
-```
-
-Fitur:
-- **Diagnostics**: error dan warning real-time
-- **Auto-completion**: saran kode kontekstual
-- **Hover information**: info tipe dan dokumentasi
-
-Integrasi VS Code — tambahkan ke `settings.json`:
-
-```json
-{
-    "lsp.enabled": true,
-    "lsp.serverCommand": ["bro-lsp"]
-}
-```
-
----
-
-## Arsitektur
-
-BroLang menggunakan pipeline eksekusi 5 tahap:
-
-```
-Source Code → Lexer → Tokens → Parser → AST → Analyzer → AST → Optimizer → AST → Interpreter → Output
-```
-
-| Tahap | Deskripsi |
-|-------|-----------|
-| **Lexer** | Memecah source code menjadi token. Mendukung Unicode/UTF-8, indent/dedent (gaya Python), komentar single-line (`#`) dan multi-line (`#| \|#`), string single/double/multi-line, konversi keyword Indonesia ke token |
-| **Parser** | Recursive descent parser. Mengubah token stream menjadi AST (Abstract Syntax Tree). Menangani semua grammar BroLang dengan precedence climbing untuk operator |
-| **Semantic Analyzer** | Validasi semantik. Symbol table dengan scoping, deteksi variabel tak terdefinisi, deklarasi duplikat, type checking, validasi fungsi |
-| **Optimizer** | Optimasi AST. Constant folding (`2+3` → `5`), algebraic simplification (`x+0` → `x`, `x*1` → `x`), dead code elimination (konstanta if/while) |
-| **Interpreter** | Visitor pattern interpreter. Environment-based scoping, function call dengan argument passing, class instantiation dengan method dispatch, try-catch error handling |
-
-**Compiler**: Alternatif pipeline — mengubah AST BroLang ke Python AST, lalu dikompilasi ke Python bytecode via `compile()`.
-
----
-
-## Contoh Lengkap
-
-Lihat `examples/brolang_comprehensive.bro` untuk demo semua fitur:
-
-```bash
-bro examples/brolang_comprehensive.bro
-```
-
-Contoh lain di `examples/`:
+Lihat folder `examples/` untuk contoh-contoh program:
 
 | File | Deskripsi |
 |------|-----------|
@@ -1005,38 +848,36 @@ Contoh lain di `examples/`:
 | `error_handling.bro` | Try-catch |
 | `stdlib.bro` | Standard library |
 | `brolang_comprehensive.bro` | Semua fitur |
-| `game_paddle.bro` | Game Paddle & Ball |
-| `game_pong.bro` | Game Pong 2 pemain |
-| `v2_demo.bro` | Demo semua fitur v2 |
+| `v2_demo.bro` | Demo fitur v2 |
 
 ---
 
-## Pengembangan
+## 🤝 Kontribusi
 
-```bash
-# Setup dev environment
-pip install -e ".[dev]"
-
-# Run tests
-PYTHONPATH=/home/izza/Projects/BroLang pytest tests/
-
-# Run tests with coverage
-PYTHONPATH=/home/izza/Projects/BroLang pytest tests/ --cov=brolang --cov-report=term
-
-# Test specific file
-PYTHONPATH=/home/izza/Projects/BroLang pytest tests/unit/test_lexer.py -v
+```
+1. Fork repository ini
+2. Buat branch baru: git checkout -b fitur-baru
+3. Commit perubahan: git commit -m "tambah fitur X"
+4. Push ke branch: git push origin fitur-baru
+5. Buka Pull Request
 ```
 
-**Persyaratan:** Python ≥ 3.10
+---
+
+## 📄 Lisensi
+
+MIT License — bebas dipake, dimodif, disebar.
 
 ---
 
-## Lisensi
+<div align="center">
 
-MIT License — lihat file LICENSE untuk detail.
+**Dibuat dengan ❤️ oleh anak kelas 9 SMP yang kebanyakan ngoding**
 
----
+*"Bahasa Indonesia itu keren, makanya saya bikin bahasa pemrogramannya pake Indonesia juga."*
 
-## Kontribusi
+<br>
 
-Kontribusi selalu diterima! Silakan buka issue atau pull request di repository.
+![Visitor Count](https://komarev.com/ghpvc/?username=salzcill-cmd&color=blue&style=for-the-badge)
+
+</div>
