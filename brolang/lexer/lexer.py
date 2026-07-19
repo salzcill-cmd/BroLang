@@ -425,6 +425,11 @@ class Lexer:
         if char == '|' and self._current() == '|':
             self._advance()
             return Token(TokenType.TOKEN_ATAU, '||', start_line, start_col)
+        if char == ':' and self._current() == '=':
+            self._advance()
+            return Token(TokenType.TOKEN_WALRUS, ':=', start_line, start_col)
+        if char == '@':
+            return Token(TokenType.TOKEN_AT, '@', start_line, start_col)
 
         operator_map = {
             '+': TokenType.TOKEN_PLUS,

@@ -667,3 +667,202 @@ class NonlocalNode(ASTNode):
 
     def get_children(self) -> List[Any]:
         return []
+
+
+# ============= V4: Async/Await =============
+
+@dataclass
+class AsyncFunctionDefNode(ASTNode):
+    """Node untuk async function: asinkron fungsi nama() ... selesai"""
+    name: str = ""
+    params: List[str] = field(default_factory=list)
+    defaults: List[Optional[ASTNode]] = field(default_factory=list)
+    body: List[ASTNode] = field(default_factory=list)
+    decorators: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+@dataclass
+class AwaitNode(ASTNode):
+    """Node untuk await: tunggu ekspresi"""
+    value: ASTNode = field(default_factory=lambda: NumberNode(0))
+
+    def get_children(self) -> List[Any]:
+        return [self.value]
+
+
+# ============= V4: Generators =============
+
+@dataclass
+class YieldNode(ASTNode):
+    """Node untuk yield: hasilkan ekspresi"""
+    value: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        if self.value:
+            return [self.value]
+        return []
+
+
+@dataclass
+class YieldFromNode(ASTNode):
+    """Node untuk yield from: hasilkandari ekspresi"""
+    value: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+
+    def get_children(self) -> List[Any]:
+        return [self.value]
+
+
+@dataclass
+class GeneratorFunctionNode(ASTNode):
+    """Node untuk generator function: fungsi nama() ... hasilkan ... selesai"""
+    name: str = ""
+    params: List[str] = field(default_factory=list)
+    defaults: List[Optional[ASTNode]] = field(default_factory=list)
+    body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+# ============= V4: Decorators =============
+
+@dataclass
+class DecoratorNode(ASTNode):
+    """Node untuk decorator: @dekorator sebelum fungsi/kelas"""
+    decorator_expr: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    target: ASTNode = field(default_factory=lambda: FunctionNode())
+
+    def get_children(self) -> List[Any]:
+        return [self.decorator_expr, self.target]
+
+
+@dataclass
+class DecoratedFunctionNode(ASTNode):
+    """Node untuk fungsi yang didekorasi"""
+    name: str = ""
+    params: List[str] = field(default_factory=list)
+    defaults: List[Optional[ASTNode]] = field(default_factory=list)
+    body: List[ASTNode] = field(default_factory=list)
+    decorators: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+@dataclass
+class DecoratedClassNode(ASTNode):
+    """Node untuk kelas yang didekorasi"""
+    name: str = ""
+    parent: Optional[str] = None
+    methods: List["MethodNode"] = field(default_factory=list)
+    body: List[ASTNode] = field(default_factory=list)
+    decorators: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+# ============= V4: Walrus Operator =============
+
+@dataclass
+class WalrusNode(ASTNode):
+    """Node untuk walrus operator: x := ekspresi"""
+    name: str = ""
+    value: ASTNode = field(default_factory=lambda: NumberNode(0))
+
+    def get_children(self) -> List[Any]:
+        return [self.value]
+
+
+# ============= V4: Context Manager =============
+
+@dataclass
+class WithNode(ASTNode):
+    """Node untuk with statement: dengan ekspresi sebagai nama ... selesai"""
+    context_expr: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    as_name: Optional[str] = None
+    body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        children = [self.context_expr]
+        children.extend(self.body)
+        return children
+
+
+# ============= V4: Typed Except =============
+
+@dataclass
+class TypedExceptNode(ASTNode):
+    """Node untuk typed except: kecuali TipeError sebagai e ... selesai"""
+    exception_type: Optional[str] = None
+    variable: str = "error"
+    body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+@dataclass
+class MultiExceptNode(ASTNode):
+    """Node untuk multiple except: coba ... kecuali Tipe1 ... kecuali Tipe2 ... selesai"""
+    body: List[ASTNode] = field(default_factory=list)
+    except_clauses: List[TypedExceptNode] = field(default_factory=list)
+    else_body: Optional[List[ASTNode]] = None
+    finally_body: Optional[List[ASTNode]] = None
+
+    def get_children(self) -> List[Any]:
+        children = self.body.copy()
+        for clause in self.except_clauses:
+            children.extend(clause.body)
+        if self.else_body:
+            children.extend(self.else_body)
+        if self.finally_body:
+            children.extend(self.finally_body)
+        return children
+
+
+# ============= V4: Star Import =============
+
+@dataclass
+class StarImportNode(ASTNode):
+    """Node untuk star import: dari module impor *"""
+    module: str = ""
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+# ============= V4: Chained Method Call =============
+
+@dataclass
+class ChainedCallNode(ASTNode):
+    """Node untuk chained method call: obj.method1().method2()"""
+    calls: List[CallNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.calls
+
+
+# ============= V4: Switch Statement =============
+
+@dataclass
+class SwitchNode(ASTNode):
+    """Node untuk switch statement (enhanced match): switch expr { case ... }"""
+    value: ASTNode = field(default_factory=lambda: NumberNode(0))
+    cases: List[tuple] = field(default_factory=list)  # [(pattern_node, body_nodes, guard_node)]
+    default_case: Optional[List[ASTNode]] = None
+
+    def get_children(self) -> List[Any]:
+        children = [self.value]
+        for pattern, body, guard in self.cases:
+            if isinstance(pattern, ASTNode):
+                children.append(pattern)
+            if guard:
+                children.append(guard)
+            children.extend(body)
+        if self.default_case:
+            children.extend(self.default_case)
+        return children

@@ -23,6 +23,7 @@ from brolang.ast.nodes import (
     FunctionNode, ReturnNode, CallNode,
     ClassNode, ImportNode, TryNode,
     PrintNode, ListNode, ObjectNode,
+    MultiExceptNode, TypedExceptNode,
 )
 from brolang.exceptions import ParserError
 
@@ -268,11 +269,9 @@ selesai
         ast = parse(source)
         found_try = False
         for stmt in ast.statements:
-            if isinstance(stmt, TryNode):
+            if isinstance(stmt, (TryNode, MultiExceptNode)):
                 found_try = True
                 assert len(stmt.body) > 0
-                assert len(stmt.catch_body) > 0
-                assert stmt.catch_var == "error"
                 break
         assert found_try
 

@@ -32,6 +32,11 @@ from brolang.ast.nodes import (
     GlobalNode, NonlocalNode,
     PassNode, DelNode, AssertNode,
     TupleNode, SetNode, DictComprehensionNode,
+    AsyncFunctionDefNode, AwaitNode,
+    YieldNode, YieldFromNode, GeneratorFunctionNode,
+    DecoratorNode, DecoratedFunctionNode, DecoratedClassNode,
+    WalrusNode, WithNode, TypedExceptNode, MultiExceptNode,
+    StarImportNode, ChainedCallNode, SwitchNode,
 )
 from brolang.optimizer import Optimizer
 
@@ -393,6 +398,176 @@ class PythonCodeGenerator(ASTVisitor):
             return ""
         result = visitor(node)
         return result if isinstance(result, str) else ""
+
+    # ============= V4: Async/Await =============
+
+    def visit_AsyncFunctionDefNode(self, node: AsyncFunctionDefNode) -> None:
+        params = ", ".join(node.params)
+        self._emit(f"async def {node.name}({params}):")
+        self.indent_level += 1
+        for stmt in node.body:
+            self.visit(stmt)
+        self.indent_level -= 1
+        self._emit()
+
+    def visit_AwaitNode(self, node: AwaitNode) -> str:
+        value = self._expr(node.value)
+        return f"await {value}"
+
+    # ============= V4: Generators =============
+
+    def visit_YieldNode(self, node: YieldNode) -> None:
+        if node.value:
+            val = self._expr(node.value)
+            self._emit(f"yield {val}")
+        else:
+            self._emit("yield")
+
+    def visit_YieldFromNode(self, node: YieldFromNode) -> None:
+        value = self._expr(node.value)
+        self._emit(f"yield from {value}")
+
+    # ============= V4: Decorators =============
+
+    def visit_DecoratorNode(self, node: DecoratorNode) -> None:
+        decorator = self._expr(node.decorator_expr)
+        self._emit(f"@{decorator}")
+
+    def visit_DecoratedFunctionNode(self, node: DecoratedFunctionNode) -> None:
+        for decorator in node.decorators:
+            self.visit(DecoratorNode(decorator_expr=decorator))
+        params = ", ".join(node.params)
+        self._emit(f"def {node.name}({params}):")
+        self.indent_level += 1
+        for stmt in node.body:
+            self.visit(stmt)
+        self.indent_level -= 1
+        self._emit()
+
+    def visit_DecoratedClassNode(self, node: DecoratedClassNode) -> None:
+        for decorator in node.decorators:
+            self.visit(DecoratorNode(decorator_expr=decorator))
+        parent = f"({node.parent})" if node.parent else "()"
+        self._emit(f"class {node.name}{parent}:")
+        self.indent_level += 1
+        for stmt in node.body:
+            self.visit(stmt)
+        self.indent_level -= 1
+        self._emit()
+
+    # ============= V4: Walrus Operator =============
+
+    def visit_WalrusNode(self, node: WalrusNode) -> str:
+        value = self._expr(node.value)
+        return f"{node.name} := {value}"
+
+    # ============= V4: Context Manager =============
+
+    def visit_WithNode(self, node: WithNode) -> None:
+        ctx = self._expr(node.context_expr)
+        if node.as_name:
+            self._emit(f"with {ctx} as {node.as_name}:")
+        else:
+            self._emit(f"with {ctx}:")
+        self.indent_level += 1
+        for stmt in node.body:
+            self.visit(stmt)
+        self.indent_level -= 1
+
+    # ============= V4: Multi-Except =============
+
+    def visit_MultiExceptNode(self, node: MultiExceptNode) -> None:
+        self._emit("try:")
+        self.indent_level += 1
+        for stmt in node.body:
+            self.visit(stmt)
+        self.indent_level -= 1
+
+        for clause in node.except_clauses:
+            if clause.exception_type:
+                self._emit(f"except {clause.exception_type} as {clause.variable}:")
+            else:
+                self._emit(f"except Exception as {clause.variable}:")
+            self.indent_level += 1
+            for stmt in clause.body:
+                self.visit(stmt)
+            self.indent_level -= 1
+
+        if node.else_body:
+            self._emit("else:")
+            self.indent_level += 1
+            for stmt in node.else_body:
+                self.visit(stmt)
+            self.indent_level -= 1
+
+        if node.finally_body:
+            self._emit("finally:")
+            self.indent_level += 1
+            for stmt in node.finally_body:
+                self.visit(stmt)
+            self.indent_level -= 1
+
+    def visit_TypedExceptNode(self, node: TypedExceptNode) -> None:
+        if node.exception_type:
+            self._emit(f"except {node.exception_type} as {node.variable}:")
+        else:
+            self._emit(f"except Exception as {node.variable}:")
+        self.indent_level += 1
+        for stmt in node.body:
+            self.visit(stmt)
+        self.indent_level -= 1
+
+    # ============= V4: Star Import =============
+
+    def visit_StarImportNode(self, node: StarImportNode) -> None:
+        self._emit(f"from {node.module} import *")
+
+    # ============= V4: Chained Call =============
+
+    def visit_ChainedCallNode(self, node: ChainedCallNode) -> str:
+        result = ""
+        for call in node.calls:
+            if result:
+                result = f"{result}.{self._expr(call)}"
+            else:
+                result = self._expr(call)
+        return result
+
+    # ============= V4: Switch =============
+
+    def visit_SwitchNode(self, node: SwitchNode) -> None:
+        value = self._expr(node.value)
+        self._emit(f"match {value}:")
+        self.indent_level += 1
+        for pattern, body, guard in node.cases:
+            pattern_code = self._expr(pattern)
+            if guard:
+                guard_code = self._expr(guard)
+                self._emit(f"case {pattern_code} if {guard_code}:")
+            else:
+                self._emit(f"case {pattern_code}:")
+            self.indent_level += 1
+            for stmt in body:
+                self.visit(stmt)
+            self.indent_level -= 1
+        if node.default_case:
+            self._emit("case _:")
+            self.indent_level += 1
+            for stmt in node.default_case:
+                self.visit(stmt)
+            self.indent_level -= 1
+        self.indent_level -= 1
+
+    # ============= V4: Generator Function =============
+
+    def visit_GeneratorFunctionNode(self, node: GeneratorFunctionNode) -> None:
+        params = ", ".join(node.params)
+        self._emit(f"def {node.name}({params}):")
+        self.indent_level += 1
+        for stmt in node.body:
+            self.visit(stmt)
+        self.indent_level -= 1
+        self._emit()
 
 
 class Compiler:

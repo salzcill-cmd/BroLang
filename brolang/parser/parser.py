@@ -64,6 +64,11 @@ from brolang.ast.nodes import (
     GlobalNode, NonlocalNode,
     PassNode, DelNode, AssertNode,
     TupleNode, SetNode, DictComprehensionNode,
+    AsyncFunctionDefNode, AwaitNode,
+    YieldNode, YieldFromNode, GeneratorFunctionNode,
+    DecoratorNode, DecoratedFunctionNode, DecoratedClassNode,
+    WalrusNode, WithNode, TypedExceptNode, MultiExceptNode,
+    StarImportNode, ChainedCallNode, SwitchNode,
 )
 from brolang.exceptions import ParserError
 
@@ -172,6 +177,10 @@ class Parser:
 
         token_type = self.current_token.type
 
+        # Check for decorators before function/class
+        if token_type == TokenType.TOKEN_AT:
+            return self._parse_decorated()
+
         if token_type == TokenType.TOKEN_BUAT:
             return self._parse_assignment()
         elif token_type == TokenType.TOKEN_TULIS:
@@ -186,12 +195,16 @@ class Parser:
             return self._parse_function()
         elif token_type == TokenType.TOKEN_KELAS:
             return self._parse_class()
+        elif token_type == TokenType.TOKEN_ASYNKRON:
+            return self._parse_async_function()
         elif token_type == TokenType.TOKEN_IMPOR:
             return self._parse_import()
         elif token_type == TokenType.TOKEN_DARI:
             return self._parse_from_import()
         elif token_type == TokenType.TOKEN_COBA:
-            return self._parse_try()
+            return self._parse_try_v4()
+        elif token_type == TokenType.TOKEN_DENGAN:
+            return self._parse_with()
         elif token_type == TokenType.TOKEN_COCOKKAN:
             return self._parse_match()
         elif token_type == TokenType.TOKEN_ENUM:
@@ -200,6 +213,10 @@ class Parser:
             return self._parse_struct()
         elif token_type == TokenType.TOKEN_KEMBALI:
             return self._parse_return()
+        elif token_type == TokenType.TOKEN_HASILKAN:
+            return self._parse_yield()
+        elif token_type == TokenType.TOKEN_HASILKANDARI:
+            return self._parse_yield_from()
         elif token_type == TokenType.TOKEN_LEMPAR:
             return self._parse_raise()
         elif token_type == TokenType.TOKEN_GLOBAL:
@@ -691,8 +708,8 @@ class Parser:
 
         return ImportNode(module=module, alias=alias, line=token.line, column=token.column)
 
-    def _parse_from_import(self) -> FromImportNode:
-        """dari module impor identifier (, identifier)*"""
+    def _parse_from_import(self) -> ASTNode:
+        """dari module impor identifier (, identifier)* atau dari module impor *"""
         token = self._advance()  # dari
         module_parts = []
         id_token = self._expect(
@@ -713,6 +730,11 @@ class Parser:
             solution="Gunakan: dari module impor nama",
             example="dari matematika impor akar",
         )
+
+        # Check for star import
+        if self._check(TokenType.TOKEN_MULTIPLY):
+            self._advance()  # *
+            return StarImportNode(module=module, line=token.line, column=token.column)
 
         names = []
         id_token = self._expect(
@@ -834,8 +856,11 @@ class Parser:
         )
         self._expect(TokenType.TOKEN_LBRACE, message="Setelah nama enum, harus ada '{'.")
 
+        self._match(TokenType.TOKEN_NEWLINE)
+        self._match(TokenType.TOKEN_INDENT)
+
         members = []
-        if not self._check(TokenType.TOKEN_RBRACE):
+        if not self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT):
             member_token = self._expect(
                 TokenType.TOKEN_IDENTIFIER,
                 message="Setelah '{', harus ada nama member enum.",
@@ -845,6 +870,9 @@ class Parser:
                 member_token = self._expect(TokenType.TOKEN_IDENTIFIER)
                 members.append(member_token.value)
 
+        while self._match(TokenType.TOKEN_NEWLINE):
+            pass
+        self._match(TokenType.TOKEN_DEDENT)
         self._expect(TokenType.TOKEN_RBRACE, message="Enum harus ditutup dengan '}'.")
 
         return EnumNode(name=name_token.value, members=members,
@@ -861,8 +889,11 @@ class Parser:
         )
         self._expect(TokenType.TOKEN_LBRACE, message="Setelah nama struktur, harus ada '{'.")
 
+        self._match(TokenType.TOKEN_NEWLINE)
+        self._match(TokenType.TOKEN_INDENT)
+
         fields = []
-        if not self._check(TokenType.TOKEN_RBRACE):
+        if not self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT):
             field_token = self._expect(
                 TokenType.TOKEN_IDENTIFIER,
                 message="Setelah '{', harus ada nama field.",
@@ -872,7 +903,10 @@ class Parser:
                 field_token = self._expect(TokenType.TOKEN_IDENTIFIER)
                 fields.append(field_token.value)
 
-        self._expect(TokenType.TOKEN_RBRACE, message="Struktur harus ditutup dengan '}'.")
+        while self._match(TokenType.TOKEN_NEWLINE):
+            pass
+        self._match(TokenType.TOKEN_DEDENT)
+        self._expect(TokenType.TOKEN_RBRACE, message="Struktur harus ditutup with '}'.")
 
         return StructNode(name=name_token.value, fields=fields,
                           line=token.line, column=token.column)
@@ -1172,8 +1206,12 @@ class Parser:
         return node
 
     def _parse_identifier_continuation(self, token: Token) -> ASTNode:
-        """Mem-parse identifier dan kelanjutannya (call, access)."""
+        """Mem-parse identifier dan kelanjutannya (call, access, walrus)."""
         node = IdentifierNode(name=token.value, line=token.line, column=token.column)
+
+        # Walrus operator: x := expr
+        if self._check(TokenType.TOKEN_WALRUS):
+            return self._parse_walrus(token.value)
 
         # Function call
         if self._check(TokenType.TOKEN_LPAREN):
@@ -1410,3 +1448,246 @@ class Parser:
         self._expect(TokenType.TOKEN_RPAREN,
                      message="Input tidak ditutup.")
         return InputNode(prompt=prompt, line=token.line, column=token.column)
+
+    # ============= V4: Decorator =============
+
+    def _parse_decorated(self) -> ASTNode:
+        """Parse decorated function or class: @decorator fungsi/kelas ..."""
+        decorators = []
+        while self._check(TokenType.TOKEN_AT):
+            self._advance()  # @
+            decorator_expr = self._parse_expression()
+            decorators.append(decorator_expr)
+            while self._match(TokenType.TOKEN_NEWLINE):
+                pass
+
+        # Now parse the function or class
+        if self._check(TokenType.TOKEN_FUNGSI):
+            func = self._parse_function()
+            return DecoratedFunctionNode(
+                name=func.name,
+                params=func.params,
+                defaults=func.defaults,
+                body=func.body,
+                decorators=decorators,
+                line=func.line,
+                column=func.column,
+            )
+        elif self._check(TokenType.TOKEN_KELAS):
+            cls = self._parse_class()
+            return DecoratedClassNode(
+                name=cls.name,
+                parent=cls.parent,
+                methods=cls.methods,
+                body=cls.body,
+                decorators=decorators,
+                line=cls.line,
+                column=cls.column,
+            )
+        elif self._check(TokenType.TOKEN_ASYNKRON):
+            func = self._parse_async_function()
+            return DecoratedFunctionNode(
+                name=func.name,
+                params=func.params,
+                defaults=func.defaults,
+                body=func.body,
+                decorators=decorators,
+                line=func.line,
+                column=func.column,
+            )
+        else:
+            raise self._error(
+                message="Setelah '@', harus ada 'fungsi' atau 'kelas'.",
+                solution="Gunakan @sebelum fungsi atau kelas.",
+                example="@dekorator\nfungsi nama() ... selesai",
+            )
+
+    # ============= V4: Async Function =============
+
+    def _parse_async_function(self) -> AsyncFunctionDefNode:
+        """asinkron fungsi identifier(params) block selesai"""
+        token = self._advance()  # asinkron
+        self._expect(TokenType.TOKEN_FUNGSI,
+                     message="Setelah 'asinkron', harus ada 'fungsi'.")
+        id_token = self._expect(
+            TokenType.TOKEN_IDENTIFIER,
+            message="Setelah 'fungsi', harus ada nama fungsi.",
+        )
+        name = id_token.value
+
+        self._expect(TokenType.TOKEN_LPAREN)
+        params, defaults = self._parse_parameter_list()
+        self._expect(TokenType.TOKEN_RPAREN)
+
+        body = self._parse_block()
+        self._expect(TokenType.TOKEN_SELESAI,
+                     message="Fungsi asinkron harus ditutup dengan 'selesai'.")
+
+        return AsyncFunctionDefNode(
+            name=name, params=params, defaults=defaults, body=body,
+            line=token.line, column=token.column,
+        )
+
+    # ============= V4: Yield =============
+
+    def _parse_yield(self) -> YieldNode:
+        """hasilkan expression?"""
+        token = self._advance()  # hasilkan
+        value = None
+        if not self._check(TokenType.TOKEN_NEWLINE, TokenType.TOKEN_DEDENT,
+                           TokenType.TOKEN_EOF, TokenType.TOKEN_SELESAI):
+            value = self._parse_expression()
+        return YieldNode(value=value, line=token.line, column=token.column)
+
+    def _parse_yield_from(self) -> YieldFromNode:
+        """hasilkandari expression"""
+        token = self._advance()  # hasilkandari
+        value = self._parse_expression()
+        return YieldFromNode(value=value, line=token.line, column=token.column)
+
+    # ============= V4: Walrus Operator =============
+
+    def _parse_walrus(self, name: str) -> WalrusNode:
+        """name := expression"""
+        self._advance()  # :=
+        value = self._parse_expression()
+        return WalrusNode(name=name, value=value, line=self.current_token.line, column=self.current_token.column)
+
+    # ============= V4: With Statement =============
+
+    def _parse_with(self) -> WithNode:
+        """dengan ekspresi sebagai nama ... selesai"""
+        token = self._advance()  # dengan
+        context_expr = self._parse_expression()
+
+        as_name = None
+        if self._check(TokenType.TOKEN_SEBAGAI):
+            self._advance()  # sebagai
+            id_token = self._expect(TokenType.TOKEN_IDENTIFIER,
+                                    message="Setelah 'sebagai', harus ada nama variabel.")
+            as_name = id_token.value
+
+        body = self._parse_block()
+        self._expect(TokenType.TOKEN_SELESAI,
+                     message="Blok 'dengan' harus ditutup dengan 'selesai'.")
+
+        return WithNode(context_expr=context_expr, as_name=as_name, body=body,
+                        line=token.line, column=token.column)
+
+    # ============= V4: Enhanced Try/Except =============
+
+    def _parse_try_v4(self) -> MultiExceptNode:
+        """coba block (kecuali type as var block)* (lainnya block)? (akhirnya block)? selesai"""
+        token = self._advance()  # coba
+        body = self._parse_block()
+
+        except_clauses = []
+        else_body = None
+        finally_body = None
+
+        # Parse multiple except clauses
+        while self._check(TokenType.TOKEN_KECUALI, TokenType.TOKEN_TANGKAP):
+            if self._check(TokenType.TOKEN_KECUALI):
+                self._advance()  # kecuali
+                exc_type = None
+                var_name = "error"
+
+                if self._check(TokenType.TOKEN_IDENTIFIER):
+                    if self._peek(1) == TokenType.TOKEN_SEBAGAI:
+                        # kecuali ExceptionType sebagai var_name
+                        id_token = self._advance()
+                        exc_type = id_token.value
+                        self._advance()  # sebagai
+                        var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                        var_name = var_token.value
+                    elif self._peek(1) == TokenType.TOKEN_NEWLINE:
+                        # kecuali var_name (bare except)
+                        id_token = self._advance()
+                        var_name = id_token.value
+                    else:
+                        # kecuali ExceptionType (no variable binding)
+                        id_token = self._advance()
+                        exc_type = id_token.value
+                elif self._check(TokenType.TOKEN_LAINNYA):
+                    # kecuali lainnya (catch-all bare except)
+                    self._advance()
+                    exc_type = "semua"
+
+                clause_body = self._parse_block()
+                except_clauses.append(TypedExceptNode(
+                    exception_type=exc_type, variable=var_name, body=clause_body,
+                    line=token.line, column=token.column,
+                ))
+            elif self._check(TokenType.TOKEN_TANGKAP):
+                # Legacy tangkap syntax
+                self._advance()  # tangkap
+                var_name = "error"
+                if self._check(TokenType.TOKEN_IDENTIFIER):
+                    id_token = self._advance()
+                    var_name = id_token.value
+                clause_body = self._parse_block()
+                except_clauses.append(TypedExceptNode(
+                    exception_type=None, variable=var_name, body=clause_body,
+                    line=token.line, column=token.column,
+                ))
+
+        # Parse else clause
+        if self._check(TokenType.TOKEN_LAINNYA):
+            self._advance()  # lainnya
+            else_body = self._parse_block()
+
+        # Parse finally clause
+        if self._check(TokenType.TOKEN_AKHIRNYA):
+            self._advance()  # akhirnya
+            finally_body = self._parse_block()
+
+        self._expect(TokenType.TOKEN_SELESAI,
+                     message="Blok 'coba' harus ditutup dengan 'selesai'.")
+
+        return MultiExceptNode(
+            body=body, except_clauses=except_clauses,
+            else_body=else_body, finally_body=finally_body,
+            line=token.line, column=token.column,
+        )
+
+    # ============= V4: Star Import =============
+
+    def _parse_star_import(self) -> StarImportNode:
+        """dari module impor *"""
+        token = self._advance()  # dari
+        module_parts = []
+        id_token = self._expect(TokenType.TOKEN_IDENTIFIER,
+                                message="Setelah 'dari', harus ada nama modul.")
+        module_parts.append(id_token.value)
+
+        while self._match(TokenType.TOKEN_DOT):
+            id_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            module_parts.append(id_token.value)
+
+        module = ".".join(module_parts)
+
+        self._expect(TokenType.TOKEN_IMPOR)
+        self._expect(TokenType.TOKEN_MULTIPLY,
+                     message="Setelah 'impor', gunakan '*' untuk star import.")
+
+        return StarImportNode(module=module, line=token.line, column=token.column)
+
+    # ============= V4: Generator Function =============
+
+    def _parse_generator_function(self) -> GeneratorFunctionNode:
+        """fungsi nama() ... hasilkan ... selesai"""
+        token = self._advance()  # fungsi
+        id_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        name = id_token.value
+
+        self._expect(TokenType.TOKEN_LPAREN)
+        params, defaults = self._parse_parameter_list()
+        self._expect(TokenType.TOKEN_RPAREN)
+
+        body = self._parse_block()
+        self._expect(TokenType.TOKEN_SELESAI)
+
+        return GeneratorFunctionNode(
+            name=name, params=params, defaults=defaults, body=body,
+            line=token.line, column=token.column,
+        )

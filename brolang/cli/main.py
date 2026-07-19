@@ -41,6 +41,9 @@ def main(args: Optional[List[str]] = None) -> int:
         "repl": _cmd_repl,
         "fmt": _cmd_fmt,
         "lint": _cmd_lint,
+        "test": _cmd_test,
+        "profile": _cmd_profile,
+        "doc": _cmd_doc,
         "new-game": _cmd_new_game,
         "run-game": _cmd_run_game,
         "version": _cmd_version,
@@ -226,6 +229,611 @@ def _cmd_lint(args: List[str]) -> int:
         return 1
 
 
+def _cmd_test(args: List[str]) -> int:
+    """Menjalankan test file BroLang.
+
+    Penggunaan:
+        bro test <file>
+        bro test
+    """
+    parser = argparse.ArgumentParser(prog="bro test", description="Menjalankan tes BroLang")
+    parser.add_argument("file", nargs="?", help="File tes BroLang (.bro)")
+    parsed = parser.parse_args(args)
+
+    try:
+        import os
+        import glob
+
+        if parsed.file:
+            files = [parsed.file]
+        else:
+            # Find all test files
+            files = glob.glob("**/test_*.bro", recursive=True)
+            files.extend(glob.glob("**/*_test.bro", recursive=True))
+            files.extend(glob.glob("tests/**/*.bro", recursive=True))
+            files = list(set(files))
+
+        if not files:
+            print("Tidak ada file tes ditemukan.")
+            return 1
+
+        total_pass = 0
+        total_fail = 0
+
+        for file_path in files:
+            print(f"\nMenjalankan: {file_path}")
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    source = f.read()
+
+                from brolang.lexer import Lexer
+                from brolang.parser import Parser
+                from brolang.interpreter import Interpreter
+
+                lexer = Lexer(source, file_path=file_path)
+                tokens = lexer.tokenize()
+                parser_inst = Parser(tokens, file_path=file_path)
+                ast = parser_inst.parse()
+
+                interpreter = Interpreter()
+                interpreter.interpret(ast)
+
+                # Check test results
+                if hasattr(interpreter, 'output'):
+                    for line in interpreter.output:
+                        print(f"  {line}")
+
+                total_pass += 1
+            except Exception as e:
+                print(f"  Error: {e}")
+                total_fail += 1
+
+        print(f"\n{'='*50}")
+        print(f"Total: {len(files)} file, {total_pass} berhasil, {total_fail} gagal")
+        print(f"{'='*50}")
+
+        return 0 if total_fail == 0 else 1
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
+def _cmd_profile(args: List[str]) -> int:
+    """Memprofil eksekusi file BroLang.
+
+    Penggunaan:
+        bro profile <file>
+    """
+    parser = argparse.ArgumentParser(prog="bro profile", description="Memprofil kode BroLang")
+    parser.add_argument("file", help="File BroLang (.bro)")
+    parser.add_argument("--repeat", type=int, default=1, help="Jumlah pengulangan")
+    parsed = parser.parse_args(args)
+
+    file_path = parsed.file
+    if not os.path.exists(file_path):
+        print(f"Error: File '{file_path}' tidak ditemukan.")
+        return 1
+
+    try:
+        import time
+        import cProfile
+        import pstats
+        import io
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            source = f.read()
+
+        from brolang.lexer import Lexer
+        from brolang.parser import Parser
+        from brolang.semantic import SemanticAnalyzer
+        from brolang.optimizer import Optimizer
+        from brolang.interpreter import Interpreter
+
+        # Profile the execution
+        pr = cProfile.Profile()
+        pr.enable()
+
+        start_time = time.time()
+        for _ in range(parsed.repeat):
+            lexer = Lexer(source, file_path=file_path)
+            tokens = lexer.tokenize()
+            parser_inst = Parser(tokens, file_path=file_path)
+            ast = parser_inst.parse()
+
+            analyzer = SemanticAnalyzer()
+            analyzer.analyze(ast)
+
+            optimizer = Optimizer()
+            optimized_ast = optimizer.optimize(ast)
+
+            interpreter = Interpreter()
+            interpreter.interpret(optimized_ast)
+
+        end_time = time.time()
+        pr.disable()
+
+        # Print results
+        print(f"\n{'='*60}")
+        print(f"Profil: {file_path}")
+        print(f"{'='*60}")
+        print(f"Total waktu: {(end_time - start_time)*1000:.2f} ms")
+        print(f"Pengulangan: {parsed.repeat}")
+        print(f"Waktu rata-rata: {((end_time - start_time)/parsed.repeat)*1000:.2f} ms")
+
+        # Print top functions
+        print(f"\nTop 10 functions:")
+        s = io.StringIO()
+        ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
+        ps.print_stats(10)
+        print(s.getvalue())
+
+        return 0
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
+def _cmd_doc(args: List[str]) -> int:
+    """Menampilkan dokumentasi BroLang.
+
+    Penggunaan:
+        bro doc [topik]
+    """
+    parser = argparse.ArgumentParser(prog="bro doc", description="Dokumentasi BroLang")
+    parser.add_argument("topik", nargs="?", help="Topik dokumentasi")
+    parsed = parser.parse_args(args)
+
+    topics = {
+        None: _doc_overview,
+        "dasar": _doc_basics,
+        "variabel": _doc_variables,
+        "fungsi": _doc_functions,
+        "kelas": _doc_classes,
+        "game": _doc_game,
+        "stdlib": _doc_stdlib,
+        "async": _doc_async,
+        "generator": _doc_generators,
+        "decorator": _doc_decorators,
+    }
+
+    if parsed.topik in topics:
+        topics[parsed.topik]()
+    else:
+        print(f"Topik tidak dikenal: {parsed.topik}")
+        print(f"Topik tersedia: {', '.join(t for t in topics.keys() if t)}")
+        return 1
+
+    return 0
+
+
+def _doc_overview():
+    print("""
+BroLang - Bahasa Pemrograman Profesional untuk Game Development
+===============================================================
+
+BroLang adalah bahasa pemrograman modern yang menggunakan sintaks Bahasa Indonesia.
+Dirancang untuk kemudahan belajar dan pembuatan game 2D.
+
+Perintah:
+  bro run <file>         : Menjalankan file BroLang
+  bro build <file>       : Mengompilasi ke Python
+  bro repl               : REPL interaktif
+  bro test [file]        : Menjalankan tes
+  bro profile <file>     : Profil eksekusi
+  bro lint <file>        : Analisis kode
+  bro fmt <file>         : Format kode
+  bro doc [topik]        : Dokumentasi
+  bro new-game <nama>    : Buat proyek game baru
+  bro run-game <file>    : Jalankan game
+
+Topik Dokumentasi:
+  bro doc dasar          : Dasar bahasa
+  bro doc variabel       : Variabel dan tipe data
+  bro doc fungsi         : Fungsi dan lambda
+  bro doc kelas          : OOP
+  bro doc game           : Game development
+  bro doc stdlib         : Standard library
+  bro doc async          : Async/await
+  bro doc generator      : Generator
+  bro doc decorator      : Decorator
+""")
+
+
+def _doc_basics():
+    print("""
+Dasar BroLang
+=============
+
+# Komentar
+# Ini komentar baris
+#| Ini komentar
+   multi baris #|
+
+# Output
+tulis "Halo Dunia"
+
+# Tipe Data
+buat nama = "Budi"       # teks (string)
+buat umur = 25            # angka (integer)
+buat tinggi = 170.5       # desimal (float)
+buat aktif = benar        # boolean
+buat data = kosong        # null
+
+# Operator
+tulis 2 + 3               # 5
+tulis 10 - 4              # 6
+tulis 3 * 7               # 21
+tulis 10 / 3              # 3.333
+tulis 10 % 3              # 1
+tulis 2 ** 3              # 8
+
+# String
+buat s1 = "Halo"
+buat s2 = 'Dunia'
+buat s3 = f"Halo {nama}"  # f-string
+tulis s1.panjang()         # Panjang string
+
+# Kondisi
+jika umur > 18 maka
+    tulis "Dewasa"
+lainnya jika umur > 12 maka
+    tulis "Remaja"
+lainnya
+    tulis "Anak-anak"
+selesai
+
+# Ternary
+buat status = "Dewasa" jika umur > 18 lainnya "Anak"
+""")
+
+
+def _doc_variables():
+    print("""
+Variabel dan Tipe Data
+======================
+
+# Deklarasi
+buat nama = "Budi"
+buat umur = 25
+buat tinggi = 170.5
+buat aktif = benar
+buat data = kosong
+
+# Tipe: angka, desimal, teks, boolean, kosong, list, objek, tuple, set
+
+# List
+buat angka = [1, 2, 3, 4, 5]
+tulis angka[0]              # 1
+tulis angka[1:3]            # [2, 3]
+angka.tambah(6)             # Tambah elemen
+angka.hapus(0)              # Hapus elemen
+tulis angka.jumlah()        # Panjang list
+
+# Dictionary (Objek)
+buat mahasiswa = {
+    "nama": "Budi",
+    "umur": 25,
+    "ipk": 3.8
+}
+tulis mahasiswa["nama"]     # Budi
+mahasiswa.tambah("alamat", "Jakarta")
+mahasiswa.hapus_kunci("alamat")
+
+# Tuple
+buat koordinat = (10, 20)
+
+# Set
+buat warna = {merah, biru, hijau}
+
+# Augmented Assignment
+buat x = 10
+x += 5                      # x = 15
+x -= 3                      # x = 12
+x *= 2                      # x = 24
+
+# Walrus Operator (v4.0)
+jika (x := panjang()) > 10 maka
+    tulis "Panjang:" + teks(x)
+selesai
+""")
+
+
+def _doc_functions():
+    print("""
+Fungsi dan Lambda
+=================
+
+# Deklarasi fungsi
+fungsi sapa(nama)
+    kembali "Halo, " + nama
+selesai
+
+tulis(sapa("Budi"))
+
+# Default parameter
+fungsi power(base, pangkat=2)
+    kembali base ** pangkat
+selesai
+
+tulis(power(3))      # 9
+tulis(power(3, 3))   # 27
+
+# Lambda
+buat kali_dua = lalu(x) x * 2
+tulis(kali_dua(5))   # 10
+
+# List Comprehension
+buat kuadrat = [x * x lalu x dalam range(10)]
+buat genap = [x lalu x dalam range(20) jika x % 2 == 0]
+
+# Function Call
+tulis(len("Halo"))
+tulis(angka("42"))
+tulis(teks(100))
+tulis(tipe(3.14))
+""")
+
+
+def _doc_classes():
+    print("""
+Kelas (OOP)
+===========
+
+# Deklarasi kelas
+kelas Mahasiswa
+    fungsi __init__(nama, ipk)
+        self.nama = nama
+        self.ipk = ipk
+    selesai
+
+    fungsi sapa()
+        kembali f"Halo, saya {self.nama}"
+    selesai
+
+    fungsi __repr__()
+        kembali f"Mahasiswa({self.nama}, {self.ipk})"
+    selesai
+selesai
+
+buat budi = Mahasiswa("Budi", 3.8)
+tulis(budi.sapa())
+
+# Inheritance
+kelas Dosen(Mahasiswa)
+    fungsi __init__(nama, ipk, mata_kuliah)
+        super().__init__(nama, ipk)
+        self.mata_kuliah = mata_kuliah
+    selesai
+
+    fungsi mengajar()
+        kembali f"{self.nama} mengajar {self.mata_kuliah}"
+    selesai
+selesai
+
+# Enum
+enum Warna { MERAH, BIRU, HIJAU }
+buat warna = Warna.MERAH
+
+# Struct
+struktur Titik { x, y }
+buat p = Titik(10, 20)
+
+# Match/Case
+cocokkan warna
+    Warna.MERAH: tulis "Merah"
+    Warna.BIRU: tulis "Biru"
+    _: tulis "Warna lain"
+selesai
+""")
+
+
+def _doc_game():
+    print("""
+Game Development
+================
+
+# Modul yang tersedia:
+# - game: Game loop & scene management
+# - grafis: Rendering 2D (Pygame)
+# - input: Keyboard & mouse
+# - audio: Sound & musik
+# - vektor: Vektor 2D/3D
+# - sprite: Sprite system
+# - animasi: Animasi
+# - tilemap: Tilemap
+# - kamera: Kamera
+# - fisika: Fisika dasar
+
+# Contoh game sederhana:
+impor game
+impor grafis
+impor input
+
+buat player_x = 400
+buat player_y = 300
+
+fungsi update(dt)
+    jika input.tombol_ditekan("LEFT"):
+        player_x -= 200 * dt
+    selesai
+selesai
+
+fungsi gambar(screen)
+    grafis.bersihkan("hitam")
+    grafis.segi_panjang(player_x, player_y, 32, 32, "biru")
+selesai
+
+game.buat_jendela(800, 600, "Gameku")
+game.tambah_scene("utama", update, gambar)
+game.ganti_scene("utama")
+game.mulai()
+
+# Sprite System
+impor sprite
+
+buat player = sprite.Sprite(None, 100, 100, 32, 32)
+player.tambah_animasi("jalan", [0, 1, 2, 3], 0.1)
+player.mainkan_animasi("jalan")
+
+# Kamera
+impor kamera
+
+buat cam = kamera.Kamera(800, 600)
+cam.set_target(player)
+cam.update(dt)
+
+# Fisika
+impor fisika
+
+buat bodi = fisika.Bodi(100, 100, massa=5.0)
+bodi.tambah_gaya(0, 9.8)
+bodi.update(dt)
+
+# Tilemap
+impor tilemap
+
+buat peta = tilemap.Tilemap(20, 15, 32)
+peta.atur(5, 3, 1)
+peta.atur(5, 4, 1)
+""")
+
+
+def _doc_stdlib():
+    print("""
+Standard Library
+================
+
+# Core Modules
+impor matematika    # Fungsi matematika
+impor teks          # Manipulasi teks
+impor waktu         # Fungsi waktu
+impor file          # Operasi file
+impor json          # JSON parsing
+impor jaringan      # HTTP client
+impor acak          # Random numbers
+
+# Game Modules
+impor vektor        # Vektor 2D/3D
+impor grafis        # Rendering 2D
+impor audio         # Sound & musik
+impor input         # Keyboard & mouse
+impor game          # Game loop
+
+# v4.0 Modules
+impor pencocok      # Regex pattern matching
+impor antrian       # Queue data structure
+impor tumpukan      # Stack data structure
+impor serialisasi   # Serialization (JSON, base64, etc)
+impor dasar         # Base encoding (base64, hex, etc)
+impor sprite        # Sprite system
+impor animasi       # Animation system
+impor tilemap       # Tilemap
+impor kamera        # Camera system
+impor fisika        # Physics engine
+impor debugger      # Debugger
+impor profil        # Profiler
+impor tes           # Test framework
+
+# Contoh penggunaan
+impor pencocok
+buat hasil = pencocok.cari(r'\\d+', "ada 123 angka")
+tulis(hasil.teks)
+
+impor antrian
+buat q = antrian.Buat()
+q.sisipkan("a")
+q.sisipkan("b")
+tulis(q.ambil())
+
+impor serialisasi
+buat data = {"nama": "Budi"}
+buat json_str = serialisasi.ke_json(data)
+tulis(json_str)
+""")
+
+
+def _doc_async():
+    print("""
+Async/Await (v4.0)
+==================
+
+# Async function
+asinkron fungsi ambil_data()
+    tunggu 1  # Simulasi async operation
+    kembali "data"
+selesai
+
+# Await
+buat hasil = tunggu ambil_data()
+tulis(hasil)
+
+# Catatan: Dalam interpreter sync, async/await
+# dijalankan secara synchronous.
+""")
+
+
+def _doc_generators():
+    print("""
+Generators (v4.0)
+=================
+
+# Generator function
+fungsi bilangan_genap(max)
+    untuk i dalam range(0, max, 2):
+        hasilkan i
+    selesai
+selesai
+
+# Menggunakan generator
+buat gen = bilangan_genap(10)
+tulis(gen)  # [0, 2, 4, 6, 8]
+
+# Yield
+fungsi counter(start, end)
+    buat i = start
+    selama i < end:
+        hasilkan i
+        i += 1
+    selesai
+selesai
+""")
+
+
+def _doc_decorators():
+    print("""
+Decorators (v4.0)
+=================
+
+# Simple decorator
+fungsi timing(func)
+    lalu wrapper(*args)
+        mulai waktu = waktu.sekarang()
+        hasil = func(*args)
+        akhir waktu = waktu.sekarang()
+        tulis(f"Waktu: {akhir_waktu - mulai_waktu}")
+        kembali hasil
+    selesai
+    kembali wrapper
+selesai
+
+# Menggunakan decorator
+@timing
+fungsi proses_data()
+    # ... proses ...
+    kembali "selesai"
+selesai
+
+# Class decorator
+@dataclass
+kelas Point
+    buat x = 0
+    buat y = 0
+selesai
+""")
+
+
 def _cmd_version(args: List[str]) -> int:
     """Menampilkan versi BroLang."""
     from brolang import __version__
@@ -397,14 +1005,17 @@ def _cmd_run_game(args: List[str]) -> int:
 def _cmd_help(args: List[str]) -> int:
     """Menampilkan bantuan."""
     print("""
-BroLang 1.1 - Bahasa Pemrograman Edukatif Profesional
+BroLang 4.0 - Bahasa Pemrograman Profesional untuk Game Development
 
 Penggunaan:
     bro run <file>         : Menjalankan file BroLang
     bro build <file>       : Mengompilasi ke Python
     bro repl               : Memulai REPL interaktif
-    bro fmt <file>         : Memformat kode
+    bro test [file]        : Menjalankan tes
+    bro profile <file>     : Profil eksekusi
     bro lint <file>        : Analisis kode statis
+    bro fmt <file>         : Memformat kode
+    bro doc [topik]        : Dokumentasi
     bro new-game <nama>    : Buat proyek game baru
     bro run-game <file>    : Jalankan file game
     bro version            : Informasi versi
@@ -419,10 +1030,29 @@ Modul Game:
     impor input      : Keyboard & mouse
     impor audio      : Sound & musik
     impor vektor     : Vektor 2D/3D
+    impor sprite     : Sprite system
+    impor animasi    : Animasi
+    impor tilemap    : Tilemap
+    impor kamera     : Kamera
+    impor fisika     : Fisika
+
+Fitur Baru v4.0:
+    asinkron/tunggu      : Async/await
+    hasilkan             : Generator/yield
+    @dekorator           : Decorators
+    :=                   : Walrus operator
+    dengan...sebagai     : Context manager
+    kecuali tipe         : Typed exceptions
+    bro test             : Test framework
+    bro profile          : Profiler
+    bro doc              : Documentation
 
 Contoh:
     bro run app.bro
     bro build app.bro -o output.py
+    bro test
+    bro profile game.bro
+    bro doc dasar
     bro new-game rpg_game
     bro run-game main.bro
 """)

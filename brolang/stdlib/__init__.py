@@ -103,3 +103,43 @@ def _load_module(name: str) -> None:
     elif name == "game":
         from brolang.stdlib.game import module as game_module
         register_module("game", game_module)
+    # v4.0 modules
+    elif name == "pencocok":
+        from brolang.stdlib.pencocok import module as pencocok_module
+        register_module("pencocok", pencocok_module)
+    elif name == "antrian":
+        from brolang.stdlib.antrian import module as antrian_module
+        register_module("antrian", antrian_module)
+    elif name == "tumpukan":
+        from brolang.stdlib.tumpukan import module as tumpukan_module
+        register_module("tumpukan", tumpukan_module)
+    elif name == "serialisasi":
+        from brolang.stdlib.serialisasi import module as serialisasi_module
+        register_module("serialisasi", serialisasi_module)
+    elif name == "dasar":
+        from brolang.stdlib.dasar import module as dasar_module
+        register_module("dasar", dasar_module)
+    elif name == "sprite":
+        from brolang.stdlib.sprite import module as sprite_module
+        register_module("sprite", sprite_module)
+    elif name == "animasi":
+        from brolang.stdlib.animasi import module as animasi_module
+        register_module("animasi", animasi_module)
+    elif name == "tilemap":
+        from brolang.stdlib.tilemap import module as tilemap_module
+        register_module("tilemap", tilemap_module)
+    elif name == "kamera":
+        from brolang.stdlib.kamera import module as kamera_module
+        register_module("kamera", kamera_module)
+    elif name == "fisika":
+        from brolang.stdlib.fisika import module as fisika_module
+        register_module("fisika", fisika_module)
+    elif name == "debugger":
+        from brolang.stdlib.debugger import module as debugger_module
+        register_module("debugger", debugger_module)
+    elif name == "profil":
+        from brolang.stdlib.profil import module as profil_module
+        register_module("profil", profil_module)
+    elif name == "tes":
+        from brolang.stdlib.tes import module as tes_module
+        register_module("tes", tes_module)

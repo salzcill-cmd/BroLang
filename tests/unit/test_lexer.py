@@ -205,7 +205,7 @@ class TestLexerErrors:
             lexer.tokenize()
 
     def test_unknown_character(self):
-        lexer = Lexer("@")
+        lexer = Lexer("$")
         with pytest.raises(LexerError):
             lexer.tokenize()
 

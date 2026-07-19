@@ -35,6 +35,11 @@ from brolang.ast.nodes import (
     GlobalNode, NonlocalNode,
     PassNode, DelNode, AssertNode,
     TupleNode, SetNode, DictComprehensionNode,
+    AsyncFunctionDefNode, AwaitNode,
+    YieldNode, YieldFromNode, GeneratorFunctionNode,
+    DecoratorNode, DecoratedFunctionNode, DecoratedClassNode,
+    WalrusNode, WithNode, TypedExceptNode, MultiExceptNode,
+    StarImportNode, ChainedCallNode, SwitchNode,
 )
 from brolang.exceptions import (
     RuntimeError_, TypeError_, NameError_,
@@ -1355,4 +1360,424 @@ class Interpreter(ASTVisitor):
             "berakhir": lambda suffix: s.endswith(suffix),
             "strip": lambda: s.strip(),
             "panjang": lambda: len(s),
+            # v4.0 string methods
+            "cocok": lambda pattern: bool(__import__('re').search(pattern, s)),
+            "cocok_semua": lambda pattern: __import__('re').findall(pattern, s),
+            "ganti_regexp": lambda pattern, replacement: __import__('re').sub(pattern, replacement, s),
+            "bagi_regexp": lambda pattern: __import__('re').split(pattern, s),
+            "encode": lambda enc='utf-8': s.encode(enc),
+            "isalnum": lambda: s.isalnum(),
+            "isalpha": lambda: s.isalpha(),
+            "isdigit": lambda: s.isdigit(),
+            "islower": lambda: s.islower(),
+            "isupper": lambda: s.isupper(),
+            "isspace": lambda: s.isspace(),
+            "join": lambda iterable: s.join(str(i) for i in iterable),
+            "zfill": lambda width: s.zfill(width),
+            "center": lambda width: s.center(width),
+            "ljust": lambda width: s.ljust(width),
+            "rjust": lambda width: s.rjust(width),
+            "count_sub": lambda sub: s.count(sub),
+            "startswith_any": lambda prefixes: any(s.startswith(p) for p in prefixes),
+            "endswith_any": lambda suffixes: any(s.endswith(suf) for suf in suffixes),
         }
+
+    # ============= V4: Async/Await =============
+
+    def visit_AsyncFunctionDefNode(self, node: AsyncFunctionDefNode) -> None:
+        """Async function declaration — in sync interpreter, just treat as regular function."""
+        # In a sync interpreter, async functions are treated as regular functions
+        # The 'tunggu' (await) just calls the function directly
+        closure_env = self.current_env
+
+        def async_function(*args):
+            old_env = self.current_env
+            self._push_env()
+            self.current_env.parent = closure_env
+
+            for i, param in enumerate(node.params):
+                if i < len(args):
+                    self.current_env.define_variable(param, args[i])
+                elif i < len(node.defaults):
+                    dv = node.defaults[i]
+                    if dv is not None:
+                        default_val = self.visit(dv)
+                        self.current_env.define_variable(param, default_val)
+                    else:
+                        self.current_env.define_variable(param, None)
+                else:
+                    self.current_env.define_variable(param, None)
+
+            try:
+                result = None
+                for stmt in node.body:
+                    result = self.visit(stmt)
+                    if self.current_env.should_return:
+                        result = self.current_env.return_value
+                        break
+                self._pop_env()
+                self.current_env = old_env
+                return result
+            except ReturnException as e:
+                self._pop_env()
+                self.current_env = old_env
+                return e.value
+            except Exception as e:
+                self._pop_env()
+                self.current_env = old_env
+                raise e
+
+        self.current_env.functions[node.name] = async_function
+
+    def visit_AwaitNode(self, node: AwaitNode) -> Any:
+        """Await expression — in sync interpreter, just evaluate the expression."""
+        return self.visit(node.value)
+
+    # ============= V4: Generators =============
+
+    def visit_YieldNode(self, node: YieldNode) -> Any:
+        """Yield statement — creates a generator."""
+        value = self.visit(node.value) if node.value else None
+        # In a sync interpreter, we'll collect all yields into a list
+        # This is a simplified generator implementation
+        return value
+
+    def visit_YieldFromNode(self, node: YieldFromNode) -> Any:
+        """Yield from — delegates to another iterable."""
+        iterable = self.visit(node.value)
+        result = []
+        for item in iterable:
+            result.append(item)
+        return result
+
+    # ============= V4: Decorators =============
+
+    def visit_DecoratorNode(self, node: DecoratorNode) -> Any:
+        """Decorator application."""
+        decorator_func = self.visit(node.decorator_expr)
+        target = self.visit(node.target)
+        if callable(decorator_func):
+            return decorator_func(target)
+        return target
+
+    def visit_DecoratedFunctionNode(self, node: DecoratedFunctionNode) -> None:
+        """Decorated function — apply decorators then define."""
+        # First define the function
+        closure_env = self.current_env
+
+        def bro_function(*args):
+            old_env = self.current_env
+            self._push_env()
+            self.current_env.parent = closure_env
+
+            for i, param in enumerate(node.params):
+                if i < len(args):
+                    self.current_env.define_variable(param, args[i])
+                elif i < len(node.defaults):
+                    dv = node.defaults[i]
+                    if dv is not None:
+                        default_val = self.visit(dv)
+                        self.current_env.define_variable(param, default_val)
+                    else:
+                        self.current_env.define_variable(param, None)
+                else:
+                    self.current_env.define_variable(param, None)
+
+            try:
+                result = None
+                for stmt in node.body:
+                    result = self.visit(stmt)
+                    if self.current_env.should_return:
+                        result = self.current_env.return_value
+                        break
+                self._pop_env()
+                self.current_env = old_env
+                return result
+            except ReturnException as e:
+                self._pop_env()
+                self.current_env = old_env
+                return e.value
+            except Exception as e:
+                self._pop_env()
+                self.current_env = old_env
+                raise e
+
+        # Apply decorators in reverse order (bottom to top)
+        func = bro_function
+        for decorator_expr in reversed(node.decorators):
+            decorator = self.visit(decorator_expr)
+            if callable(decorator):
+                func = decorator(func)
+
+        self.current_env.functions[node.name] = func
+
+    def visit_DecoratedClassNode(self, node: DecoratedClassNode) -> None:
+        """Decorated class — apply decorators then define."""
+        methods = {}
+        for stmt in node.body:
+            if isinstance(stmt, FunctionNode):
+                method_func = self._create_method(stmt)
+                methods[stmt.name] = method_func
+            elif isinstance(stmt, MethodNode):
+                method_func = self._create_method(stmt)
+                methods[stmt.name] = method_func
+
+        parent_class = None
+        if node.parent:
+            if node.parent in self.current_env.classes:
+                parent_class = self.current_env.classes[node.parent]
+
+        klass = BroLangClass(node.name, methods, parent_class)
+
+        def class_constructor(*args):
+            instance = BroLangInstance(klass)
+            init_method = klass.get_method("__init__")
+            if init_method:
+                init_method(instance, *args)
+            return instance
+
+        # Apply decorators
+        cls = class_constructor
+        for decorator_expr in reversed(node.decorators):
+            decorator = self.visit(decorator_expr)
+            if callable(decorator):
+                cls = decorator(cls)
+
+        self.current_env.variables[node.name] = cls
+        self.current_env.classes[node.name] = klass
+
+    # ============= V4: Walrus Operator =============
+
+    def visit_WalrusNode(self, node: WalrusNode) -> Any:
+        """Walrus operator: x := expr — assign and return value."""
+        value = self.visit(node.value)
+        self.current_env.define_variable(node.name, value)
+        return value
+
+    # ============= V4: Context Manager =============
+
+    def visit_WithNode(self, node: WithNode) -> None:
+        """With statement: dengan expr sebagai name ... selesai"""
+        context = self.visit(node.context_expr)
+
+        # Try to call __enter__
+        enter_result = None
+        if hasattr(context, '__enter__'):
+            enter_result = context.__enter__()
+        elif hasattr(context, 'masuk'):
+            enter_result = context.masuk()
+
+        self._push_env()
+        if node.as_name:
+            self.current_env.define_variable(node.as_name, enter_result or context)
+
+        try:
+            for stmt in node.body:
+                self.visit(stmt)
+        finally:
+            self._pop_env()
+            # Try to call __exit__
+            if hasattr(context, '__exit__'):
+                context.__exit__(None, None, None)
+            elif hasattr(context, 'keluar'):
+                context.keluar()
+
+    # ============= V4: Multi-Except =============
+
+    def visit_MultiExceptNode(self, node: MultiExceptNode) -> Optional[Any]:
+        """Try-catch with multiple except clauses."""
+        result = None
+        try:
+            self._push_env()
+            for stmt in node.body:
+                result = self.visit(stmt)
+            self._pop_env()
+        except Exception as e:
+            self._pop_env()
+            matched = False
+            for clause in node.except_clauses:
+                if clause.exception_type is None:
+                    # Bare except
+                    self._push_env()
+                    self.current_env.define_variable(clause.variable, e)
+                    for stmt in clause.body:
+                        result = self.visit(stmt)
+                    self._pop_env()
+                    matched = True
+                    break
+                else:
+                    # Typed except
+                    exc_type_name = clause.exception_type
+                    exc_type_map = {
+                        'RuntimeError': RuntimeError_,
+                        'TypeError': TypeError_,
+                        'NameError': NameError_,
+                        'ZeroDivisionError': ZeroDivisionError_,
+                        'IndexError': IndexError_,
+                        'ValueError': ValueError,
+                        'KeyError': KeyError,
+                        'AttributeError': AttributeError,
+                    }
+                    exc_class = exc_type_map.get(exc_type_name)
+                    if exc_class and isinstance(e, exc_class):
+                        self._push_env()
+                        self.current_env.define_variable(clause.variable, e)
+                        for stmt in clause.body:
+                            result = self.visit(stmt)
+                        self._pop_env()
+                        matched = True
+                        break
+                    elif exc_type_name == 'semua':
+                        self._push_env()
+                        self.current_env.define_variable(clause.variable, e)
+                        for stmt in clause.body:
+                            result = self.visit(stmt)
+                        self._pop_env()
+                        matched = True
+                        break
+
+            if not matched:
+                raise e
+
+        # Execute else if no exception
+        if node.else_body and not matched:
+            self._push_env()
+            for stmt in node.else_body:
+                result = self.visit(stmt)
+            self._pop_env()
+
+        # Execute finally
+        if node.finally_body:
+            self._push_env()
+            for stmt in node.finally_body:
+                self.visit(stmt)
+            self._pop_env()
+
+        return result
+
+    def visit_TypedExceptNode(self, node: TypedExceptNode) -> None:
+        """Typed except clause — handled by MultiExceptNode."""
+        pass
+
+    # ============= V4: Star Import =============
+
+    def visit_StarImportNode(self, node: StarImportNode) -> None:
+        """Star import: dari module impor *"""
+        try:
+            module = get_stdlib_module(node.module)
+            # Import all public attributes
+            for attr in dir(module):
+                if not attr.startswith('_'):
+                    self.current_env.variables[attr] = getattr(module, attr)
+        except ImportError:
+            try:
+                import importlib
+                py_module = importlib.import_module(node.module)
+                for attr in dir(py_module):
+                    if not attr.startswith('_'):
+                        self.current_env.variables[attr] = getattr(py_module, attr)
+            except ImportError:
+                raise RuntimeError_(
+                    message=f"Module '{node.module}' tidak ditemukan.",
+                    line=node.line, column=node.column,
+                )
+
+    # ============= V4: Chained Call =============
+
+    def visit_ChainedCallNode(self, node: ChainedCallNode) -> Any:
+        """Chained method call: obj.method1().method2()"""
+        result = None
+        for call in node.calls:
+            result = self.visit(call)
+        return result
+
+    # ============= V4: Switch =============
+
+    def visit_SwitchNode(self, node: SwitchNode) -> Any:
+        """Switch statement (enhanced match with guards)."""
+        value = self.visit(node.value)
+        for pattern, body, guard in node.cases:
+            if isinstance(pattern, WildcardNode):
+                if guard:
+                    guard_val = self.visit(guard)
+                    if not guard_val:
+                        continue
+                self._push_env()
+                result = None
+                for stmt in body:
+                    result = self.visit(stmt)
+                    if self.current_env.should_return:
+                        break
+                self._pop_env()
+                return result
+            pattern_val = self.visit(pattern)
+            if value == pattern_val:
+                if guard:
+                    guard_val = self.visit(guard)
+                    if not guard_val:
+                        continue
+                self._push_env()
+                result = None
+                for stmt in body:
+                    result = self.visit(stmt)
+                    if self.current_env.should_return:
+                        break
+                self._pop_env()
+                return result
+
+        if node.default_case:
+            self._push_env()
+            result = None
+            for stmt in node.default_case:
+                result = self.visit(stmt)
+                if self.current_env.should_return:
+                    break
+            self._pop_env()
+            return result
+
+        return None
+
+    # ============= V4: Generator Function =============
+
+    def visit_GeneratorFunctionNode(self, node: GeneratorFunctionNode) -> None:
+        """Generator function declaration."""
+        closure_env = self.current_env
+
+        def generator_func(*args):
+            old_env = self.current_env
+            self._push_env()
+            self.current_env.parent = closure_env
+
+            for i, param in enumerate(node.params):
+                if i < len(args):
+                    self.current_env.define_variable(param, args[i])
+                elif i < len(node.defaults):
+                    dv = node.defaults[i]
+                    if dv is not None:
+                        default_val = self.visit(dv)
+                        self.current_env.define_variable(param, default_val)
+                    else:
+                        self.current_env.define_variable(param, None)
+                else:
+                    self.current_env.define_variable(param, None)
+
+            # Collect all yielded values
+            results = []
+            try:
+                for stmt in node.body:
+                    result = self.visit(stmt)
+                    if isinstance(result, (int, float, str, bool, list, tuple)):
+                        results.append(result)
+                    if self.current_env.should_return:
+                        break
+            except ReturnException:
+                pass
+            except BreakException:
+                pass
+            finally:
+                self._pop_env()
+                self.current_env = old_env
+
+            return results
+
+        self.current_env.functions[node.name] = generator_func

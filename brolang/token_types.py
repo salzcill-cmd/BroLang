@@ -92,6 +92,8 @@ class TokenType(Enum):
     TOKEN_TILDE = auto()       # ~
     TOKEN_LSHIFT = auto()      # <<
     TOKEN_RSHIFT = auto()      # >>
+    TOKEN_WALRUS = auto()      # := (walrus operator)
+    TOKEN_AT = auto()          # @ (decorator)
 
     # Newline and Indentation
     TOKEN_NEWLINE = auto()
@@ -128,6 +130,34 @@ class TokenType(Enum):
     TOKEN_HAPUS = auto()       # hapus (del)
     TOKEN_PASTIKAN = auto()    # pastikan (assert)
     TOKEN_DENGAN = auto()      # dengan (with)
+
+    # v4.0 Keywords — Async/Await
+    TOKEN_ASYNKRON = auto()    # asinkron (async)
+    TOKEN_TUNGGU = auto()      # tunggu (await)
+
+    # v4.0 Keywords — Generators
+    TOKEN_HASILKAN = auto()    # hasilkan (yield)
+    TOKEN_HASILKANDARI = auto() # hasilkandari (yield from)
+
+    # v4.0 Keywords — Decorators
+    TOKEN_DEKORATOR = auto()   # @ (decorator symbol)
+    TOKEN_DEKORATORKU = auto() # dekorator (decorator keyword)
+
+    # v4.0 Keywords — Context Manager
+    TOKEN_SEBAGAI = auto()     # sebagai (as)
+
+    # v4.0 Keywords — Multiple Except
+    TOKEN_KECUALI = auto()     # kecuali (except with type)
+
+    # v4.0 Keywords — Star Import
+    TOKEN_BINTANG = auto()     # * (star/wildcard import)
+
+    # v4.0 Keywords — Match improvements
+    TOKEN_PATERN_LIST = auto() # [pattern, pattern] in match
+    TOKEN_PATERN_OBJEK = auto() # {key: pattern} in match
+
+    # v4.0 Keywords — Assertions
+    TOKEN_HARUSNYA = auto()    # harusnya (should/be)
 
     # Special
     TOKEN_EOF = auto()
@@ -177,6 +207,15 @@ KEYWORDS: dict[str, TokenType] = {
     "hapus": TokenType.TOKEN_HAPUS,
     "pastikan": TokenType.TOKEN_PASTIKAN,
     "dengan": TokenType.TOKEN_DENGAN,
+    # v4.0 keywords
+    "asinkron": TokenType.TOKEN_ASYNKRON,
+    "tunggu": TokenType.TOKEN_TUNGGU,
+    "hasilkan": TokenType.TOKEN_HASILKAN,
+    "hasilkandari": TokenType.TOKEN_HASILKANDARI,
+    "dekorator": TokenType.TOKEN_DEKORATORKU,
+    "sebagai": TokenType.TOKEN_SEBAGAI,
+    "kecuali": TokenType.TOKEN_KECUALI,
+    "harusnya": TokenType.TOKEN_HARUSNYA,
 }
 
 
