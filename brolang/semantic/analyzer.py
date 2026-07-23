@@ -498,7 +498,7 @@ class SemanticAnalyzer(ASTVisitor):
         if isinstance(node.function, IdentifierNode):
             func_name = node.function.name
             info = self.current_scope.lookup(func_name)
-            if info is None and func_name not in ("input", "len", "angka", "teks", "desimal", "tulis", "range", "tipe", "jumlah", "peta", "saring"):
+            if info is None and func_name not in ("input", "len", "angka", "teks", "desimal", "tulis", "range", "tipe", "jumlah", "peta", "saring", "cek_tipe", "pastikan", "zip", "enumerate", "min", "max", "urutkan", "terbalik", "ada", "semua", "isinstance", "punya", "id", "hash", "abs", "round", "panjang", "boolean", "angka_desimal", "hentikan_iterasi"):
                 raise self._error(
                     message=f"Fungsi '{func_name}' belum didefinisikan.",
                     line=node.line,
@@ -649,13 +649,16 @@ class SemanticAnalyzer(ASTVisitor):
         target_type = self.visit(node.target)
         index_type = self.visit(node.index)
 
-        if target_type not in ("list", "teks", "tuple"):
-            raise self._error(
-                message=f"Tipe {target_type} tidak bisa di-index.",
-                line=node.line,
-                column=node.column,
-                solution="Indexing hanya untuk list, string, dan tuple.",
-            )
+        if target_type not in ("list", "teks", "tuple", None):
+            # Cek apakah target adalah nama kelas yang mungkin punya __getitem__
+            if not (isinstance(node.target, IdentifierNode) and
+                    node.target.name in self._current_class_names if hasattr(self, '_current_class_names') else False):
+                raise self._error(
+                    message=f"Tipe {target_type} tidak bisa di-index.",
+                    line=node.line,
+                    column=node.column,
+                    solution="Indexing hanya untuk list, string, dan tuple.",
+                )
 
         if index_type not in ("angka", None):
             raise self._error(

@@ -183,6 +183,11 @@ class Lexer:
             string literal
         '''
         result = []
+        has_interpolation = False
+        parts = []
+        current_literal = []
+        start_line = self.line
+        start_col = self.column
         # Cek apakah ini multi-line string
         if self._peek() == quote and self._peek(2) == quote:
             self._advance()  # kutip ke-2
@@ -208,7 +213,37 @@ class Lexer:
         else:
             while self._current() is not None:
                 if self._current() == '\\' and self._peek() is not None:
-                    result.append(self._read_escape())
+                    current_literal.append(self._read_escape())
+                elif self._current() == '$' and self._peek() is not None:
+                    # $variable interpolation — convert to f-string
+                    has_interpolation = True
+                    if current_literal:
+                        parts.append(("literal", ''.join(current_literal)))
+                        current_literal = []
+                    self._advance()  # consume $
+                    if self._current() == '{':
+                        # ${expr} — expression interpolation
+                        self._advance()  # consume {
+                        expr_chars = []
+                        depth = 1
+                        while self._current() is not None and depth > 0:
+                            if self._current() == '{':
+                                depth += 1
+                            elif self._current() == '}':
+                                depth -= 1
+                                if depth == 0:
+                                    break
+                            expr_chars.append(self._advance())
+                        self._advance()  # consume }
+                        parts.append(("expr", ''.join(expr_chars).strip()))
+                    elif self._current() is not None and (self._current().isalpha() or self._current() == '_'):
+                        # $variable — simple variable interpolation
+                        var_chars = []
+                        while self._current() is not None and (self._current().isalnum() or self._current() == '_'):
+                            var_chars.append(self._advance())
+                        parts.append(("expr", ''.join(var_chars)))
+                    else:
+                        current_literal.append('$')
                 elif self._current() == quote:
                     self._advance()  # consume closing quote
                     break
@@ -219,7 +254,7 @@ class Lexer:
                         example=f'{quote*3}teks panjang{quote*3}',
                     )
                 else:
-                    result.append(self._advance())
+                    current_literal.append(self._advance())
             else:
                 raise self._error(
                     message=f'String tidak ditutup.',
@@ -227,7 +262,12 @@ class Lexer:
                     example=f'{quote}Halo{quote}',
                 )
 
-        return ''.join(result)
+        if has_interpolation:
+            if current_literal:
+                parts.append(("literal", ''.join(current_literal)))
+            return Token(TokenType.TOKEN_FSTRING, parts, start_line, start_col)
+
+        return Token(TokenType.TOKEN_STRING, ''.join(current_literal), start_line, start_col)
 
     def _read_escape(self) -> str:
         '''Membaca escape character.'''
@@ -428,6 +468,14 @@ class Lexer:
         if char == ':' and self._current() == '=':
             self._advance()
             return Token(TokenType.TOKEN_WALRUS, ':=', start_line, start_col)
+        if char == '?' and self._current() == '.':
+            self._advance()
+            return Token(TokenType.TOKEN_QUESTION_DOT, '?.', start_line, start_col)
+        if char == '?' and self._current() == '?':
+            self._advance()
+            return Token(TokenType.TOKEN_QUESTION, '??', start_line, start_col)
+        if char == '?':
+            return Token(TokenType.TOKEN_QUESTION, '?', start_line, start_col)
         if char == '@':
             return Token(TokenType.TOKEN_AT, '@', start_line, start_col)
 
@@ -511,7 +559,10 @@ class Lexer:
             if char in ('"', "'"):
                 quote = self._advance()
                 string_value = self._read_string(quote)
-                self.tokens.append(Token(TokenType.TOKEN_STRING, string_value, self.line, self.column))
+                if isinstance(string_value, Token):
+                    self.tokens.append(string_value)
+                else:
+                    self.tokens.append(Token(TokenType.TOKEN_STRING, string_value, self.line, self.column))
                 continue
 
             if char.isdigit():

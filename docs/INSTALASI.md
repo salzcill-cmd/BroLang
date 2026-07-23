@@ -1,24 +1,52 @@
-# 🚀 Instalasi BroLang
+# Instalasi BroLang
 
 > **Syarat:** Python 3.10 ke atas. Kalo versi kamu di bawah itu, upgrade dulu ya bos.
 
-## 📥 Clone & Install
+## Cara 1: Install dengan Script (Recommended)
+
+Paling gampang, tinggal clone terus jalanin script:
 
 ```bash
-# 1. Clone repo-nya
 git clone https://github.com/salzcill-cmd/BroLang.git
 cd BroLang
-
-# 2. Install (editable mode, biar kalo update ga perlu install ulang)
-pip install -e .
-
-# 3. Cek apakah udah ke-install
-bro --help
+chmod +x install.sh
+./install.sh
 ```
 
-Kalo muncul info kayak gini, berarti udah sukses ✅
+Script-nya bakal:
+1. Cek Python udah sesuai versi belum
+2. Bikin virtual environment otomatis
+3. Install BroLang + dependensi dev
+4. Bikin command `bro` di `~/.local/bin/`
+5. Setup PATH di shell kamu
 
-## 🎮 Install Game Support (Opsional)
+Abis install, jalanin:
+```bash
+source ~/.bashrc    # atau ~/.zshrc
+bro --version       # BroLang 5.0.0
+```
+
+## Cara 2: Install Manual
+
+Kalo mau atur sendiri:
+
+```bash
+git clone https://github.com/salzcill-cmd/BroLang.git
+cd BroLang
+pip install -e .
+```
+
+Abis itu `bro` langsung bisa dipake.
+
+## Cara 3: Install Langsung dari GitHub
+
+Ga perlu clone, langsung install:
+
+```bash
+pip install git+https://github.com/salzcill-cmd/BroLang.git
+```
+
+## Install Game Support (Opsional)
 
 Kalo mau bikin game, install pygame-ce dulu:
 
@@ -26,40 +54,67 @@ Kalo mau bikin game, install pygame-ce dulu:
 pip install pygame-ce
 ```
 
-## 🔧 Install Dev Dependencies (Buat Kontributor)
+Atau pas install pertama kali pake script, bakal ditanya mau install pygame juga.
+
+## Install Dev Dependencies (Buat Kontributor)
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-## ❌ Troubleshooting
+## Uninstall
+
+Pake script uninstall:
+
+```bash
+cd BroLang
+chmod +x uninstall.sh
+./uninstall.sh
+```
+
+Atau manual:
+```bash
+pip uninstall brolang
+rm ~/.local/bin/bro
+```
+
+## Troubleshooting
+
+### "bro: command not found" setelah install
+
+Cek apakah `~/.local/bin` ada di PATH:
+```bash
+echo $PATH | grep local
+```
+
+Kalo ga ada, tambahin:
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Terus save ke shell rc:
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
 
 ### "python: command not found"
+
 Pastikan Python udah ke-install. Cek versinya:
 ```bash
-python --version
-# atau
 python3 --version
 ```
 
 ### "pip: command not found"
+
 Install pip dulu:
 ```bash
-python -m ensurepip --upgrade
+python3 -m ensurepip --upgrade
 ```
 
 ### "permission denied"
+
 Tambahin `--user` atau pake `sudo`:
 ```bash
 pip install --user -e .
-```
-
-### "bro: command not found" setelah install
-Cek PATH Python scripts:
-```bash
-# Linux/Mac
-export PATH="$HOME/.local/bin:$PATH"
-
-# Windows
-# Tambahin Python Scripts folder ke PATH
 ```

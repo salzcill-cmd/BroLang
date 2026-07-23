@@ -1,8 +1,8 @@
-# ⚙️ Fungsi
+# Fungsi
 
 > **Fungsi di BroLang itu flexible banget.** Bisa default params, lambda, closures, sampe keyword arguments.
 
-## 📝 Fungsi Biasa
+## Fungsi Biasa
 
 ```
 fungsi sapa(nama)
@@ -12,7 +12,7 @@ selesai
 sapa("Budi")    # Halo, Budi!
 ```
 
-## 🔙 Return Value
+## Return Value
 
 ```
 fungsi tambah(a, b)
@@ -23,7 +23,7 @@ buat hasil = tambah(10, 5)
 tulis hasil    # 15
 ```
 
-## 🎯 Default Parameters
+## Default Parameters
 
 ```
 fungsi sapa(nama, sapaan = "Halo")
@@ -36,7 +36,7 @@ sapa("Budi", "Selamat pagi")  # Selamat pagi, Budi!
 
 **Ga wajib isi semua parameter.** Kalo ga diisi, pake nilai default-nya.
 
-## ⚡ Lambda (Anonymous Function)
+## Lambda (Anonymous Function)
 
 ```
 buat kali = lalu(x) x * 2
@@ -53,7 +53,7 @@ tulis kuadrat    # [3, 4, 5]
 
 **Satu baris, langsung jadi.** Ga perlu definisi fungsi yang panjang.
 
-## 🏗️ Closures
+## Closures
 
 > **Fungsi bisa "nangkep" variabel dari scope luar.** Ini namanya closure.
 
@@ -71,7 +71,7 @@ tulis kali5(10)    # 50
 
 **`n` tetap "hidup"** meskipun `pembuat_pengali()` udah selesai dijalankan. Ini powerful banget buat bikin factory functions.
 
-## 🔀 Higher-Order Functions
+## Higher-Order Functions
 
 ```
 # Fungsi bisa dikirim sebagai parameter
@@ -83,7 +83,24 @@ buat kuadrat = lalu(x) x ** 2
 tulis jalankan(kuadrat, 5)    # 25
 ```
 
-## 📋 List Comprehension
+### Map, Filter, Reduce (v5.0)
+
+```
+buat angka = [1, 2, 3, 4, 5]
+
+# Map — ubah tiap elemen
+tulis peta(angka, lalu(x) x * 2)    # [2, 4, 6, 8, 10]
+
+# Filter — ambil yang cocok
+tulis saring(angka, lalu(x) x > 3)   # [4, 5]
+
+# Reduce — jadiin satu nilai
+tulis kurangi(angka, lalu(a, b) a + b, 0)  # 15
+```
+
+`peta`, `saring`, `kurangi` itu built-in, ga perlu import apapun.
+
+## List Comprehension
 
 ```
 # Filter
@@ -99,7 +116,7 @@ buat hasil = [x untuk x dalam range(20) jika x > 5 jika x % 2 == 0]
 tulis hasil    # [6, 8, 10, 12, 14, 16, 18]
 ```
 
-## 🏷️ Keyword Arguments
+## Keyword Arguments
 
 ```
 fungsi profil(nama, umur, kota)
@@ -113,7 +130,7 @@ profil(kota = "Bandung", nama = "Andi", umur = 17)
 
 **Ga perlu urut.** Tinggal sebut namanya aja.
 
-## 🏷️ Argument Labels
+## Argument Labels
 
 ```
 fungsi sapaorang(nama luar nama, usia luar umur)
@@ -125,7 +142,7 @@ sapaorang(nama luar "Budi", usia luar 17)
 
 **Parameter internal vs external.** Biar lebih readable.
 
-## 🔄 Recursion
+## Recursion
 
 ```
 fungsi faktorial(n)
@@ -138,7 +155,7 @@ selesai
 tulis faktorial(5)    # 120
 ```
 
-## 🧩 Variadic Functions (Kumpulin Semua Argumen)
+## Variadic Functions (Kumpulin Semua Argumen)
 
 ```
 fungsi jumlah_semua(...)
@@ -154,7 +171,7 @@ tulis jumlah_semua(1, 2, 3, 4, 5)    # 15
 
 ---
 
-## 📖 Recap
+## Recap
 
 | Fitur | Contoh |
 |-------|--------|
@@ -163,6 +180,7 @@ tulis jumlah_semua(1, 2, 3, 4, 5)    # 15
 | Default params | `fungsi f(a, b = 10)` |
 | Lambda | `lalu(x) x * 2` |
 | Closures | Fungsi nangkep variabel luar |
+| Map/Filter/Reduce | `peta`, `saring`, `kurangi` |
 | List comprehension | `[x untuk x dalam list]` |
 | Keyword args | `f(nama = "Budi")` |
 | Argument labels | `f(nama luar "B")` |

@@ -94,6 +94,8 @@ class TokenType(Enum):
     TOKEN_RSHIFT = auto()      # >>
     TOKEN_WALRUS = auto()      # := (walrus operator)
     TOKEN_AT = auto()          # @ (decorator)
+    TOKEN_QUESTION = auto()    # ? (null coalescing, optional chaining)
+    TOKEN_QUESTION_DOT = auto() # ?. (optional chaining)
 
     # Newline and Indentation
     TOKEN_NEWLINE = auto()
@@ -159,6 +161,64 @@ class TokenType(Enum):
     # v4.0 Keywords — Assertions
     TOKEN_HARUSNYA = auto()    # harusnya (should/be)
 
+    # v5.0 Keywords — Type System
+    TOKEN_TIPE = auto()        # tipe (type)
+    TOKEN_ANOTASI = auto()     # : (type annotation colon)
+    TOKEN_UNION = auto()       # | (union type)
+    TOKEN_GENERIC = auto()     # <T> (generic)
+
+    # v5.0 Keywords — Interfaces/Traits
+    TOKEN_ANTARMUKA = auto()   # antarmuka (interface)
+    TOKEN_IMPLEMENTASI = auto() # implementasi (implements)
+    TOKEN_SUPER = auto()       # super (superclass)
+
+    # v5.0 Keywords — Pattern Matching Enhancement
+    TOKEN_PATERN_DESTRUCT = auto() # [a, b] destructuring
+    TOKEN_GUARD = auto()       # jika (guard in match)
+
+    # v5.0 Keywords — Higher-Order Functions
+    TOKEN_PETA = auto()        # peta (map)
+    TOKEN_SARING = auto()      # saring (filter)
+    TOKEN_KURANGI = auto()     # kurangi (reduce)
+
+    # v5.0 Keywords — Result/Option Types
+    TOKEN_BENAR_VAL = auto()   # Benar(value) - Result success
+    TOKEN_SALAH_VAL = auto()   # Salah(error) - Result failure
+    TOKEN_SOME = auto()        # Ada(value) - Option present
+    TOKEN_NONE_VAL = auto()    # Kosong() - Option absent
+
+    # v5.0 Keywords — Macros
+    TOKEN_MAKRO = auto()       # makro (macro)
+    TOKENEKSEKUSI = auto()     # eksekusi (execute)
+
+    # v5.0 Keywords — Enhanced Async
+    TOKEN_EVENT_LOOP = auto()  # event_loop
+    TOKEN_TASK = auto()        # tugas (task)
+    TOKEN_JANJI = auto()       # janji (promise)
+
+    # v5.0 Keywords — Module System
+    TOKEN_RUANG = auto()       # ruang (namespace)
+    TOKEN_PAKAI = auto()       # pakai (use)
+
+    # v5.0 Keywords — Access Modifiers
+    TOKEN_PUBLIK = auto()      # publik (public)
+    TOKEN_PRIVAT = auto()      # privat (private)
+    TOKEN_TERLINDUNGI = auto() # terlindungi (protected)
+
+    # v5.0 Keywords — Abstract Classes
+    TOKEN_ABSTRAK = auto()     # abstrak (abstract)
+    TOKEN_KONKRET = auto()     # konkret (concrete)
+
+    # v5.0 Keywords — Enums with Values
+    TOKEN_ENUMBERHASIL = auto() # enumberhasil (enum with values)
+
+    # v5.0 Keywords — Exception Hierarchy
+    TOKEN_WARISAN = auto()     # warisan (inherit)
+
+    # v5.0 Keywords — Static/Class Methods
+    TOKEN_STATIS = auto()      # statis (static method)
+    TOKEN_KELASMETHOD = auto() # kelas_method (class method)
+
     # Special
     TOKEN_EOF = auto()
 
@@ -216,6 +276,40 @@ KEYWORDS: dict[str, TokenType] = {
     "sebagai": TokenType.TOKEN_SEBAGAI,
     "kecuali": TokenType.TOKEN_KECUALI,
     "harusnya": TokenType.TOKEN_HARUSNYA,
+    # v5.0 keywords — Type System
+    "tipe": TokenType.TOKEN_TIPE,
+    "antarmuka": TokenType.TOKEN_ANTARMUKA,
+    "implementasi": TokenType.TOKEN_IMPLEMENTASI,
+    "super": TokenType.TOKEN_SUPER,
+    # v5.0 keywords — Higher-Order Functions
+    "peta": TokenType.TOKEN_PETA,
+    "saring": TokenType.TOKEN_SARING,
+    "kurangi": TokenType.TOKEN_KURANGI,
+    # v5.0 keywords — Result/Option
+    "Benar": TokenType.TOKEN_BENAR_VAL,
+    "Salah": TokenType.TOKEN_SALAH_VAL,
+    "Ada": TokenType.TOKEN_SOME,
+    # v5.0 keywords — Macros
+    "makro": TokenType.TOKEN_MAKRO,
+    "eksekusi": TokenType.TOKENEKSEKUSI,
+    # v5.0 keywords — Module System
+    "ruang": TokenType.TOKEN_RUANG,
+    "pakai": TokenType.TOKEN_PAKAI,
+    # v5.0 keywords — Access Modifiers
+    "publik": TokenType.TOKEN_PUBLIK,
+    "privat": TokenType.TOKEN_PRIVAT,
+    "terlindungi": TokenType.TOKEN_TERLINDUNGI,
+    # v5.0 keywords — Abstract Classes
+    "abstrak": TokenType.TOKEN_ABSTRAK,
+    "konkret": TokenType.TOKEN_KONKRET,
+    # v5.0 keywords — Async
+    "tugas": TokenType.TOKEN_TASK,
+    "janji": TokenType.TOKEN_JANJI,
+    # v5.0 keywords — Inheritance
+    "warisan": TokenType.TOKEN_WARISAN,
+    # v5.0 keywords — Static/Class Methods
+    "statis": TokenType.TOKEN_STATIS,
+    "kelas_method": TokenType.TOKEN_KELASMETHOD,
 }
 
 

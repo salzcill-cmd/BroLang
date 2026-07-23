@@ -180,6 +180,47 @@ def builtin_max_val(*args) -> Any:
     return max(args)
 
 
+# v5.0 Type checking
+
+_TYPE_MAP = {
+    "angka": (int, float),
+    "desimal": float,
+    "bilangan": int,
+    "teks": str,
+    "boolean": bool,
+    "daftar": list,
+    "objek": dict,
+    "tipe": type,
+    "kosong": type(None),
+}
+
+
+def builtin_cektipe(value, tipe_name=None):
+    """cek_tipe(val, tipe?) - Cek tipe nilai."""
+    if tipe_name is None:
+        return type(value).__name__
+    expected = _TYPE_MAP.get(tipe_name, tipe_name)
+    if isinstance(expected, str):
+        try:
+            return isinstance(value, eval(expected))
+        except Exception:
+            return False
+    return isinstance(value, expected)
+
+
+def builtin_pastikan(value, tipe_name, pesan=None):
+    """pastikan(val, tipe, pesan?) - Validasi tipe, lempar error jika salah."""
+    if not builtin_cektipe(value, tipe_name):
+        msg = pesan or f"Diharapkan tipe '{tipe_name}', tapi mendapatkan '{type(value).__name__}'."
+        from brolang.exceptions import RuntimeError_
+        raise RuntimeError_(message=msg)
+
+
+def builtin_hentikan_iterasi():
+    """hentikan_iterasi() - Memberhentikan iterasi dari __next__."""
+    raise StopIteration("Iterasi berhenti")
+
+
 BUILTINS: Dict[str, Any] = {
     "len": builtin_len,
     "panjang": builtin_len,
@@ -211,4 +252,9 @@ BUILTINS: Dict[str, Any] = {
     "exec": builtin_exec,
     "abs": builtin_abs,
     "round": builtin_round_val,
+    # v5.0 Type checking
+    "cek_tipe": builtin_cektipe,
+    "pastikan": builtin_pastikan,
+    # Iterator
+    "hentikan_iterasi": builtin_hentikan_iterasi,
 }

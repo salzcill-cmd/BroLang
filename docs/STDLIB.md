@@ -1,8 +1,8 @@
-# 📚 Standard Library
+# Standard Library
 
 > **BroLang punya module built-in yang keren-keren.** Tinggal pake aja.
 
-## 🧮 `angka` — Matematika Lanjut
+## `angka` — Matematika Lanjut
 
 ```
 muat angka
@@ -15,7 +15,7 @@ tulis angka.min(3, 7)    # 3
 tulis angka.max(3, 7)    # 7
 ```
 
-## 📏 `vektor` — Vektor Matematika
+## `vektor` — Vektor Matematika
 
 ```
 muat vektor
@@ -28,7 +28,7 @@ tulis vektor.kali_skalar(a, 3) # (3, 6)
 tulis vektor.panjang(a)        # 2.236...
 ```
 
-## 🎵 `audio` — Sound Effects
+## `audio` — Sound Effects
 
 ```
 muat audio
@@ -37,7 +37,7 @@ audio.muat("efek_lompat", "assets/lompat.mp3")
 audio.mainkan("efek_lompat")
 ```
 
-## 🖥️ `sistem` — Info System
+## `sistem` — Info System
 
 ```
 muat sistem
@@ -46,7 +46,7 @@ tulis sistem.versi()        # Versi BroLang
 tulis sistem.platform()     # linux / windows / darwin
 ```
 
-## 🎮 `game` — Game Utilities
+## `game` — Game Utilities
 
 ```
 muat game
@@ -63,7 +63,7 @@ jika game.input_ditekan("space") maka
 selesai
 ```
 
-## 🌐 `web` — HTTP Requests
+## `web` — HTTP Requests
 
 ```
 muat web
@@ -72,7 +72,7 @@ buat respon = web.get("https://api.example.com/data")
 tulis respon.teks
 ```
 
-## 📂 `sistem_operasi` — OS Operations
+## `sistem_operasi` — OS Operations
 
 ```
 muat sistem_operasi
@@ -85,7 +85,7 @@ selesai
 
 ---
 
-## 📖 Module List
+## Module List
 
 | Module | Fungsi |
 |--------|--------|

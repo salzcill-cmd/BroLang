@@ -40,10 +40,21 @@ from brolang.ast.nodes import (
     DecoratorNode, DecoratedFunctionNode, DecoratedClassNode,
     WalrusNode, WithNode, TypedExceptNode, MultiExceptNode,
     StarImportNode, ChainedCallNode, SwitchNode,
+    # V5.0 Nodes
+    TypeAnnotationNode, TypeAliasNode, UnionTypeNode, GenericTypeNode, FunctionTypeNode,
+    InterfaceNode, MethodSignatureNode, ImplementsNode, AbstractClassNode, AbstractMethodNode,
+    DestructuringPatternNode, GuardPatternNode,
+    MapNode, FilterNode, ReduceNode,
+    ResultNode, OptionNode,
+    MacroDefNode, MacroCallNode,
+    NamespaceNode, UseNode, AccessModifierNode,
+    NullCoalescingNode, OptionalChainingNode,
+    ForEachNode, ChainedComparisonNode,
 )
 from brolang.exceptions import (
     RuntimeError_, TypeError_, NameError_,
     ZeroDivisionError_, IndexError_,
+    YieldException, StopGenerator,
 )
 from brolang.stdlib import get_stdlib_module
 from brolang.interpreter.builtins import BUILTINS
@@ -60,6 +71,7 @@ class Environment:
     variables: Dict[str, Any] = field(default_factory=dict)
     functions: Dict[str, Callable] = field(default_factory=dict)
     classes: Dict[str, "BroLangClass"] = field(default_factory=dict)
+    interfaces: Dict[str, Any] = field(default_factory=dict)
     modules: Dict[str, Any] = field(default_factory=dict)
     return_value: Any = None
     should_return: bool = False
@@ -120,13 +132,40 @@ def _struct_init(instance, fields, args):
             setattr(instance, field, None)
 
 
+def _has_yield_in_body(body):
+    """Cek apakah ada yield atau yield-from di dalam fungsi."""
+    for stmt in body:
+        if isinstance(stmt, (YieldNode, YieldFromNode)):
+            return True
+        if hasattr(stmt, 'body') and _has_yield_in_body(stmt.body):
+            return True
+        if hasattr(stmt, 'else_body') and stmt.else_body and _has_yield_in_body(stmt.else_body):
+            return True
+        if hasattr(stmt, 'if_branches') and stmt.if_branches:
+            for cond, block in stmt.if_branches:
+                if _has_yield_in_body(block):
+                    return True
+        if hasattr(stmt, 'except_handlers') and stmt.except_handlers:
+            for handler in stmt.except_handlers:
+                if hasattr(handler, 'body') and _has_yield_in_body(handler.body):
+                    return True
+    return False
+
+
 class BroLangClass:
     """Representasi kelas dalam BroLang runtime."""
 
-    def __init__(self, name: str, methods: Dict[str, Callable], parent: Optional["BroLangClass"] = None):
+    def __init__(self, name: str, methods: Dict[str, Callable], parent: Optional["BroLangClass"] = None,
+                 is_abstract: bool = False, abstract_methods: Optional[List[str]] = None,
+                 required_interfaces: Optional[List[str]] = None,
+                 method_access: Optional[Dict[str, str]] = None):
         self.name = name
         self.methods = methods
         self.parent = parent
+        self.is_abstract = is_abstract
+        self.abstract_methods = abstract_methods or []
+        self.required_interfaces = required_interfaces or []
+        self.method_access = method_access or {}  # name -> "publik"/"privat"/"terlindungi"
 
     def get_method(self, name: str) -> Optional[Callable]:
         if name in self.methods:
@@ -134,6 +173,13 @@ class BroLangClass:
         if self.parent is not None:
             return self.parent.get_method(name)
         return None
+
+    def get_method_access(self, name: str) -> str:
+        if name in self.method_access:
+            return self.method_access[name]
+        if self.parent is not None:
+            return self.parent.get_method_access(name)
+        return "publik"
 
 
 class BroLangInstance:
@@ -143,11 +189,28 @@ class BroLangInstance:
         self.klass = klass
         self.attributes: Dict[str, Any] = {}
 
-    def get(self, name: str) -> Any:
+    def get(self, name: str, caller_class: Optional[str] = None) -> Any:
         if name in self.attributes:
             return self.attributes[name]
+        # Property getter: _<name> method
+        prop_getter = self.klass.get_method(f"_{name}")
+        if prop_getter is not None:
+            return prop_getter(self)
         method = self.klass.get_method(name)
         if method is not None:
+            access = self.klass.get_method_access(name)
+            if access == "privat" and caller_class != self.klass.name:
+                raise RuntimeError_(
+                    message=f"Akses ditolak: '{name}' bersifat privat di kelas '{self.klass.name}'.",
+                    line=0, column=0,
+                    solution=f"Hapus modifier 'privat' atau akses dari dalam kelas {self.klass.name}.",
+                )
+            if access == "terlindungi" and caller_class not in (self.klass.name, _get_subclass_names(self.klass)):
+                raise RuntimeError_(
+                    message=f"Akses ditolak: '{name}' bersifat terlindungi di kelas '{self.klass.name}'.",
+                    line=0, column=0,
+                    solution=f"Akses '{name}' hanya bisa dari kelas {self.klass.name} atau keturunannya.",
+                )
             return method
         raise RuntimeError_(
             message=f"'{self.klass.name}' tidak memiliki atribut '{name}'.",
@@ -156,7 +219,133 @@ class BroLangInstance:
         )
 
     def set(self, name: str, value: Any) -> None:
+        # Property setter: _<name>_set method
+        prop_setter = self.klass.get_method(f"_{name}_set")
+        if prop_setter is not None:
+            prop_setter(self, value)
+            return
         self.attributes[name] = value
+
+
+class BroLangGenerator:
+    """Generator object yang bisa di-iterate.
+
+    Karena ini tree-walking interpreter, generator dieksekusi sekali
+    untuk mengumpulkan semua nilai yield, lalu dilayani satu per satu.
+    For-loop dijalankan item per item supaya yield bisa ditangkap.
+    """
+
+    def __init__(self, body, params, args, defaults, closure_env, interpreter):
+        self._values = []
+        self._collected = False
+        self._index = 0
+        self._body = body
+        self._params = params
+        self._args = args
+        self._defaults = defaults
+        self._closure_env = closure_env
+        self._interpreter = interpreter
+
+    def _setup_env(self):
+        env = Environment(parent=self._closure_env)
+        for i, param in enumerate(self._params):
+            if i < len(self._args):
+                env.define_variable(param, self._args[i])
+            elif i < len(self._defaults):
+                dv = self._defaults[i]
+                env.define_variable(param, self._interpreter.visit(dv) if dv else None)
+            else:
+                env.define_variable(param, None)
+        return env
+
+    def _collect_stmts(self, stmts):
+        """Eksekusi list statement, tangkap yield di setiap level."""
+        for stmt in stmts:
+            cls = stmt.__class__.__name__
+            if cls == 'ForNode':
+                self._collect_for(stmt)
+            elif cls == 'WhileNode':
+                self._collect_while(stmt)
+            elif cls == 'YieldFromNode':
+                self._collect_yield_from(stmt)
+            else:
+                try:
+                    self._interpreter.visit(stmt)
+                except YieldException as e:
+                    self._values.append(e.value)
+                if self._interpreter.current_env.should_return:
+                    return
+
+    def _collect_for(self, node):
+        """Eksekusi for-loop item per item supaya yield bisa ditangkap."""
+        iterable = self._interpreter.visit(node.iterable)
+        for item in iterable:
+            self._interpreter._push_env()
+            self._interpreter.current_env.define_variable(node.variable, item)
+            try:
+                self._collect_stmts(node.body)
+            finally:
+                self._interpreter._pop_env()
+            if self._interpreter.current_env.should_return:
+                return
+
+    def _collect_while(self, node):
+        """Eksekusi while-loop item per item supaya yield bisa ditangkap."""
+        while True:
+            condition = self._interpreter.visit(node.condition)
+            if not condition:
+                break
+            self._interpreter._push_env()
+            try:
+                self._collect_stmts(node.body)
+            finally:
+                self._interpreter._pop_env()
+            if self._interpreter.current_env.should_return:
+                return
+
+    def _collect_yield_from(self, node):
+        """Yield from — yield setiap item dari iterable."""
+        iterable = self._interpreter.visit(node.value)
+        items = list(iterable) if not isinstance(iterable, list) else iterable
+        for item in items:
+            self._values.append(item)
+
+    def _collect(self):
+        if self._collected:
+            return
+        self._collected = True
+
+        old_env = self._interpreter.current_env
+        self._interpreter.current_env = self._setup_env()
+        try:
+            self._collect_stmts(self._body)
+        except ReturnException:
+            pass
+        finally:
+            self._interpreter.current_env = old_env
+
+    def __iter__(self):
+        self._collect()
+        return self
+
+    def __next__(self):
+        self._collect()
+        if self._index >= len(self._values):
+            raise StopIteration
+        value = self._values[self._index]
+        self._index += 1
+        return value
+
+
+def _get_subclass_names(klass: BroLangClass) -> List[str]:
+    """Kumpulkan nama kelas turunan."""
+    names = []
+    for env_var in [globals(), locals()]:
+        for v in env_var.values():
+            if isinstance(v, BroLangClass) and v.parent is klass:
+                names.append(v.name)
+                names.extend(_get_subclass_names(v))
+    return names
 
 
 class Interpreter(ASTVisitor):
@@ -174,6 +363,7 @@ class Interpreter(ASTVisitor):
         self.global_env = Environment()
         self.current_env = self.global_env
         self.output: List[str] = []
+        self._current_class_name: Optional[str] = None
 
         # Register built-in functions
         for name, func in BUILTINS.items():
@@ -231,6 +421,51 @@ class Interpreter(ASTVisitor):
                     message="'lanjutkan' harus digunakan di dalam loop.",
                 )
         return result
+
+    def _make_iterable(self, obj: BroLangInstance):
+        """Konversi objek BroLangInstance jadi Python iterable."""
+        try:
+            iter_func = obj.get('__iter__')
+            if callable(iter_func) and not isinstance(iter_func, BroLangInstance):
+                result = iter_func(obj)
+            else:
+                result = iter_func()
+            if hasattr(result, '__iter__') and hasattr(result, '__next__'):
+                return result
+            if isinstance(result, list):
+                return result
+            # BroLang-style iterator: call __next__ repeatedly
+            if hasattr(result, 'get'):
+                next_func = result.get('__next__')
+                if callable(next_func):
+                    items = []
+                    while True:
+                        try:
+                            val = next_func(result)
+                            items.append(val)
+                        except (StopIteration, Exception):
+                            break
+                    return items
+            return list(result) if hasattr(result, '__iter__') else [result]
+        except RuntimeError_:
+            pass
+        try:
+            getitem_func = obj.get('__getitem__')
+            idx = 0
+            result = []
+            while True:
+                try:
+                    if callable(getitem_func) and not isinstance(getitem_func, BroLangInstance):
+                        result.append(getitem_func(obj, idx))
+                    else:
+                        result.append(getitem_func(idx))
+                    idx += 1
+                except Exception:
+                    break
+            return result
+        except RuntimeError_:
+            pass
+        return list(obj.attributes.values()) if hasattr(obj, 'attributes') else []
 
     def visit_NumberNode(self, node: NumberNode) -> int:
         return node.value
@@ -470,6 +705,12 @@ class Interpreter(ASTVisitor):
     def visit_ForNode(self, node: ForNode) -> None:
         """For loop execution with optional else clause."""
         iterable = self.visit(node.iterable)
+
+        if isinstance(iterable, BroLangInstance):
+            iterable = self._make_iterable(iterable)
+        elif isinstance(iterable, dict):
+            iterable = list(iterable.keys())
+
         broke = False
 
         for item in iterable:
@@ -578,16 +819,13 @@ class Interpreter(ASTVisitor):
 
     def visit_FunctionNode(self, node: FunctionNode) -> None:
         """Deklarasi fungsi dengan closure support."""
-        # Capture the enclosing environment at definition time (closure)
         closure_env = self.current_env
-        
+
         def bro_function(*args):
             old_env = self.current_env
             self._push_env()
-            # Set parent to captured closure env for proper scope chain
             self.current_env.parent = closure_env
 
-            # Bind parameters with default values
             for i, param in enumerate(node.params):
                 if i < len(args):
                     self.current_env.define_variable(param, args[i])
@@ -601,7 +839,6 @@ class Interpreter(ASTVisitor):
                 else:
                     self.current_env.define_variable(param, None)
 
-            # Execute body
             try:
                 result = None
                 for stmt in node.body:
@@ -616,12 +853,21 @@ class Interpreter(ASTVisitor):
                 self._pop_env()
                 self.current_env = old_env
                 return e.value
-            except Exception as e:
-                self._pop_env()
-                self.current_env = old_env
-                raise e
 
-        self.current_env.functions[node.name] = bro_function
+        def generator_func(*args):
+            return BroLangGenerator(
+                body=node.body,
+                params=node.params,
+                args=args,
+                defaults=node.defaults,
+                closure_env=closure_env,
+                interpreter=self,
+            )
+
+        if _has_yield_in_body(node.body):
+            self.current_env.functions[node.name] = generator_func
+        else:
+            self.current_env.functions[node.name] = bro_function
 
     def visit_ReturnNode(self, node: ReturnNode) -> None:
         """Return statement."""
@@ -641,13 +887,30 @@ class Interpreter(ASTVisitor):
                 obj = self.visit(node.function.object)
                 method_name = node.function.property
                 if isinstance(obj, BroLangInstance):
+                    # Check if class has this method first
                     method = obj.klass.get_method(method_name)
-                    if method is None:
-                        raise RuntimeError_(
-                            message=f"Kelas '{obj.klass.name}' tidak memiliki method '{method_name}'.",
-                        )
-                    # Bind self
-                    return method(obj, *args)
+                    if method is not None:
+                        access = obj.klass.get_method_access(method_name)
+                        caller = self._current_class_name
+                        if access == "privat" and caller != obj.klass.name:
+                            raise RuntimeError_(
+                                message=f"Akses ditolak: '{method_name}' bersifat privat di kelas '{obj.klass.name}'.",
+                                line=node.line, column=node.column,
+                                solution=f"Hapus modifier 'privat' atau akses dari dalam kelas {obj.klass.name}.",
+                            )
+                        if access == "terlindungi" and caller not in (obj.klass.name, _get_subclass_names(obj.klass)):
+                            raise RuntimeError_(
+                                message=f"Akses ditolak: '{method_name}' bersifat terlindungi di kelas '{obj.klass.name}'.",
+                                line=node.line, column=node.column,
+                                solution=f"Akses '{method_name}' hanya bisa dari kelas {obj.klass.name} atau keturunannya.",
+                            )
+                        return method(obj, *args) if not getattr(method, '_brolang_static', False) else method(*args)
+                    # Built-in get/set for property access (only if no class method)
+                    if method_name == "get":
+                        return obj.get(args[0], caller_class=self._current_class_name) if args else obj
+                    if method_name == "set" and len(args) >= 2:
+                        obj.set(args[0], args[1])
+                        return None
                 # Stdlib module method
                 if hasattr(obj, method_name):
                     bound_method = getattr(obj, method_name)
@@ -706,38 +969,131 @@ class Interpreter(ASTVisitor):
     def visit_ClassNode(self, node: ClassNode) -> None:
         """Deklarasi kelas."""
         methods = {}
+        method_access = {}
+        old_class_name = self._current_class_name
+        self._current_class_name = node.name
 
         for stmt in node.body:
-            if isinstance(stmt, FunctionNode):
+            if isinstance(stmt, AccessModifierNode):
+                modifier = stmt.modifier
+                target = stmt.target
+                if isinstance(target, FunctionNode):
+                    method_func = self._create_method(target)
+                    methods[target.name] = method_func
+                    method_access[target.name] = modifier
+            elif isinstance(stmt, FunctionNode):
                 method_func = self._create_method(stmt)
                 methods[stmt.name] = method_func
+                method_access[stmt.name] = "publik"
             elif isinstance(stmt, MethodNode):
                 method_func = self._create_method(stmt)
                 methods[stmt.name] = method_func
+                method_access[stmt.name] = "publik"
 
         parent_class = None
         if node.parent:
             if node.parent in self.current_env.classes:
                 parent_class = self.current_env.classes[node.parent]
 
-        klass = BroLangClass(node.name, methods, parent_class)
+        is_abstract = getattr(node, 'is_abstract', False)
+        abstract_methods = getattr(node, 'abstract_methods', [])
+        required_interfaces = getattr(node, 'implements', []) or []
+
+        klass = BroLangClass(
+            node.name, methods, parent_class,
+            is_abstract=is_abstract,
+            abstract_methods=abstract_methods,
+            required_interfaces=required_interfaces,
+            method_access=method_access,
+        )
+
+        # Cek interface enforcement
+        for iface_name in required_interfaces:
+            if iface_name in self.current_env.interfaces:
+                iface = self.current_env.interfaces[iface_name]
+                for method_sig in iface['methods']:
+                    if method_sig not in methods:
+                        raise RuntimeError_(
+                            message=f"Kelas '{node.name}' harus mengimplementasi method '{method_sig}' dari antarmuka '{iface_name}'.",
+                            line=node.line, column=node.column,
+                            solution=f"Tambahkan method '{method_sig}' ke kelas '{node.name}'.",
+                        )
 
         # Constructor: create instance
         def class_constructor(*args):
+            if klass.is_abstract:
+                raise RuntimeError_(
+                    message=f"Tidak bisa membuat instance dari kelas abstrak '{node.name}'.",
+                    line=node.line, column=node.column,
+                    solution=f"Buat kelas turunan yang mengimplementasi semua method abstrak dari '{node.name}'.",
+                )
             instance = BroLangInstance(klass)
-            # Call __init__ if exists
+            old_class_name = self._current_class_name
+            self._current_class_name = node.name
             init_method = klass.get_method("__init__")
             if init_method:
                 init_method(instance, *args)
+            self._current_class_name = old_class_name
             return instance
 
         self.current_env.variables[node.name] = class_constructor
         self.current_env.classes[node.name] = klass
 
+        # Attach static methods to constructor for Class.method() access
+        for name, method in methods.items():
+            for stmt in node.body:
+                if isinstance(stmt, FunctionNode) and stmt.name == name and getattr(stmt, 'is_static', False):
+                    setattr(class_constructor, name, method)
+                    break
+                elif isinstance(stmt, AccessModifierNode) and isinstance(stmt.target, FunctionNode):
+                    if stmt.target.name == name and getattr(stmt.target, 'is_static', False):
+                        setattr(class_constructor, name, method)
+                        break
+
+        self._current_class_name = old_class_name
+
     def _create_method(self, node) -> Callable:
         """Membuat method dari FunctionNode atau MethodNode."""
+        owner_class_name = self._current_class_name
+        is_static = getattr(node, 'is_static', False)
+
+        if is_static:
+            def static_method(*args):
+                old_env = self.current_env
+                old_class_name = self._current_class_name
+                self._current_class_name = owner_class_name
+                self._push_env()
+
+                for i, param in enumerate(node.params):
+                    if i < len(args):
+                        self.current_env.define_variable(param, args[i])
+                    else:
+                        self.current_env.define_variable(param, None)
+
+                try:
+                    result = None
+                    for stmt in node.body:
+                        result = self.visit(stmt)
+                        if self.current_env.should_return:
+                            result = self.current_env.return_value
+                            break
+                    self._pop_env()
+                    self.current_env = old_env
+                    self._current_class_name = old_class_name
+                    return result
+                except ReturnException as e:
+                    self._pop_env()
+                    self.current_env = old_env
+                    self._current_class_name = old_class_name
+                    return e.value
+
+            static_method._brolang_static = True
+            return static_method
+
         def method(self_instance, *args):
             old_env = self.current_env
+            old_class_name = self._current_class_name
+            self._current_class_name = owner_class_name
             self._push_env()
             self.current_env.define_variable("self", self_instance)
 
@@ -760,10 +1116,12 @@ class Interpreter(ASTVisitor):
                         break
                 self._pop_env()
                 self.current_env = old_env
+                self._current_class_name = old_class_name
                 return result
             except ReturnException as e:
                 self._pop_env()
                 self.current_env = old_env
+                self._current_class_name = old_class_name
                 return e.value
 
         return method
@@ -786,7 +1144,12 @@ class Interpreter(ASTVisitor):
         prop = node.property
 
         if isinstance(obj, BroLangInstance):
-            return obj.get(prop)
+            # Expose Python-level get/set for property access
+            if prop == "get":
+                return lambda name: obj.get(name, caller_class=self._current_class_name)
+            if prop == "set":
+                return lambda name, value: obj.set(name, value)
+            return obj.get(prop, caller_class=self._current_class_name)
 
         if isinstance(obj, dict):
             if prop in obj:
@@ -823,6 +1186,15 @@ class Interpreter(ASTVisitor):
                 return methods[prop]
             raise RuntimeError_(
                 message=f"String tidak memiliki method '{prop}'.",
+                line=node.line, column=node.column,
+            )
+
+        if isinstance(obj, BroLangClass):
+            method = obj.get_method(prop)
+            if method is not None:
+                return method
+            raise RuntimeError_(
+                message=f"Kelas '{obj.name}' tidak memiliki method '{prop}'.",
                 line=node.line, column=node.column,
             )
 
@@ -977,6 +1349,20 @@ class Interpreter(ASTVisitor):
                     message=f"Indeks {index} di luar batas. Panjang: {len(target)}.",
                     line=node.line, column=node.column,
                     solution=f"Gunakan indeks antara 0 dan {len(target) - 1}.",
+                )
+
+        # BroLangInstance __getitem__ support
+        if isinstance(target, BroLangInstance):
+            try:
+                getitem_func = target.get('__getitem__')
+                if callable(getitem_func) and not isinstance(getitem_func, BroLangInstance):
+                    return getitem_func(target, index)
+                return getitem_func(index)
+            except RuntimeError_:
+                raise TypeError_(
+                    message=f"Objek '{target.klass.name}' tidak bisa di-index.",
+                    line=node.line, column=node.column,
+                    solution="Implementasikan method __getitem__(self, index) di kelas.",
                 )
 
         raise TypeError_(
@@ -1436,18 +1822,17 @@ class Interpreter(ASTVisitor):
     # ============= V4: Generators =============
 
     def visit_YieldNode(self, node: YieldNode) -> Any:
-        """Yield statement — creates a generator."""
+        """Yield statement — suspend generator dan return value."""
         value = self.visit(node.value) if node.value else None
-        # In a sync interpreter, we'll collect all yields into a list
-        # This is a simplified generator implementation
-        return value
+        raise YieldException(value)
 
     def visit_YieldFromNode(self, node: YieldFromNode) -> Any:
-        """Yield from — delegates to another iterable."""
+        """Yield from — yield setiap item dari iterable."""
         iterable = self.visit(node.value)
-        result = []
-        for item in iterable:
-            result.append(item)
+        # Konversi ke list dulu supaya bisa di-iterate tanpa masalah
+        items = list(iterable) if not isinstance(iterable, list) else iterable
+        for item in items:
+            raise YieldException(item)
         return result
 
     # ============= V4: Decorators =============
@@ -1740,10 +2125,202 @@ class Interpreter(ASTVisitor):
     # ============= V4: Generator Function =============
 
     def visit_GeneratorFunctionNode(self, node: GeneratorFunctionNode) -> None:
-        """Generator function declaration."""
+        """Generator function declaration — returns BroLangGenerator."""
         closure_env = self.current_env
 
         def generator_func(*args):
+            return BroLangGenerator(
+                body=node.body,
+                params=node.params,
+                args=args,
+                defaults=node.defaults,
+                closure_env=closure_env,
+                interpreter=self,
+            )
+
+        self.current_env.functions[node.name] = generator_func
+
+    # ============= V5.0: Type System =============
+
+    def visit_TypeAnnotationNode(self, node: TypeAnnotationNode) -> Any:
+        """Type annotation - stores type info for later use."""
+        # Type annotations are mostly for documentation in an interpreter
+        # We just return the type name as a string
+        return node.type_name
+
+    def visit_TypeAliasNode(self, node: TypeAliasNode) -> None:
+        """Type alias: tipe NamaTipe = definisi"""
+        definition = self.visit(node.definition)
+        self.current_env.variables[node.name] = definition
+
+    def visit_UnionTypeNode(self, node: UnionTypeNode) -> str:
+        """Union type: tipe1 | tipe2"""
+        return " | ".join(node.types)
+
+    def visit_GenericTypeNode(self, node: GenericTypeNode) -> str:
+        """Generic type: List<angka>"""
+        return f"{node.base_type}<{', '.join(node.type_args)}>"
+
+    def visit_FunctionTypeNode(self, node: FunctionTypeNode) -> str:
+        """Function type: (angka, teks) -> benar"""
+        return f"({', '.join(node.param_types)}) -> {node.return_type}"
+
+    # ============= V5.0: Interfaces =============
+
+    def visit_InterfaceNode(self, node: InterfaceNode) -> None:
+        """Interface declaration - stores interface definition."""
+        method_names = []
+        for m in node.methods:
+            if isinstance(m, MethodSignatureNode):
+                method_names.append(m.name)
+            elif hasattr(m, 'name'):
+                method_names.append(m.name)
+
+        interface = {
+            'name': node.name,
+            'methods': method_names,
+            'raw_methods': node.methods,
+            'parent_interfaces': node.parent_interfaces,
+        }
+        self.current_env.interfaces[node.name] = interface
+
+    def visit_MethodSignatureNode(self, node: MethodSignatureNode) -> Any:
+        """Method signature - returns signature info."""
+        return {
+            'name': node.name,
+            'params': [(p.name, p.type_name) for p in node.params],
+            'return_type': node.return_type,
+        }
+
+    def visit_ImplementsNode(self, node: ImplementsNode) -> None:
+        """Implements statement - records interface requirement."""
+        if node.class_name in self.current_env.classes:
+            klass = self.current_env.classes[node.class_name]
+            klass.required_interfaces = node.interfaces
+
+    def visit_AbstractClassNode(self, node: AbstractClassNode) -> None:
+        """Abstract class declaration."""
+        methods = {}
+        method_access = {}
+        for stmt in node.body:
+            if isinstance(stmt, AccessModifierNode):
+                modifier = stmt.modifier
+                target = stmt.target
+                if isinstance(target, FunctionNode):
+                    method_func = self._create_method(target)
+                    methods[target.name] = method_func
+                    method_access[target.name] = modifier
+            elif isinstance(stmt, FunctionNode):
+                method_func = self._create_method(stmt)
+                methods[stmt.name] = method_func
+                method_access[stmt.name] = "publik"
+
+        parent_class = None
+        if node.parent:
+            if node.parent in self.current_env.classes:
+                parent_class = self.current_env.classes[node.parent]
+
+        klass = BroLangClass(
+            node.name, methods, parent_class,
+            is_abstract=True,
+            abstract_methods=node.abstract_methods,
+            method_access=method_access,
+        )
+
+        def class_constructor(*args):
+            raise RuntimeError_(
+                message=f"Tidak bisa membuat instance dari kelas abstrak '{node.name}'.",
+                line=node.line, column=node.column,
+                solution=f"Buat kelas turunan yang mengimplementasi semua method abstrak dari '{node.name}'.",
+            )
+
+        self.current_env.variables[node.name] = class_constructor
+        self.current_env.classes[node.name] = klass
+
+    def visit_AbstractMethodNode(self, node: AbstractMethodNode) -> None:
+        """Abstract method - no-op, handled by AbstractClassNode."""
+        pass
+
+    # ============= V5.0: Higher-Order Functions =============
+
+    def visit_MapNode(self, node: MapNode) -> list:
+        """Map: peta(iterable, fungsi)"""
+        iterable = self.visit(node.iterable)
+        func = self.visit(node.function)
+        
+        if not callable(func):
+            raise RuntimeError_(
+                message="Parameter kedua 'peta' harus berupa fungsi.",
+                line=node.line, column=node.column,
+            )
+        
+        return [func(item) for item in iterable]
+
+    def visit_FilterNode(self, node: FilterNode) -> list:
+        """Filter: saring(iterable, kondisi)"""
+        iterable = self.visit(node.iterable)
+        func = self.visit(node.condition)
+        
+        if not callable(func):
+            raise RuntimeError_(
+                message="Parameter kedua 'saring' harus berupa fungsi/predicate.",
+                line=node.line, column=node.column,
+            )
+        
+        return [item for item in iterable if func(item)]
+
+    def visit_ReduceNode(self, node: ReduceNode) -> Any:
+        """Reduce: kurangi(iterable, fungsi, awal?)"""
+        iterable = self.visit(node.iterable)
+        func = self.visit(node.function)
+        
+        if not callable(func):
+            raise RuntimeError_(
+                message="Parameter kedua 'kurangi' harus berupa fungsi.",
+                line=node.line, column=node.column,
+            )
+        
+        if node.initial is not None:
+            initial = self.visit(node.initial)
+            result = initial
+            for item in iterable:
+                result = func(result, item)
+        else:
+            result = next(iter(iterable))
+            for item in iterable:
+                result = func(result, item)
+        
+        return result
+
+    # ============= V5.0: Result/Option Types =============
+
+    def visit_ResultNode(self, node: ResultNode) -> dict:
+        """Result type: Benar(value) atau Salah(error)"""
+        value = self.visit(node.value)
+        return {'type': 'Result', 'is_success': node.is_success, 'value': value}
+
+    def visit_OptionNode(self, node: OptionNode) -> dict:
+        """Option type: Ada(value) atau Kosong()"""
+        if node.has_value and node.value:
+            value = self.visit(node.value)
+            return {'type': 'Option', 'has_value': True, 'value': value}
+        return {'type': 'Option', 'has_value': False, 'value': None}
+
+    # ============= V5.0: Macros =============
+
+    def visit_MacroDefNode(self, node: MacroDefNode) -> None:
+        """Macro definition - stores macro for later expansion and also as callable."""
+        macro = {
+            'type': 'macro',
+            'params': node.params,
+            'body': node.body,
+        }
+        self.current_env.variables[node.name] = macro
+
+        # Also register as a callable function for direct invocation
+        closure_env = self.current_env
+
+        def macro_func(*args):
             old_env = self.current_env
             self._push_env()
             self.current_env.parent = closure_env
@@ -1751,33 +2328,191 @@ class Interpreter(ASTVisitor):
             for i, param in enumerate(node.params):
                 if i < len(args):
                     self.current_env.define_variable(param, args[i])
-                elif i < len(node.defaults):
-                    dv = node.defaults[i]
-                    if dv is not None:
-                        default_val = self.visit(dv)
-                        self.current_env.define_variable(param, default_val)
-                    else:
-                        self.current_env.define_variable(param, None)
                 else:
                     self.current_env.define_variable(param, None)
 
-            # Collect all yielded values
-            results = []
+            result = None
             try:
                 for stmt in node.body:
                     result = self.visit(stmt)
-                    if isinstance(result, (int, float, str, bool, list, tuple)):
-                        results.append(result)
                     if self.current_env.should_return:
                         break
-            except ReturnException:
-                pass
-            except BreakException:
-                pass
-            finally:
+            except ReturnException as e:
+                result = e.value
+            self._pop_env()
+            self.current_env = old_env
+            return result
+
+        self.current_env.functions[node.name] = macro_func
+
+    def visit_MacroCallNode(self, node: MacroCallNode) -> Any:
+        """Macro call - expands and executes macro."""
+        macro = self.current_env.get_variable(node.name)
+        if not macro or macro.get('type') != 'macro':
+            raise RuntimeError_(
+                message=f"'{node.name}' bukan sebuah macro.",
+                line=node.line, column=node.column,
+            )
+        
+        # Evaluate arguments
+        args = [self.visit(arg) for arg in node.args]
+        
+        # Create new environment for macro expansion
+        self._push_env()
+        for i, param in enumerate(macro['params']):
+            if i < len(args):
+                self.current_env.define_variable(param, args[i])
+        
+        # Execute macro body
+        result = None
+        for stmt in macro['body']:
+            result = self.visit(stmt)
+        
+        self._pop_env()
+        return result
+
+    # ============= V5.0: Module System =============
+
+    def visit_NamespaceNode(self, node: NamespaceNode) -> None:
+        """Namespace: ruang nama NamaModule { ... }"""
+        self._push_env()
+        for stmt in node.body:
+            self.visit(stmt)
+        # Store namespace as a module-like object
+        namespace_vars = dict(self.current_env.variables)
+        namespace_funcs = dict(self.current_env.functions)
+        self._pop_env()
+
+        # Create a SimpleNamespace-like object that supports attribute access
+        from types import SimpleNamespace
+        ns = SimpleNamespace(**namespace_vars)
+        # Also add functions as attributes
+        for fname, ffunc in namespace_funcs.items():
+            setattr(ns, fname, ffunc)
+        self.current_env.variables[node.name] = ns
+
+    def visit_UseNode(self, node: UseNode) -> None:
+        """Use statement: pakai NamaModule"""
+        # Try to get from stdlib first
+        try:
+            module = get_stdlib_module(node.module)
+            alias = node.alias or node.module
+            self.current_env.variables[alias] = module
+        except ImportError:
+            # Try to get from current environment (namespace)
+            if node.module in self.current_env.variables:
+                alias = node.alias or node.module
+                self.current_env.variables[alias] = self.current_env.variables[node.module]
+            else:
+                raise RuntimeError_(
+                    message=f"Module '{node.module}' tidak ditemukan.",
+                    line=node.line, column=node.column,
+                )
+
+    # ============= V5.0: Access Modifiers =============
+
+    def visit_AccessModifierNode(self, node: AccessModifierNode) -> Any:
+        """Access modifier: publik/privat/terlindungi.
+        
+        Di dalam class body, ini ditangani oleh visit_ClassNode.
+        Di luar class, langsung eksekusi target-nya.
+        """
+        return self.visit(node.target)
+
+    # ============= V5.0: Null Coalescing =============
+
+    def visit_NullCoalescingNode(self, node: NullCoalescingNode) -> Any:
+        """Null coalescing: x ?? default"""
+        left = self.visit(node.left)
+        if left is None:
+            return self.visit(node.right)
+        return left
+
+    # ============= V5.0: Optional Chaining =============
+
+    def visit_OptionalChainingNode(self, node: OptionalChainingNode) -> Any:
+        """Optional chaining: obj?.attr"""
+        obj = self.visit(node.object)
+        if obj is None:
+            return None
+        
+        if isinstance(obj, BroLangInstance):
+            try:
+                return obj.get(node.property)
+            except:
+                return None
+        
+        if isinstance(obj, dict):
+            return obj.get(node.property)
+        
+        if hasattr(obj, node.property):
+            return getattr(obj, node.property)
+        
+        return None
+
+    # ============= V5.0: For Each with Index =============
+
+    def visit_ForEachNode(self, node: ForEachNode) -> None:
+        """For-each with index: untuk setiap (item, index) dalam iterable"""
+        iterable = self.visit(node.iterable)
+        
+        for index, item in enumerate(iterable):
+            self._push_env()
+            self.current_env.define_variable(node.variable, item)
+            if node.index_variable:
+                self.current_env.define_variable(node.index_variable, index)
+            
+            try:
+                for stmt in node.body:
+                    self.visit(stmt)
+                    if self.current_env.should_return:
+                        self._pop_env()
+                        return
                 self._pop_env()
-                self.current_env = old_env
+            except BreakException:
+                self._pop_env()
+                break
+            except ContinueException:
+                self._pop_env()
+                continue
 
-            return results
+    # ============= V5.0: Chained Comparisons =============
 
-        self.current_env.functions[node.name] = generator_func
+    def visit_ChainedComparisonNode(self, node: ChainedComparisonNode) -> bool:
+        """Chained comparison: 0 < x < 10"""
+        left = self.visit(node.left)
+        
+        for i, (op, comparator) in enumerate(zip(node.operators, node.comparators)):
+            right = self.visit(comparator)
+            
+            if op == '<':
+                result = left < right
+            elif op == '>':
+                result = left > right
+            elif op == '<=':
+                result = left <= right
+            elif op == '>=':
+                result = left >= right
+            else:
+                raise RuntimeError_(
+                    message=f"Operator '{op}' tidak didukung dalam chained comparison.",
+                    line=node.line, column=node.column,
+                )
+            
+            if not result:
+                return False
+            left = right
+        
+        return True
+
+    # ============= V5.0: Destructuring Pattern =============
+
+    def visit_DestructuringPatternNode(self, node: DestructuringPatternNode) -> Any:
+        """Destructuring pattern - returns the variables to bind."""
+        return node.variables
+
+    def visit_GuardPatternNode(self, node: GuardPatternNode) -> Any:
+        """Guard pattern - evaluates guard condition."""
+        self.current_env.define_variable(node.variable, None)
+        # The actual matching is handled by the match expression
+        return None

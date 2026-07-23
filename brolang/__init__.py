@@ -1,6 +1,6 @@
 """
 BroLang - Bahasa Pemrograman Profesional untuk Game Development
-================================================================
+================================================
 
 BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 - Kemudahan belajar dengan sintaks Bahasa Indonesia
@@ -11,16 +11,19 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
-Fitur v4.0:
-- Async/Await (asinkron/tunggu)
-- Generators (hasilkan)
-- Decorators (@dekorator)
-- Walrus Operator (:=)
-- Context Manager (dengan...sebagai)
-- Typed Exceptions (kecuali tipe)
-- Test Framework (tes)
-- Profiler (profil)
-- Debugger (debugger)
+Fitur v5.0:
+- Type System (tipe data dengan anotasi)
+- Interfaces/Antarmuka
+- Abstract Classes (kelas abstrak)
+- Higher-Order Functions (peta, saring, kurangi)
+- Result/Option Types (penanganan error)
+- Macros (metaprogramming)
+- Module System (ruang nama)
+- Access Modifiers (publik, privat, terlindungi)
+- Null Coalescing (??)
+- Optional Chaining (?.)
+- Chained Comparisons (0 < x < 10)
+- For Each with Index
 - 25+ modul standard library
 - Sprite, Animasi, Tilemap, Kamera, Fisika
 
@@ -37,7 +40,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "4.0.0"
+__version__ = "5.0.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

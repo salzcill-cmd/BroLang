@@ -1,4 +1,4 @@
-# 🏛️ Arsitektur BroLang
+# Arsitektur BroLang
 
 > **Mau tau cara kerja BroLang di belakang layar?** Baca sini.
 
@@ -41,7 +41,7 @@ BroLang/
 │   ├── cli/
 │   │   ├── main.py          # Entry point utama
 │   │   └── __init__.py
-│   ├── token_types.py       # 80+ token types
+│   ├── token_types.py       # 130+ token types
 │   ├── lexer/
 │   │   ├── lexer.py         # Tokenisasi
 │   │   ├── lexer_handlers.py # Handler per karakter
@@ -52,7 +52,7 @@ BroLang/
 │   │   ├── token_iterator.py # Iterator tokens
 │   │   └── errors.py        # Parser errors
 │   ├── ast/
-│   │   ├── __init__.py      # 60+ AST node types
+│   │   ├── __init__.py      # 110+ AST node types
 │   │   ├── nodes.py         # Node definitions
 │   │   └── visitor.py       # Visitor pattern
 │   ├── semantic/
@@ -71,7 +71,7 @@ BroLang/
 │       ├── game.py          # modul_game
 │       ├── vektor.py        # modul_vektor
 │       └── ...              # 20+ modules
-├── tests/                   # 133 test cases
+├── tests/                   # 183 test cases
 ├── examples/                # Contoh program
 ├── docs/                    # Dokumentasi
 └── setup.py                 # Package config
@@ -83,7 +83,7 @@ BroLang/
 - Tokenisasi karakter per karakter
 - Handle string, number, identifier, keyword
 - Multi-word operators (is bukan, bukan dalam)
-- 80+ token types
+- 130+ token types
 
 ### Parser
 - Recursive descent parser
@@ -92,7 +92,7 @@ BroLang/
 - Nested expression support
 
 ### AST Nodes
-- 60+ node types
+- 110+ node types
 - Visitor pattern untuk traversal
 - Semua node punya `accept(visitor)` method
 

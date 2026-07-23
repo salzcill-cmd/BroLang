@@ -5,16 +5,21 @@ REPL BroLang
 REPL (Read-Eval-Print Loop) interaktif untuk BroLang.
 Memungkinkan pengguna mengetik dan mengeksekusi kode
 BroLang secara interaktif.
+
+Mendukung transpiler (cepat) dengan fallback ke interpreter.
 """
 
 import sys
 import os
+import io
+import contextlib
 from typing import List, Optional, Any
 from brolang.lexer import Lexer
 from brolang.parser import Parser
 from brolang.semantic import SemanticAnalyzer
 from brolang.optimizer import Optimizer
 from brolang.interpreter import Interpreter
+from brolang.vm.transpiler import Transpiler
 from brolang import __version__
 
 
@@ -26,6 +31,7 @@ class BroLangREPL:
         history: Riwayat perintah
         multiline: Apakah dalam mode multi-line
         buffer: Buffer untuk multi-line input
+        exec_globals: Global namespace untuk transpiler
     """
 
     def __init__(self):
@@ -34,6 +40,8 @@ class BroLangREPL:
         self.multiline: bool = False
         self.buffer: List[str] = []
         self.prompt_count: int = 0
+        # Persistent namespace untuk transpiler
+        self.exec_globals = {'__builtins__': __builtins__}
 
     def start(self) -> None:
         """Memulai REPL."""
@@ -43,7 +51,7 @@ class BroLangREPL:
     def _print_welcome(self) -> None:
         """Menampilkan pesan selamat datang."""
         print(f"\nBroLang {__version__}")
-        print("Bahasa Pemrograman Edukatif Profesional")
+        print("Bahasa Pemrograman Profesional untuk Game Development")
         print("Ketik 'exit' atau Ctrl+C untuk keluar")
         print()
 
@@ -115,6 +123,26 @@ class BroLangREPL:
             optimizer = Optimizer()
             optimized = optimizer.optimize(ast)
 
+            # Coba transpiler dulu (lebih cepat)
+            try:
+                transpiler = Transpiler()
+                py_code = transpiler.transpile(optimized)
+                # Jalankan dengan output capture
+                stdout_capture = io.StringIO()
+                with contextlib.redirect_stdout(stdout_capture):
+                    exec(compile(py_code, '<repl>', 'exec'), self.exec_globals)
+                # Tampilkan output
+                output = stdout_capture.getvalue()
+                if output:
+                    print(output, end='')
+                # Tampilkan hasil expression jika ada
+                # (Expression results are shown via tulis() in transpiled code)
+                return
+            except Exception:
+                # Fallback ke interpreter
+                pass
+
+            # Interpreter fallback
             result = self.interpreter.interpret(optimized)
 
             # Show result for expressions

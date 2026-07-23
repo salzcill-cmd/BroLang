@@ -69,6 +69,16 @@ from brolang.ast.nodes import (
     DecoratorNode, DecoratedFunctionNode, DecoratedClassNode,
     WalrusNode, WithNode, TypedExceptNode, MultiExceptNode,
     StarImportNode, ChainedCallNode, SwitchNode,
+    # V5.0 Nodes
+    TypeAnnotationNode, TypeAliasNode, UnionTypeNode, GenericTypeNode, FunctionTypeNode,
+    InterfaceNode, MethodSignatureNode, ImplementsNode, AbstractClassNode, AbstractMethodNode,
+    DestructuringPatternNode, GuardPatternNode,
+    MapNode, FilterNode, ReduceNode,
+    ResultNode, OptionNode,
+    MacroDefNode, MacroCallNode,
+    NamespaceNode, UseNode, AccessModifierNode,
+    NullCoalescingNode, OptionalChainingNode,
+    ForEachNode, ChainedComparisonNode,
 )
 from brolang.exceptions import ParserError
 
@@ -190,6 +200,9 @@ class Parser:
         elif token_type == TokenType.TOKEN_SELAMA:
             return self._parse_while()
         elif token_type == TokenType.TOKEN_UNTUK:
+            # Check for 'untuk setiap' (for-each with index)
+            if self._peek(1) == TokenType.TOKEN_IDENTIFIER and self.tokens[self.pos + 1].value == "setiap":
+                return self._parse_for_each()
             return self._parse_for()
         elif token_type == TokenType.TOKEN_FUNGSI:
             return self._parse_function()
@@ -236,6 +249,35 @@ class Parser:
             return self._parse_del()
         elif token_type == TokenType.TOKEN_PASTIKAN:
             return self._parse_assert()
+        # v5.0 Keywords
+        elif token_type == TokenType.TOKEN_TIPE:
+            return self._parse_type_alias()
+        elif token_type == TokenType.TOKEN_ANTARMUKA:
+            return self._parse_interface()
+        elif token_type == TokenType.TOKEN_IMPLEMENTASI:
+            return self._parse_implements()
+        elif token_type == TokenType.TOKEN_ABSTRAK:
+            return self._parse_abstract_class()
+        elif token_type == TokenType.TOKEN_MAKRO:
+            return self._parse_macro_def()
+        elif token_type == TokenType.TOKEN_RUANG:
+            return self._parse_namespace()
+        elif token_type == TokenType.TOKEN_PAKAI:
+            return self._parse_use_statement()
+        elif token_type in (TokenType.TOKEN_PUBLIK, TokenType.TOKEN_PRIVAT, TokenType.TOKEN_TERLINDUNGI):
+            return self._parse_access_modifier()
+        elif token_type == TokenType.TOKEN_STATIS:
+            return self._parse_static_modifier()
+        elif token_type == TokenType.TOKEN_PETA:
+            return self._parse_map_call()
+        elif token_type == TokenType.TOKEN_SARING:
+            return self._parse_filter_call()
+        elif token_type == TokenType.TOKEN_KURANGI:
+            return self._parse_reduce_call()
+        elif token_type == TokenType.TOKEN_BENAR_VAL or token_type == TokenType.TOKEN_SALAH_VAL:
+            return self._parse_result()
+        elif token_type == TokenType.TOKEN_SOME:
+            return self._parse_option()
         elif token_type == TokenType.TOKEN_IDENTIFIER:
             # Could be reassignment, augmented assignment, method call, or expression
             # Peek ahead to see if it's assignment
@@ -385,7 +427,17 @@ class Parser:
         token = self._advance()  # pastikan
         condition = self._parse_expression()
         message = None
-        if self._match(TokenType.TOKEN_COMMA):
+        # If expression parser created a tuple from the comma, extract condition + message
+        if isinstance(condition, TupleNode) and len(condition.elements) >= 2:
+            message = condition.elements[-1]
+            if len(condition.elements) == 2:
+                condition = condition.elements[0]
+            else:
+                condition = TupleNode(
+                    elements=condition.elements[:-1],
+                    line=condition.line, column=condition.column,
+                )
+        elif self._match(TokenType.TOKEN_COMMA):
             message = self._parse_expression()
         return AssertNode(condition=condition, message=message, line=token.line, column=token.column)
 
@@ -633,10 +685,17 @@ class Parser:
                 message="Setelah ':', harus ada nama kelas parent.",
             )
             parent = parent_token.value
+        elif self._match(TokenType.TOKEN_LPAREN):
+            parent_token = self._expect(
+                TokenType.TOKEN_IDENTIFIER,
+                message="Setelah '(', harus ada nama kelas parent.",
+            )
+            parent = parent_token.value
+            self._expect(TokenType.TOKEN_RPAREN)
 
         body = self._parse_block()
 
-        # Parse methods from body
+        # Parse methods from body, handling statis modifier
         methods = []
         for stmt in body:
             if isinstance(stmt, FunctionNode):
@@ -645,6 +704,7 @@ class Parser:
                         name=stmt.name,
                         params=stmt.params,
                         body=stmt.body,
+                        is_static=stmt.is_static,
                         line=stmt.line,
                         column=stmt.column,
                     )
@@ -983,7 +1043,17 @@ class Parser:
 
     def _parse_expression(self) -> ASTNode:
         """Expression dengan precedence climbing."""
-        return self._parse_ternary()
+        return self._parse_null_coalescing_expr()
+
+    def _parse_null_coalescing_expr(self) -> ASTNode:
+        """Null coalescing: expr ?? default"""
+        left = self._parse_ternary()
+        while self._check(TokenType.TOKEN_QUESTION):
+            self._advance()  # ?? token (already a single token from lexer)
+            right = self._parse_ternary()
+            left = NullCoalescingNode(left=left, right=right,
+                                      line=left.line, column=left.column)
+        return left
 
     def _parse_ternary(self) -> ASTNode:
         """Ternary: expr jika kondisi lainnya expr"""
@@ -1195,6 +1265,19 @@ class Parser:
             )
         elif self._check(TokenType.TOKEN_INPUT):
             node = self._parse_input()
+        # v5.0: HOF and Result/Option in expression context
+        elif self._check(TokenType.TOKEN_PETA):
+            node = self._parse_map_call()
+        elif self._check(TokenType.TOKEN_SARING):
+            node = self._parse_filter_call()
+        elif self._check(TokenType.TOKEN_KURANGI):
+            node = self._parse_reduce_call()
+        elif self._check(TokenType.TOKEN_BENAR_VAL):
+            node = self._parse_result()
+        elif self._check(TokenType.TOKEN_SALAH_VAL):
+            node = self._parse_result()
+        elif self._check(TokenType.TOKEN_SOME):
+            node = self._parse_option()
         else:
             raise self._error(
                 message=f"Token tidak terduga: '{token.value}' ({token.type.name}).",
@@ -1690,4 +1773,599 @@ class Parser:
         return GeneratorFunctionNode(
             name=name, params=params, defaults=defaults, body=body,
             line=token.line, column=token.column,
+        )
+
+    # ============= V5.0: Type System =============
+
+    def _parse_type_alias(self) -> TypeAliasNode:
+        """tipe NamaTipe = definisi"""
+        token = self._advance()  # tipe
+        name_token = self._expect(
+            TokenType.TOKEN_IDENTIFIER,
+            message="Setelah 'tipe', harus ada nama tipe.",
+        )
+        self._expect(TokenType.TOKEN_ASSIGN,
+                     message="Setelah nama tipe, harus ada '='.")
+        definition = self._parse_expression()
+        return TypeAliasNode(
+            name=name_token.value,
+            definition=definition,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_type_annotation(self) -> TypeAnnotationNode:
+        """nama :: tipe atau nama :: tipe = default"""
+        name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        
+        # Expect :: (COLON COLON) for type annotation
+        if self._check(TokenType.TOKEN_COLON):
+            self._advance()  # first :
+            if self._check(TokenType.TOKEN_COLON):
+                self._advance()  # second :
+            # If single :, it might be in a context where :: is not expected
+            # For now, allow single : as well
+        
+        type_token = self._expect(TokenType.TOKEN_IDENTIFIER,
+                                  message="Setelah ':' atau '::', harus ada nama tipe.")
+        type_name = type_token.value
+        
+        # Check for optional marker ?
+        is_optional = False
+        if self._check(TokenType.TOKEN_MULTIPLY):
+            self._advance()
+            is_optional = True
+        
+        # Check for default value
+        default_value = None
+        if self._check(TokenType.TOKEN_ASSIGN):
+            self._advance()
+            default_value = self._parse_expression()
+        
+        return TypeAnnotationNode(
+            name=name_token.value,
+            type_name=type_name,
+            is_optional=is_optional,
+            default_value=default_value,
+            line=name_token.line,
+            column=name_token.column,
+        )
+
+    def _parse_typed_parameter_list(self) -> List[TypeAnnotationNode]:
+        """Parse parameter list with type annotations"""
+        params = []
+        if self._check(TokenType.TOKEN_IDENTIFIER):
+            params.append(self._parse_type_annotation())
+            while self._match(TokenType.TOKEN_COMMA):
+                params.append(self._parse_type_annotation())
+        return params
+
+    # ============= V5.0: Interfaces =============
+
+    def _parse_interface(self) -> InterfaceNode:
+        """antarmuka Nama { ... } atau antarmuka Nama extends I1, I2 { ... }"""
+        token = self._advance()  # antarmuka
+        name_token = self._expect(
+            TokenType.TOKEN_IDENTIFIER,
+            message="Setelah 'antarmuka', harus ada nama.",
+        )
+        
+        # Check for parent interfaces (optional)
+        parent_interfaces = []
+        if self._check(TokenType.TOKEN_WARISAN):
+            self._advance()  # warisan
+            if_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            parent_interfaces.append(if_token.value)
+            while self._match(TokenType.TOKEN_COMMA):
+                if_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                parent_interfaces.append(if_token.value)
+        
+        self._expect(TokenType.TOKEN_LBRACE,
+                     message="Setelah nama antarmuka, harus ada '{'.")
+        
+        # Consume optional NEWLINE + INDENT
+        self._match(TokenType.TOKEN_NEWLINE)
+        self._match(TokenType.TOKEN_INDENT)
+        
+        # Parse method signatures
+        methods = []
+        while not self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
+            while self._match(TokenType.TOKEN_NEWLINE):
+                pass
+            if self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
+                break
+            method = self._parse_method_signature()
+            methods.append(method)
+        
+        # Consume DEDENT if present
+        self._match(TokenType.TOKEN_DEDENT)
+        self._expect(TokenType.TOKEN_RBRACE,
+                     message="Antarmuka harus ditutup dengan '}'.")
+        
+        return InterfaceNode(
+            name=name_token.value,
+            methods=methods,
+            parent_interfaces=parent_interfaces,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_method_signature(self) -> MethodSignatureNode:
+        """fungsi nama(param: tipe) -> tipe_return"""
+        # Allow 'fungsi' keyword or just start with identifier
+        if self._check(TokenType.TOKEN_FUNGSI):
+            self._advance()  # fungsi
+        name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        
+        self._expect(TokenType.TOKEN_LPAREN)
+        params = []
+        if not self._check(TokenType.TOKEN_RPAREN):
+            params.append(self._parse_type_annotation())
+            while self._match(TokenType.TOKEN_COMMA):
+                params.append(self._parse_type_annotation())
+        self._expect(TokenType.TOKEN_RPAREN)
+        
+        return_type = None
+        if self._check(TokenType.TOKEN_ARROW):
+            self._advance()  # ->
+            type_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            return_type = type_token.value
+        
+        return MethodSignatureNode(
+            name=name_token.value,
+            params=params,
+            return_type=return_type,
+            line=name_token.line,
+            column=name_token.column,
+        )
+
+    def _parse_implements(self) -> ImplementsNode:
+        """implementasi NamaKelas: Interface1, Interface2"""
+        token = self._advance()  # implementasi
+        name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        self._expect(TokenType.TOKEN_COLON)
+        
+        interfaces = []
+        if_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        interfaces.append(if_token.value)
+        while self._match(TokenType.TOKEN_COMMA):
+            if_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            interfaces.append(if_token.value)
+        
+        return ImplementsNode(
+            class_name=name_token.value,
+            interfaces=interfaces,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_abstract_class(self) -> AbstractClassNode:
+        """abstrak kelas Nama { ... } atau abstrak kelas Nama warisan Parent { ... }"""
+        token = self._advance()  # abstrak
+        self._expect(TokenType.TOKEN_KELAS,
+                     message="Setelah 'abstrak', harus ada 'kelas'.")
+        
+        name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        
+        parent = None
+        if self._check(TokenType.TOKEN_WARISAN):
+            self._advance()  # warisan
+            parent_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            parent = parent_token.value
+        
+        body = []
+        methods = []
+        abstract_methods = []
+        
+        self._expect(TokenType.TOKEN_LBRACE,
+                     message="Setelah nama kelas, harus ada '{'.")
+        
+        # Consume optional NEWLINE + INDENT
+        self._match(TokenType.TOKEN_NEWLINE)
+        self._match(TokenType.TOKEN_INDENT)
+        
+        while not self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
+            while self._match(TokenType.TOKEN_NEWLINE):
+                pass
+            if self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
+                break
+            
+            if self._check(TokenType.TOKEN_ABSTRAK):
+                self._advance()  # abstrak
+                self._expect(TokenType.TOKEN_FUNGSI)
+                method_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                abstract_methods.append(method_token.value)
+                # Skip parameters and body
+                self._expect(TokenType.TOKEN_LPAREN)
+                while not self._check(TokenType.TOKEN_RPAREN):
+                    self._advance()
+                self._expect(TokenType.TOKEN_RPAREN)
+                # Skip newline after abstract method
+                while self._match(TokenType.TOKEN_NEWLINE):
+                    pass
+            elif self._check(TokenType.TOKEN_FUNGSI):
+                # Peek ahead: is this a signature (no body) or a full method (has body)?
+                # Save state and try method signature first
+                saved_pos = self.pos
+                saved_token = self.current_token
+                try:
+                    sig = self._parse_method_signature()
+                    # Check if next meaningful token suggests a body (INDENT or LBRACE)
+                    while self._match(TokenType.TOKEN_NEWLINE):
+                        pass
+                    if self._check(TokenType.TOKEN_INDENT, TokenType.TOKEN_LBRACE):
+                        # Has body → restore and parse as full function
+                        self.pos = saved_pos
+                        self.current_token = saved_token
+                        func = self._parse_function()
+                        methods.append(func)
+                        body.append(func)
+                    else:
+                        # No body → it's an abstract method signature
+                        abstract_methods.append(sig.name)
+                        # Consume any trailing newline
+                        while self._match(TokenType.TOKEN_NEWLINE):
+                            pass
+                except Exception:
+                    # Restore and try as function
+                    self.pos = saved_pos
+                    self.current_token = saved_token
+                    func = self._parse_function()
+                    methods.append(func)
+                    body.append(func)
+            else:
+                # Skip unexpected tokens
+                self._advance()
+        
+        # Consume DEDENT if present
+        self._match(TokenType.TOKEN_DEDENT)
+        self._expect(TokenType.TOKEN_RBRACE,
+                     message="Kelas harus ditutup dengan '}'.")
+        
+        return AbstractClassNode(
+            name=name_token.value,
+            parent=parent,
+            methods=methods,
+            body=body,
+            abstract_methods=abstract_methods,
+            line=name_token.line,
+            column=name_token.column,
+        )
+
+    # ============= V5.0: Enhanced Pattern Matching =============
+
+    def _parse_destructuring_pattern(self) -> DestructuringPatternNode:
+        """[a, b, c] atau {a, b, c}"""
+        if self._check(TokenType.TOKEN_LBRACKET):
+            self._advance()  # [
+            variables = []
+            var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            variables.append(var_token.value)
+            while self._match(TokenType.TOKEN_COMMA):
+                var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                variables.append(var_token.value)
+            self._expect(TokenType.TOKEN_RBRACKET)
+            return DestructuringPatternNode(variables=variables, is_array=True,
+                                            line=self.current_token.line, column=self.current_token.column)
+        elif self._check(TokenType.TOKEN_LBRACE):
+            self._advance()  # {
+            variables = []
+            var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            variables.append(var_token.value)
+            while self._match(TokenType.TOKEN_COMMA):
+                var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                variables.append(var_token.value)
+            self._expect(TokenType.TOKEN_RBRACE)
+            return DestructuringPatternNode(variables=variables, is_array=False,
+                                            line=self.current_token.line, column=self.current_token.column)
+        else:
+            raise self._error(
+                message="Destructuring harus dimulai dengan '[' atau '{'.",
+                example="[a, b, c] atau {nama, umur}",
+            )
+
+    # ============= V5.0: Higher-Order Functions =============
+
+    def _parse_map_call(self) -> MapNode:
+        """peta(iterable, fungsi)"""
+        token = self._advance()  # peta
+        self._expect(TokenType.TOKEN_LPAREN)
+        iterable = self._parse_expression()
+        self._expect(TokenType.TOKEN_COMMA)
+        function = self._parse_expression()
+        self._expect(TokenType.TOKEN_RPAREN)
+        return MapNode(iterable=iterable, function=function,
+                       line=token.line, column=token.column)
+
+    def _parse_filter_call(self) -> FilterNode:
+        """saring(iterable, kondisi)"""
+        token = self._advance()  # saring
+        self._expect(TokenType.TOKEN_LPAREN)
+        iterable = self._parse_expression()
+        self._expect(TokenType.TOKEN_COMMA)
+        condition = self._parse_expression()
+        self._expect(TokenType.TOKEN_RPAREN)
+        return FilterNode(iterable=iterable, condition=condition,
+                          line=token.line, column=token.column)
+
+    def _parse_reduce_call(self) -> ReduceNode:
+        """kurangi(iterable, fungsi, awal?)"""
+        token = self._advance()  # kurangi
+        self._expect(TokenType.TOKEN_LPAREN)
+        iterable = self._parse_expression()
+        self._expect(TokenType.TOKEN_COMMA)
+        function = self._parse_expression()
+        initial = None
+        if self._match(TokenType.TOKEN_COMMA):
+            initial = self._parse_expression()
+        self._expect(TokenType.TOKEN_RPAREN)
+        return ReduceNode(iterable=iterable, function=function, initial=initial,
+                          line=token.line, column=token.column)
+
+    # ============= V5.0: Result/Option Types =============
+
+    def _parse_result(self) -> ResultNode:
+        """Benar(value) atau Salah(error)"""
+        token = self.current_token
+        if self._check(TokenType.TOKEN_BENAR_VAL):
+            self._advance()  # Benar
+            self._expect(TokenType.TOKEN_LPAREN)
+            value = self._parse_expression()
+            self._expect(TokenType.TOKEN_RPAREN)
+            return ResultNode(is_success=True, value=value,
+                              line=token.line, column=token.column)
+        elif self._check(TokenType.TOKEN_SALAH_VAL):
+            self._advance()  # Salah
+            self._expect(TokenType.TOKEN_LPAREN)
+            value = self._parse_expression()
+            self._expect(TokenType.TOKEN_RPAREN)
+            return ResultNode(is_success=False, value=value,
+                              line=token.line, column=token.column)
+        else:
+            raise self._error(
+                message="Result harus 'Benar(value)' atau 'Salah(error)'.",
+                example="Benar(42) atau Salah(\"error\")",
+            )
+
+    def _parse_option(self) -> OptionNode:
+        """Ada(value) atau Kosong()"""
+        token = self.current_token
+        if self._check(TokenType.TOKEN_SOME):
+            self._advance()  # Ada
+            self._expect(TokenType.TOKEN_LPAREN)
+            value = self._parse_expression()
+            self._expect(TokenType.TOKEN_RPAREN)
+            return OptionNode(has_value=True, value=value,
+                              line=token.line, column=token.column)
+        elif self._check(TokenType.TOKEN_KOSONG_KW):
+            self._advance()  # Kosong
+            if self._check(TokenType.TOKEN_LPAREN):
+                self._advance()  # (
+                self._expect(TokenType.TOKEN_RPAREN)
+            return OptionNode(has_value=False, value=None,
+                              line=token.line, column=token.column)
+        else:
+            raise self._error(
+                message="Option harus 'Ada(value)' atau 'Kosong()'.",
+                example="Ada(42) atau Kosong()",
+            )
+
+    # ============= V5.0: Macros =============
+
+    def _parse_macro_def(self) -> MacroDefNode:
+        """makro Nama(param?) { body }"""
+        token = self._advance()  # makro
+        name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        
+        params = []
+        if self._check(TokenType.TOKEN_LPAREN):
+            self._advance()  # (
+            if not self._check(TokenType.TOKEN_RPAREN):
+                var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                params.append(var_token.value)
+                while self._match(TokenType.TOKEN_COMMA):
+                    var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                    params.append(var_token.value)
+            self._expect(TokenType.TOKEN_RPAREN)
+        
+        body = self._parse_block()
+        self._expect(TokenType.TOKEN_SELESAI,
+                     message="Macro harus ditutup dengan 'selesai'.")
+        
+        return MacroDefNode(
+            name=name_token.value,
+            params=params,
+            body=body,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_macro_call(self) -> MacroCallNode:
+        """Nama(args...)"""
+        token = self._advance()  # macro name
+        self._expect(TokenType.TOKEN_LPAREN)
+        args = []
+        if not self._check(TokenType.TOKEN_RPAREN):
+            args.append(self._parse_expression())
+            while self._match(TokenType.TOKEN_COMMA):
+                args.append(self._parse_expression())
+        self._expect(TokenType.TOKEN_RPAREN)
+        return MacroCallNode(
+            name=token.value,
+            args=args,
+            line=token.line,
+            column=token.column,
+        )
+
+    # ============= V5.0: Module System =============
+
+    def _parse_namespace(self) -> NamespaceNode:
+        """ruang nama NamaModule { ... }"""
+        token = self._advance()  # ruang
+        self._expect(TokenType.TOKEN_IDENTIFIER,
+                     message="Setelah 'ruang', harus ada 'nama'.")
+        name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        
+        body = self._parse_block()
+        self._expect(TokenType.TOKEN_SELESAI,
+                     message="Namespace harus ditutup dengan 'selesai'.")
+        
+        return NamespaceNode(
+            name=name_token.value,
+            body=body,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_use_statement(self) -> UseNode:
+        """pakai NamaModule (sebagai alias)?"""
+        token = self._advance()  # pakai
+        module_parts = []
+        name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        module_parts.append(name_token.value)
+        
+        while self._match(TokenType.TOKEN_DOT):
+            name_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            module_parts.append(name_token.value)
+        
+        module = ".".join(module_parts)
+        
+        alias = None
+        if self._check(TokenType.TOKEN_SEBAGAI):
+            self._advance()  # sebagai
+            alias_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            alias = alias_token.value
+        
+        return UseNode(
+            module=module,
+            alias=alias,
+            line=token.line,
+            column=token.column,
+        )
+
+    # ============= V5.0: Access Modifiers =============
+
+    def _parse_access_modifier(self) -> AccessModifierNode:
+        """publik/privat/terlindungi fungsi/kelas"""
+        token = self.current_token
+        modifier = "publik"
+        
+        if self._check(TokenType.TOKEN_PUBLIK):
+            self._advance()
+            modifier = "publik"
+        elif self._check(TokenType.TOKEN_PRIVAT):
+            self._advance()
+            modifier = "privat"
+        elif self._check(TokenType.TOKEN_TERLINDUNGI):
+            self._advance()
+            modifier = "terlindungi"
+        
+        # Parse the target (function, class, or variable)
+        if self._check(TokenType.TOKEN_FUNGSI):
+            target = self._parse_function()
+        elif self._check(TokenType.TOKEN_KELAS):
+            target = self._parse_class()
+        else:
+            target = self._parse_assignment()
+        
+        return AccessModifierNode(
+            modifier=modifier,
+            target=target,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_static_modifier(self) -> FunctionNode:
+        """statis fungsi — method tanpa self"""
+        token = self._advance()  # statis
+        if self._check(TokenType.TOKEN_FUNGSI):
+            func = self._parse_function()
+            func.is_static = True
+            return func
+        raise self._error(
+            message="Setelah 'statis', harus ada 'fungsi'.",
+            solution="Tulis 'statis fungsi nama() ... selesai'",
+        )
+
+    # ============= V5.0: Null Coalescing =============
+
+    def _parse_null_coalescing(self, left: ASTNode) -> NullCoalescingNode:
+        """x ?? default_value"""
+        token = self._advance()  # ??
+        right = self._parse_expression()
+        return NullCoalescingNode(left=left, right=right,
+                                  line=left.line, column=left.column)
+
+    # ============= V5.0: Optional Chaining =============
+
+    def _parse_optional_chaining(self, obj: ASTNode) -> OptionalChainingNode:
+        """obj?.attr"""
+        token = self._advance()  # ?.
+        attr_token = self._expect(TokenType.TOKEN_IDENTIFIER,
+                                  message="Setelah '?.', harus ada nama atribut.")
+        return OptionalChainingNode(
+            object=obj,
+            property=attr_token.value,
+            line=obj.line,
+            column=obj.column,
+        )
+
+    # ============= V5.0: For Each with Index =============
+
+    def _parse_for_each(self) -> ForEachNode:
+        """untuk setiap item dalam iterable lakukan ... selesai"""
+        token = self._advance()  # untuk
+        self._expect(TokenType.TOKEN_IDENTIFIER,
+                     message="Setelah 'untuk', harus ada 'setiap'.")
+        # This is handled by checking for 'setiap' keyword in the main statement parser
+        var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+        
+        index_var = None
+        if self._match(TokenType.TOKEN_COMMA):
+            index_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            index_var = index_token.value
+        
+        self._expect(TokenType.TOKEN_DALAM)
+        iterable = self._parse_expression()
+        
+        self._expect(TokenType.TOKEN_LAKUKAN,
+                     message="Setelah iterable, harus ada 'lakukan'.")
+        
+        body = self._parse_block()
+        self._expect(TokenType.TOKEN_SELESAI)
+        
+        return ForEachNode(
+            variable=var_token.value,
+            index_variable=index_var,
+            iterable=iterable,
+            body=body,
+            line=token.line,
+            column=token.column,
+        )
+
+    # ============= V5.0: Chained Comparisons =============
+
+    def _parse_chained_comparison(self, left: ASTNode) -> ChainedComparisonNode:
+        """0 < x < 10"""
+        operators = []
+        comparators = []
+        
+        while self._check(TokenType.TOKEN_LT, TokenType.TOKEN_GT,
+                          TokenType.TOKEN_LTE, TokenType.TOKEN_GTE):
+            op_token = self._advance()
+            op_map = {
+                TokenType.TOKEN_LT: "<",
+                TokenType.TOKEN_GT: ">",
+                TokenType.TOKEN_LTE: "<=",
+                TokenType.TOKEN_GTE: ">=",
+            }
+            operators.append(op_map[op_token.type])
+            comparators.append(self._parse_addition())
+        
+        return ChainedComparisonNode(
+            left=left,
+            operators=operators,
+            comparators=comparators,
+            line=left.line,
+            column=left.column,
         )

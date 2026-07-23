@@ -173,3 +173,14 @@ class IndexError_(BroLangError):
 class FileError_(BroLangError):
     """Error yang terjadi karena operasi file gagal."""
     pass
+
+
+class YieldException(Exception):
+    """Exception internal untuk suspend generator."""
+    def __init__(self, value=None):
+        self.value = value
+
+
+class StopGenerator(Exception):
+    """Exception internal untuk menandakan generator habis."""
+    pass

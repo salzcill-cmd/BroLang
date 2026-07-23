@@ -312,6 +312,7 @@ class FunctionNode(ASTNode):
     params: List[str] = field(default_factory=list)
     defaults: List[Optional[ASTNode]] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
+    is_static: bool = False
 
     def get_children(self) -> List[Any]:
         return self.body
@@ -368,6 +369,7 @@ class MethodNode(ASTNode):
     name: str = ""
     params: List[str] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
+    is_static: bool = False
 
     def get_children(self) -> List[Any]:
         return self.body
@@ -866,3 +868,413 @@ class SwitchNode(ASTNode):
         if self.default_case:
             children.extend(self.default_case)
         return children
+
+
+# ============= V5.0: Type System =============
+
+@dataclass
+class TypeAnnotationNode(ASTNode):
+    """Node untuk type annotation: nama: tipe"""
+    name: str = ""
+    type_name: str = ""
+    is_optional: bool = False
+    default_value: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        children = []
+        if self.default_value:
+            children.append(self.default_value)
+        return children
+
+
+@dataclass
+class TypeAliasNode(ASTNode):
+    """Node untuk type alias: tipe NamaTipe = definisi"""
+    name: str = ""
+    definition: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+
+    def get_children(self) -> List[Any]:
+        return [self.definition]
+
+
+@dataclass
+class UnionTypeNode(ASTNode):
+    """Node untuk union type: tipe1 | tipe2"""
+    types: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+@dataclass
+class GenericTypeNode(ASTNode):
+    """Node untuk generic type: List<angka>"""
+    base_type: str = ""
+    type_args: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+@dataclass
+class FunctionTypeNode(ASTNode):
+    """Node untuk function type: (angka, teks) -> benar"""
+    param_types: List[str] = field(default_factory=list)
+    return_type: str = "kosong"
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+# ============= V5.0: Interfaces/Traits =============
+
+@dataclass
+class InterfaceNode(ASTNode):
+    """Node untuk interface: antarmuka Nama { ... }"""
+    name: str = ""
+    methods: List["MethodSignatureNode"] = field(default_factory=list)
+    parent_interfaces: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.methods
+
+
+@dataclass
+class MethodSignatureNode(ASTNode):
+    """Node untuk method signature dalam interface"""
+    name: str = ""
+    params: List[TypeAnnotationNode] = field(default_factory=list)
+    return_type: Optional[str] = None
+    is_abstract: bool = True
+
+    def get_children(self) -> List[Any]:
+        return self.params
+
+
+@dataclass
+class ImplementsNode(ASTNode):
+    """Node untuk implements: kelas Nama: Interface1, Interface2"""
+    class_name: str = ""
+    interfaces: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+@dataclass
+class AbstractClassNode(ASTNode):
+    """Node untuk abstract class: abstrak kelas Nama { ... }"""
+    name: str = ""
+    parent: Optional[str] = None
+    methods: List["MethodNode"] = field(default_factory=list)
+    body: List[ASTNode] = field(default_factory=list)
+    abstract_methods: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+@dataclass
+class AbstractMethodNode(ASTNode):
+    """Node untuk abstract method: abstrak fungsi nama() ... selesai"""
+    name: str = ""
+    params: List[str] = field(default_factory=list)
+    return_type: Optional[str] = None
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+# ============= V5.0: Enhanced Pattern Matching =============
+
+@dataclass
+class DestructuringPatternNode(ASTNode):
+    """Node untuk destructuring pattern: [a, b, c] atau {nama, umur}"""
+    variables: List[str] = field(default_factory=list)
+    is_array: bool = True  # True untuk [a,b], False untuk {a,b}
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+@dataclass
+class GuardPatternNode(ASTNode):
+    """Node untuk guard pattern: x jika x > 0"""
+    variable: str = ""
+    condition: ASTNode = field(default_factory=lambda: BooleanNode())
+    body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        children = [self.condition]
+        children.extend(self.body)
+        return children
+
+
+# ============= V5.0: Higher-Order Functions =============
+
+@dataclass
+class MapNode(ASTNode):
+    """Node untuk map: peta(iterable, fungsi)"""
+    iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    function: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+
+    def get_children(self) -> List[Any]:
+        return [self.iterable, self.function]
+
+
+@dataclass
+class FilterNode(ASTNode):
+    """Node untuk filter: saring(iterable, kondisi)"""
+    iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    condition: ASTNode = field(default_factory=lambda: BooleanNode())
+
+    def get_children(self) -> List[Any]:
+        return [self.iterable, self.condition]
+
+
+@dataclass
+class ReduceNode(ASTNode):
+    """Node untuk reduce: kurangi(iterable, fungsi, awal)"""
+    iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    function: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    initial: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        children = [self.iterable, self.function]
+        if self.initial:
+            children.append(self.initial)
+        return children
+
+
+# ============= V5.0: Result/Option Types =============
+
+@dataclass
+class ResultNode(ASTNode):
+    """Node untuk Result type: Benar(value) atau Salah(error)"""
+    is_success: bool = True
+    value: ASTNode = field(default_factory=lambda: KosongNode())
+
+    def get_children(self) -> List[Any]:
+        return [self.value]
+
+
+@dataclass
+class OptionNode(ASTNode):
+    """Node untuk Option type: Ada(value) atau Kosong()"""
+    has_value: bool = True
+    value: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        if self.value:
+            return [self.value]
+        return []
+
+
+@dataclass
+class MatchResultNode(ASTNode):
+    """Node untuk pattern matching on Result"""
+    value: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    success_var: str = "v"
+    success_body: List[ASTNode] = field(default_factory=list)
+    error_var: str = "e"
+    error_body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        children = [self.value]
+        children.extend(self.success_body)
+        children.extend(self.error_body)
+        return children
+
+
+# ============= V5.0: Macros =============
+
+@dataclass
+class MacroDefNode(ASTNode):
+    """Node untuk macro definition: makro Nama() { ... }"""
+    name: str = ""
+    params: List[str] = field(default_factory=list)
+    body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+@dataclass
+class MacroCallNode(ASTNode):
+    """Node untuk macro call: Nama(args...)"""
+    name: str = ""
+    args: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.args
+
+
+# ============= V5.0: Enhanced Async =============
+
+@dataclass
+class TaskNode(ASTNode):
+    """Node untuk async task: tugas nama = asinkron fungsi()"""
+    name: str = ""
+    function: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+
+    def get_children(self) -> List[Any]:
+        return [self.function]
+
+
+@dataclass
+class PromiseNode(ASTNode):
+    """Node untuk promise: janji(fungsi)"""
+    function: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+
+    def get_children(self) -> List[Any]:
+        return [self.function]
+
+
+@dataclass
+class AwaitAllNode(ASTNode):
+    """Node untuk await all: tunggu_semua([task1, task2])"""
+    tasks: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.tasks
+
+
+# ============= V5.0: Module System =============
+
+@dataclass
+class NamespaceNode(ASTNode):
+    """Node untuk namespace: ruang nama MyModule { ... }"""
+    name: str = ""
+    body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+@dataclass
+class UseNode(ASTNode):
+    """Node untuk use statement: pakai MyModule"""
+    module: str = ""
+    alias: Optional[str] = None
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+# ============= V5.0: Access Modifiers =============
+
+@dataclass
+class AccessModifierNode(ASTNode):
+    """Node untuk access modifier: publik/privat/terlindungi"""
+    modifier: str = "publik"  # publik, privat, terlindungi
+    target: ASTNode = field(default_factory=lambda: FunctionNode())
+
+    def get_children(self) -> List[Any]:
+        return [self.target]
+
+
+# ============= V5.0: Generic Functions =============
+
+@dataclass
+class GenericFunctionNode(ASTNode):
+    """Node untuk generic function: fungsi nama<T>(param: T) -> T"""
+    name: str = ""
+    type_params: List[str] = field(default_factory=list)
+    params: List[TypeAnnotationNode] = field(default_factory=list)
+    return_type: Optional[str] = None
+    body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+# ============= V5.0: For Each with Index =============
+
+@dataclass
+class ForEachNode(ASTNode):
+    """Node untuk for-each with index: untuk setiap (item, index) dalam iterable"""
+    variable: str = ""
+    index_variable: Optional[str] = None
+    iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        children = [self.iterable]
+        children.extend(self.body)
+        return children
+
+
+# ============= V5.0: Switch Expression =============
+
+@dataclass
+class SwitchExprNode(ASTNode):
+    """Node untuk switch expression: cocokkan expr { ... } sebagai nilai"""
+    value: ASTNode = field(default_factory=lambda: NumberNode(0))
+    cases: List[tuple] = field(default_factory=list)
+    default_case: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        children = [self.value]
+        for pattern, body in self.cases:
+            if isinstance(pattern, ASTNode):
+                children.append(pattern)
+            children.extend(body)
+        if self.default_case:
+            children.append(self.default_case)
+        return children
+
+
+# ============= V5.0: Chained Comparisons =============
+
+@dataclass
+class ChainedComparisonNode(ASTNode):
+    """Node untuk chained comparison: 0 < x < 10"""
+    left: ASTNode = field(default_factory=lambda: NumberNode(0))
+    operators: List[str] = field(default_factory=list)
+    comparators: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        children = [self.left]
+        children.extend(self.comparators)
+        return children
+
+
+# ============= V5.0: Walrus in Comprehension =============
+
+@dataclass
+class WalrusComprehensionNode(ASTNode):
+    """Node untuk walrus in comprehension: [y := x + 1 untuk x dalam range(5)]"""
+    target: str = ""
+    value: ASTNode = field(default_factory=lambda: NumberNode(0))
+    iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    condition: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        children = [self.value, self.iterable]
+        if self.condition:
+            children.append(self.condition)
+        return children
+
+
+# ============= V5.0: Null Coalescing =============
+
+@dataclass
+class NullCoalescingNode(ASTNode):
+    """Node untuk null coalescing: x ?? nilai_default"""
+    left: ASTNode = field(default_factory=lambda: KosongNode())
+    right: ASTNode = field(default_factory=lambda: NumberNode(0))
+
+    def get_children(self) -> List[Any]:
+        return [self.left, self.right]
+
+
+# ============= V5.0: Optional Chaining =============
+
+@dataclass
+class OptionalChainingNode(ASTNode):
+    """Node untuk optional chaining: objek?.atribut"""
+    object: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    property: str = ""
+
+    def get_children(self) -> List[Any]:
+        return [self.object]

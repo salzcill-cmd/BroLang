@@ -1,8 +1,8 @@
-# 🧱 Dasar Bahasa BroLang
+# Dasar Bahasa BroLang
 
 > **Belajar dari nol?** Mulai dari sini ya bos.
 
-## 📦 Tipe Data
+## Tipe Data
 
 | Tipe | Nama BroLang | Contoh |
 |------|-------------|--------|
@@ -28,7 +28,7 @@ tulis tipe(kosong)     # kosong
 
 ---
 
-## 📝 Variabel
+## Variabel
 
 ```
 buat nama = "Budi"
@@ -44,11 +44,11 @@ umur = 18
 buat a = 1, b = 2, c = 3
 ```
 
-> **Catatan:** `buat` cuma dipake waktu pertama kali声明 variabel. Kalo mau ganti nilainya, tinggal tulis nama variabelnya aja.
+> **Catatan:** `buat` cuma dipake waktu pertama kali deklarasi variabel. Kalo mau ganti nilainya, tinggal tulis nama variabelnya aja.
 
 ---
 
-## 🔢 Operator
+## Operator
 
 ### Aritmatika
 
@@ -133,9 +133,21 @@ x %= 3    # x = 1.0
 x **= 2   # x = 1.0
 ```
 
+### Null Coalescing (v5.0)
+
+```
+buat nama = kosong
+tulis nama ?? "Anonim"    # Anonim
+
+buat umur = 17
+tulis umur ?? 0            # 17
+```
+
+Kalo nilainya `kosong`, otomatis pake nilai sebelah kanan. Ga perlu nulis `jika` panjang-panjang.
+
 ---
 
-## 📋 Percabangan (If/Else)
+## Percabangan (If/Else)
 
 ```
 buat nilai = 85
@@ -153,7 +165,7 @@ selesai
 
 ---
 
-## 🔄 Perulangan
+## Perulangan
 
 ### For Loop
 
@@ -169,6 +181,18 @@ untuk buah dalam ["apel", "pisang", "jeruk"] lakukan
     tulis "Buah favorit: " + buah
 selesai
 ```
+
+### For-Each (v5.0)
+
+```
+buat buah = ["apel", "mangga", "jeruk"]
+untuk setiap item dalam buah lakukan
+    tulis item
+selesai
+# Output: apel, mangga, jeruk
+```
+
+Lebih pendek dari for loop biasa.
 
 ### While Loop
 
@@ -213,7 +237,7 @@ selesai
 
 ---
 
-## 📝 String
+## String
 
 ```
 buat s1 = "Hello"
@@ -236,7 +260,7 @@ tulis kata[6:]     # World
 
 ---
 
-## 📋 List
+## List
 
 ```
 buat angka = [1, 2, 3, 4, 5]
@@ -268,7 +292,7 @@ tulis angka.jumlah()      # 105
 
 ---
 
-## 📖 Dictionary (Objek)
+## Dictionary (Objek)
 
 ```
 buat orang = {
@@ -292,7 +316,7 @@ tulis kamus.punya("a")    # benar
 
 ---
 
-## 🔷 Tuple
+## Tuple
 
 ```
 buat t = (1, 2, 3)
@@ -306,7 +330,7 @@ tulis t[2]           # 3
 
 ---
 
-## 🎯 Set
+## Set
 
 ```
 buat s = {1, 2, 3, 2, 1}
@@ -319,7 +343,7 @@ buat b = {2, 3, 4}
 
 ---
 
-## 🔀 Ternary Expression
+## Ternary Expression
 
 ```
 buat umur = 17
@@ -331,7 +355,7 @@ tulis status  # Output: Anak-anak
 
 ---
 
-## 🔗 Chained Comparison
+## Chained Comparison (v5.0)
 
 ```
 buat x = 5

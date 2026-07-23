@@ -1,8 +1,8 @@
-# 🎮 Game Development
+# Game Development
 
 > **Bikin game pake BroLang? Bisa banget!** Lewat module `grafis` dan `game`.
 
-## 🚀 Mulai Bikin Game
+## Mulai Bikin Game
 
 ### Window Dasar
 
@@ -48,7 +48,7 @@ selama benar lakukan
     jika game.input_ditekan("s") maka
         player_y = player_y + kecepatan
     selesai
-    if game.input_ditekan("w") maka
+    jika game.input_ditekan("w") maka
         player_y = player_y - kecepatan
     selesai
 
@@ -74,7 +74,7 @@ selesai
 
 ---
 
-## 📖 Recap
+## Recap
 
 | Fitur | Fungsi |
 |-------|--------|

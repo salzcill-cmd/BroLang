@@ -1,8 +1,8 @@
-# 🖥️ Command Line Interface (CLI)
+# Command Line Interface (CLI)
 
-> **BroLang CLI powerful banget.** Compiler, formatter, REPL, debug mode — ada semua.
+> **BroLang CLI powerful banget.** Compiler, formatter, REPL, debug mode - ada semua.
 
-## 📋 Perintah Dasar
+## Perintah Dasar
 
 ```bash
 # Jalankan file .bro
@@ -17,14 +17,11 @@ bro --compile main.bro
 # Kompilasi ke executable
 bro --compile main.bro --output myapp
 
-# Kompilasi ke WebAssembly
-bro --compile main.bro --target wasm
-
 # Format kode otomatis
 bro format main.bro
 ```
 
-## 🔍 Debug Mode
+## Debug Mode
 
 ```bash
 # Debug verbose (trace execution)
@@ -35,14 +32,14 @@ bro main.bro --debug verbose
 
 ```
 [DEBUG] === Mulai Eksekusi ===
-[DEBUG] [TRACE] ASTAnalyzer: visit_DeclarationNode — variable_declaration
-[DEBUG] [TRACE] ASTAnalyzer: visit_WhileNode — loop
-[DEBUG] [TRACE] ASTAnalyzer: visit_IfNode — conditional
+[DEBUG] [TRACE] ASTAnalyzer: visit_DeclarationNode
+[DEBUG] [TRACE] ASTAnalyzer: visit_WhileNode
+[DEBUG] [TRACE] ASTAnalyzer: visit_IfNode
 ...
 [DEBUG] === Selesai Eksekusi ===
 ```
 
-## ⚡ Optimasi Level
+## Optimasi Level
 
 ```bash
 # Tanpa optimasi (default)
@@ -55,19 +52,9 @@ bro main.bro --optimize
 bro main.bro --optimize --optimize-full
 ```
 
-## 📦 Output Format
-
-```bash
-# Default
-bro main.bro
-
-# Debug verbose
-bro main.bro --debug verbose
-```
-
 ---
 
-## 📖 CLI Flags
+## CLI Flags
 
 | Flag | Fungsi |
 |------|--------|

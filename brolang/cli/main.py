@@ -24,7 +24,8 @@ def main(args: Optional[List[str]] = None) -> int:
         args = sys.argv[1:]
 
     if not args:
-        print("BroLang 1.0")
+        from brolang import __version__
+        print(f"BroLang {__version__}")
         print("Gunakan 'bro --help' untuk bantuan.")
         return 0
 
@@ -47,6 +48,8 @@ def main(args: Optional[List[str]] = None) -> int:
         "new-game": _cmd_new_game,
         "run-game": _cmd_run_game,
         "version": _cmd_version,
+        "--version": _cmd_version,
+        "-v": _cmd_version,
         "--help": _cmd_help,
         "-h": _cmd_help,
     }
@@ -101,6 +104,19 @@ def _cmd_run(args: List[str]) -> int:
         optimizer = Optimizer()
         optimized_ast = optimizer.optimize(ast)
 
+        # Fast path: try transpiler first (97x faster)
+        try:
+            from brolang.vm.transpiler import Transpiler
+            transpiler = Transpiler()
+            py_code = transpiler.transpile(optimized_ast)
+            compiled = compile(py_code, file_path, 'exec')
+            exec(compiled, {'__builtins__': __builtins__})
+            return 0
+        except Exception:
+            # Fallback ke interpreter (tanpa warning untuk user)
+            pass
+
+        # Fallback: tree-walking interpreter
         interpreter = Interpreter()
         interpreter.interpret(optimized_ast)
 
@@ -1005,7 +1021,7 @@ def _cmd_run_game(args: List[str]) -> int:
 def _cmd_help(args: List[str]) -> int:
     """Menampilkan bantuan."""
     print("""
-BroLang 4.0 - Bahasa Pemrograman Profesional untuk Game Development
+BroLang - Bahasa Pemrograman Profesional untuk Game Development
 
 Penggunaan:
     bro run <file>         : Menjalankan file BroLang
