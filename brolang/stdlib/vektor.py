@@ -89,6 +89,10 @@ class Vec2:
         """Sudut vektor dalam radian terhadap sumbu X."""
         return math.atan2(self.y, self.x)
 
+    def sudut(self) -> float:
+        """Sudut vektor dalam derajat terhadap sumbu X."""
+        return math.degrees(math.atan2(self.y, self.x))
+
     def rotate(self, radians: float) -> "Vec2":
         """Rotasi vektor sejumlah radian."""
         cos_a = math.cos(radians)
@@ -97,6 +101,10 @@ class Vec2:
             self.x * cos_a - self.y * sin_a,
             self.x * sin_a + self.y * cos_a,
         )
+
+    def rotasi(self, derajat: float) -> "Vec2":
+        """Rotasi vektor sejumlah derajat."""
+        return self.rotate(math.radians(derajat))
 
     def lerp(self, other: "Vec2", t: float) -> "Vec2":
         """Linear interpolation antara dua vektor."""
@@ -111,6 +119,36 @@ class Vec2:
         if p <= max_len:
             return self.copy()
         return self.normalisasi() * max_len
+
+    def proyeksi(self, other: "Vec2") -> "Vec2":
+        """Proyeksi vektor ini ke arah vektor lain."""
+        d = other.dot(other)
+        if d == 0:
+            return Vec2(0, 0)
+        return other * (self.dot(other) / d)
+
+    def refleksi(self, normal: "Vec2") -> "Vec2":
+        """Refleksi vektor terhadap garis normal."""
+        n = normal.normalisasi()
+        return self - n * (2 * self.dot(n))
+
+    def arah_ke(self, other: "Vec2") -> "Vec2":
+        """Vektor satuan dari vektor ini menuju vektor lain."""
+        return (other - self).normalisasi()
+
+    def tengah(self, other: "Vec2") -> "Vec2":
+        """Titik tengah antara dua vektor."""
+        return Vec2((self.x + other.x) / 2, (self.y + other.y) / 2)
+
+    @classmethod
+    def dari_polar(cls, panjang: float, sudut_deg: float) -> "Vec2":
+        """Membuat vektor dari panjang dan sudut (derajat).
+
+        Contoh:
+            buat v = vektor.Vec2.dari_polar(10, 45)  # panjang 10, arah 45 derajat
+        """
+        rad = math.radians(sudut_deg)
+        return cls(math.cos(rad) * panjang, math.sin(rad) * panjang)
 
 
 class Vec3:
@@ -212,11 +250,29 @@ def dot2(a: Vec2, b: Vec2) -> float:
     return a.dot(b)
 
 
+def buat_polar(panjang: float, sudut_deg: float) -> Vec2:
+    """Membuat vektor 2D dari panjang dan sudut derajat."""
+    return Vec2.dari_polar(panjang, sudut_deg)
+
+
+def refleksi(a: Vec2, normal: Vec2) -> Vec2:
+    """Refleksi vektor a terhadap normal."""
+    return a.refleksi(normal)
+
+
+def proyeksi(a: Vec2, ke: Vec2) -> Vec2:
+    """Proyeksi vektor a ke arah vektor ke."""
+    return a.proyeksi(ke)
+
+
 module = SimpleNamespace(
     Vec2=Vec2,
     Vec3=Vec3,
     buat_vec2=buat_vec2,
     buat_vec3=buat_vec3,
+    buat_polar=buat_polar,
     jarak=jarak,
     dot=dot2,
+    refleksi=refleksi,
+    proyeksi=proyeksi,
 )

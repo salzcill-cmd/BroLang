@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  BroLang Installer v5.0
+#  BroLang Installer v5.4
 #  Otomatis install BroLang + setup PATH + dependensi game
 # ============================================================
 
@@ -45,7 +45,7 @@ find_shell_rc() {
 SHELL_RC=$(find_shell_rc)
 
 # ============================================================
-header "BroLang Installer v5.0"
+header "BroLang Installer v5.4"
 echo -e "  ${TEBAL}Bahasa pemrograman profesional untuk game development${NC}"
 echo ""
 # ============================================================
@@ -106,7 +106,7 @@ pip install -e ".[dev,game]" --quiet --disable-pip-version-check 2>/dev/null || 
 pip install -e ".[dev]" --quiet --disable-pip-version-check 2>/dev/null || \
 pip install -e . --quiet --disable-pip-version-check
 
-ok "BroLang v5.0 terinstall!"
+ok "BroLang v5.4 terinstall!"
 
 # --- 4. Buat Wrapper Script ---
 header "4/5  Setup Command 'bro'"
@@ -162,7 +162,7 @@ header "Instalasi Selesai!"
 export PATH="$LOCAL_BIN:$PATH"
 
 echo ""
-echo -e "  ${HIJAU}${TEBAL}BroLang v5.0 berhasil terinstall!${NC}"
+echo -e "  ${HIJAU}${TEBAL}BroLang v5.4 berhasil terinstall!${NC}"
 echo ""
 echo -e "  ${TEBAL}Quick Start:${NC}"
 echo -e "    ${CYAN}source $SHELL_RC${NC}              # muat PATH baru"

@@ -40,11 +40,19 @@ def _ensure_init():
 
 def _get_screen():
     global _screen
-    if _screen is None:
-        raise RuntimeError(
-            "Jendela belum dibuat. Panggil grafis.mulai_jendela() dulu."
-        )
-    return _screen
+    if _screen is not None:
+        return _screen
+    # Fallback: pakai display pygame yang aktif (misalnya window dibuat lewat
+    # game.buat_jendela() atau pygame.display.set_mode langsung).
+    # TIDAK di-cache ke _screen — setelah pygame.quit(), get_surface() kembali
+    # None sehingga error "Jendela belum dibuat" tetap muncul di pemakaian baru.
+    if pygame is not None:
+        surf = pygame.display.get_surface()
+        if surf is not None:
+            return surf
+    raise RuntimeError(
+        "Jendela belum dibuat. Panggil grafis.mulai_jendela() dulu."
+    )
 
 
 # --- Warna ---
@@ -255,6 +263,63 @@ def busur(x, y, radius, sudut_mulai, sudut_akhir, warna, ketebalan=1):
                     math.radians(sudut_mulai), math.radians(sudut_akhir), int(ketebalan))
 
 
+def poligon(titik_titik, warna):
+    """Menggambar poligon dari daftar titik [(x1, y1), (x2, y2), ...].
+
+    Contoh:
+        grafis.poligon([(100, 100), (200, 50), (250, 180)], "ungu")
+    """
+    _ensure_init()
+    screen = _get_screen()
+    color = _COLORS.get(warna, warna) if isinstance(warna, str) else warna
+    points = [(int(px), int(py)) for px, py in titik_titik]
+    if len(points) >= 3:
+        pygame.draw.polygon(screen, color, points)
+
+
+def segi_panjang_bulat(x, y, lebar, tinggi, radius, warna):
+    """Menggambar persegi panjang dengan sudut membulat.
+
+    Contoh:
+        grafis.segi_panjang_bulat(100, 100, 200, 60, 15, "biru")
+    """
+    _ensure_init()
+    screen = _get_screen()
+    color = _COLORS.get(warna, warna) if isinstance(warna, str) else warna
+    r = max(0, min(int(radius), int(min(lebar, tinggi) / 2)))
+    pygame.draw.rect(screen, color,
+                     (int(x), int(y), int(lebar), int(tinggi)),
+                     border_radius=r)
+
+
+def lingkaran_garis(x, y, radius, warna, ketebalan=1):
+    """Menggambar lingkaran outline (tanpa isi)."""
+    _ensure_init()
+    screen = _get_screen()
+    color = _COLORS.get(warna, warna) if isinstance(warna, str) else warna
+    pygame.draw.circle(screen, color, (int(x), int(y)), int(radius), int(ketebalan))
+
+
+def elips(x, y, lebar, tinggi, warna):
+    """Menggambar elips di dalam bounding box."""
+    _ensure_init()
+    screen = _get_screen()
+    color = _COLORS.get(warna, warna) if isinstance(warna, str) else warna
+    pygame.draw.ellipse(screen, color,
+                        (int(x), int(y), int(lebar), int(tinggi)))
+
+
+def titik(x, y, warna, ukuran=1):
+    """Menggambar titik/pixel kecil."""
+    _ensure_init()
+    screen = _get_screen()
+    color = _COLORS.get(warna, warna) if isinstance(warna, str) else warna
+    if ukuran <= 1:
+        pygame.draw.circle(screen, color, (int(x), int(y)), 1)
+    else:
+        pygame.draw.circle(screen, color, (int(x), int(y)), int(ukuran))
+
+
 # --- Teks ---
 
 def _get_font(size: int):
@@ -284,6 +349,27 @@ def dapatkan_ukuran_teks(teks: str, ukuran=24) -> tuple:
     font = _get_font(int(ukuran))
     rect = font.size(str(teks))
     return rect
+
+
+def tulis_teks_multi(teks: str, x: int, y: int, warna="putih", ukuran=24,
+                     jarak_baris=6, tengah=False):
+    """Menggambar teks multi-baris (dipisah \n).
+
+    Contoh:
+        grafis.tulis_teks_multi("Baris 1\\nBaris 2\\nBaris 3", 50, 50, "kuning", 28)
+    """
+    _ensure_init()
+    screen = _get_screen()
+    color = _COLORS.get(warna, warna) if isinstance(warna, str) else warna
+    font = _get_font(int(ukuran))
+    baris = str(teks).split("\n")
+    line_h = int(ukuran) + int(jarak_baris)
+    for i, baris_teks in enumerate(baris):
+        surface = font.render(baris_teks, True, color)
+        bx = int(x)
+        if tengah:
+            bx = int(x) - surface.get_width() // 2
+        screen.blit(surface, (bx, int(y) + i * line_h))
 
 
 # --- Gambar/Sprite ---
@@ -337,6 +423,26 @@ def gambar_gambar_scala(gambar, x: int, y: int, sx: float, sy: float):
     screen.blit(scaled, (int(x), int(y)))
 
 
+def buat_surface(lebar: int, tinggi: int, transparan: bool = False):
+    """Membuat surface offscreen untuk menggambar (canvas).
+
+    Contoh:
+        buat canvas = grafis.buat_surface(200, 100)
+        # ... gambar ke canvas ...
+        grafis.gambar_surface(canvas, 100, 100)
+    """
+    _ensure_init()
+    flags = pygame.SRCALPHA if transparan else 0
+    return pygame.Surface((int(lebar), int(tinggi)), flags)
+
+
+def gambar_surface(surface, x: int, y: int):
+    """Menggambar surface offscreen ke layar."""
+    _ensure_init()
+    screen = _get_screen()
+    screen.blit(surface, (int(x), int(y)))
+
+
 # --- Deteksi Tabrakan ---
 
 def tabrakan_segi_panjang(x1, y1, w1, h1, x2, y2, w2, h2) -> bool:
@@ -384,12 +490,20 @@ module = SimpleNamespace(
     segitiga=segitiga,
     persegi=persegi,
     busur=busur,
+    poligon=poligon,
+    segi_panjang_bulat=segi_panjang_bulat,
+    lingkaran_garis=lingkaran_garis,
+    elips=elips,
+    titik=titik,
     tulis_teks=tulis_teks,
+    tulis_teks_multi=tulis_teks_multi,
     dapatkan_ukuran_teks=dapatkan_ukuran_teks,
     muat_gambar=muat_gambar,
     gambar_gambar=gambar_gambar,
     gambar_gambar_putar=gambar_gambar_putar,
     gambar_gambar_scala=gambar_gambar_scala,
+    buat_surface=buat_surface,
+    gambar_surface=gambar_surface,
     tabrakan_segi_panjang=tabrakan_segi_panjang,
     tabrakan_lingkaran=tabrakan_lingkaran,
     tabrakan_titik_segi_panjang=tabrakan_titik_segi_panjang,

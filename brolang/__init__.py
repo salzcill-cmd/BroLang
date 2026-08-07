@@ -40,7 +40,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "5.0.0"
+__version__ = "5.4.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

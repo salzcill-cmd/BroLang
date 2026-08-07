@@ -20,6 +20,7 @@ from brolang.ast.nodes import (
     MatchNode, WildcardNode, ComprehensionNode,
     DictComprehensionNode, ImportNode, FromImportNode,
     GlobalNode, NonlocalNode, InputNode,
+    PipelineNode, DestructuringAssignmentNode,
 )
 from brolang.vm.opcodes import Op, Bytecode
 
@@ -98,6 +99,10 @@ class Compiler:
             self._emit_augmented_assignment(node)
         elif isinstance(node, TryNode):
             self._emit_try(node)
+        elif isinstance(node, DestructuringAssignmentNode):
+            raise NotImplementedError(
+                f"Destructuring assignment belum didukung di bytecode VM (baris {node.line}). "
+                "Gunakan 'bro run' (transpiler) atau interpreter untuk fitur ini.")
         else:
             # Expression statement — evaluate and pop
             self._emit_expr(node)
@@ -331,8 +336,6 @@ class Compiler:
     def _emit_for(self, node: ForNode):
         """Emit for loop."""
         self._emit_expr(node.iterable)
-        iter_var_idx = self._add_local('_iter')
-        self.bytecode.add(Op.STORE_LOCAL, iter_var_idx, node.line, node.column)
         self.bytecode.add(Op.GET_ITER, line=node.line, column=node.column)
 
         loop_start = len(self.bytecode.instructions)
@@ -362,8 +365,8 @@ class Compiler:
         self.bytecode.add(Op.JUMP, loop_start, node.line, node.column)
         self.bytecode.instructions[body_jump_idx].arg = len(self.bytecode.instructions)
 
-        # Cleanup: remove iter and loop var from locals
-        self._remove_locals(2)
+        # Cleanup: remove loop var from locals
+        self._remove_locals(1)
 
     # ============= Print (fast path) =============
 
@@ -511,6 +514,11 @@ class Compiler:
                 self._emit_expr(arg)
             self.bytecode.add(Op.MAKE_INSTANCE, len(node.args), node.line, node.column)
 
+        elif isinstance(node, PipelineNode):
+            raise NotImplementedError(
+                f"Pipeline operator (|>) belum didukung di bytecode VM (baris {node.line}). "
+                "Gunakan 'bro run' (transpiler) atau interpreter untuk fitur ini.")
+
         else:
             # Fallback: push None for unknown nodes
             self.bytecode.add(Op.PUSH_NONE, line=getattr(node, 'line', 0))
@@ -548,19 +556,30 @@ class Compiler:
             self.bytecode.add(op, line=node.line, column=node.column)
 
     def _emit_call(self, node: CallNode):
+        # Keyword arguments dikonversi jadi positional dict-passing:
+        # fungsi(a, b=1) => fungsi(a, {'b': 1})
+        # Untuk VM sederhana, kwargs dipasangkan sebagai dict arg terakhir.
+        has_kwargs = bool(node.kwargs)
+
+        def _emit_args():
+            for arg in node.args:
+                self._emit_expr(arg)
+            if has_kwargs:
+                for _, val in node.kwargs:
+                    self._emit_expr(val)
+
         if isinstance(node.function, IdentifierNode):
             name = node.function.name
             # Check if builtin
             from brolang.interpreter.builtins import BUILTINS
-            if name in BUILTINS:
+            if name in BUILTINS and not has_kwargs:
                 for arg in node.args:
                     self._emit_expr(arg)
                 self.bytecode.add(Op.CALL_BUILTIN, (name, len(node.args)),
                                node.line, node.column)
                 return
 
-            for arg in node.args:
-                self._emit_expr(arg)
+            _emit_args()
             loc = self._resolve_name(name)
             if loc == 'local':
                 idx = self._get_local_idx(name)
@@ -571,22 +590,22 @@ class Compiler:
             else:
                 idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
-            self.bytecode.add(Op.CALL, len(node.args), node.line, node.column)
+            self.bytecode.add(Op.CALL, len(node.args) + (1 if has_kwargs else 0),
+                           node.line, node.column)
 
         elif isinstance(node.function, ObjectAccessNode):
             self._emit_expr(node.function.object)
             prop_idx = self.bytecode.add_name(node.function.property)
             self.bytecode.add(Op.LOAD_METHOD, prop_idx, node.line, node.column)
-            for arg in node.args:
-                self._emit_expr(arg)
-            self.bytecode.add(Op.CALL_METHOD, (prop_idx, len(node.args)),
+            _emit_args()
+            self.bytecode.add(Op.CALL_METHOD, (prop_idx, len(node.args) + (1 if has_kwargs else 0)),
                            node.line, node.column)
         else:
             # Generic call
             self._emit_expr(node.function)
-            for arg in node.args:
-                self._emit_expr(arg)
-            self.bytecode.add(Op.CALL, len(node.args), node.line, node.column)
+            _emit_args()
+            self.bytecode.add(Op.CALL, len(node.args) + (1 if has_kwargs else 0),
+                           node.line, node.column)
 
     # ============= Helpers =============
 

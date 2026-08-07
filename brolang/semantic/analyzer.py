@@ -27,6 +27,7 @@ from brolang.ast.nodes import (
     ClassNode, MethodNode, AttributeNode,
     ImportNode, FromImportNode,
     TryNode, CatchNode,
+    TypedExceptNode, MultiExceptNode,
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
     LambdaNode, ComprehensionNode, FStringNode,
@@ -36,6 +37,7 @@ from brolang.ast.nodes import (
     GlobalNode, NonlocalNode,
     PassNode, DelNode, AssertNode,
     TupleNode, SetNode, DictComprehensionNode,
+    PipelineNode, DestructuringAssignmentNode,
 )
 from brolang.exceptions import SemanticError
 
@@ -469,6 +471,21 @@ class SemanticAnalyzer(ASTVisitor):
                 type_hint=type_hint,
             )
 
+        # Validasi: default parameter tidak boleh mendahului parameter non-default
+        seen_default = False
+        for i, param in enumerate(node.params):
+            has_default = i < len(node.defaults) and node.defaults[i] is not None
+            if has_default:
+                seen_default = True
+            elif seen_default:
+                raise self._error(
+                    message=f"Parameter '{param}' tidak boleh tanpa nilai default setelah parameter ber-default.",
+                    line=node.line,
+                    column=node.column,
+                    solution="Letakkan parameter dengan nilai default di akhir daftar parameter.",
+                    example=f"fungsi {node.name}(a=1, {param})  ->  fungsi {node.name}({param}, a=1)",
+                )
+
         # Parse body
         for stmt in node.body:
             self.visit(stmt)
@@ -523,9 +540,11 @@ class SemanticAnalyzer(ASTVisitor):
                     self.visit(arg)
                 return builtin_types[func_name]
 
-        # Check arguments
+        # Check arguments (termasuk nilai keyword arguments)
         for arg in node.args:
             self.visit(arg)
+        for _, kwarg_value in node.kwargs:
+            self.visit(kwarg_value)
 
         return None  # Return type unknown for user-defined functions
 
@@ -634,6 +653,43 @@ class SemanticAnalyzer(ASTVisitor):
             for stmt in node.finally_body:
                 self.visit(stmt)
             self._exit_scope()
+
+    def visit_MultiExceptNode(self, node: MultiExceptNode) -> None:
+        """Memeriksa coba...kecuali... (multiple except clauses)."""
+        self._enter_scope("try")
+        for stmt in node.body:
+            self.visit(stmt)
+        self._exit_scope()
+
+        # Setiap klausa kecuali punya scope sendiri + variabel exception
+        for clause in node.except_clauses:
+            self._enter_scope("except")
+            self.current_scope.define(
+                name=clause.variable,
+                kind="variable",
+                line=clause.line,
+                column=clause.column,
+                is_initialized=True,
+            )
+            for stmt in clause.body:
+                self.visit(stmt)
+            self._exit_scope()
+
+        if node.else_body:
+            self._enter_scope("else")
+            for stmt in node.else_body:
+                self.visit(stmt)
+            self._exit_scope()
+
+        if node.finally_body:
+            self._enter_scope("finally")
+            for stmt in node.finally_body:
+                self.visit(stmt)
+            self._exit_scope()
+
+    def visit_TypedExceptNode(self, node: TypedExceptNode) -> None:
+        """Klausa kecuali — ditangani visit_MultiExceptNode."""
+        pass
 
     def visit_ListNode(self, node: ListNode) -> str:
         """Memeriksa list literal."""
@@ -852,3 +908,25 @@ class SemanticAnalyzer(ASTVisitor):
                     column=node.column,
                     is_initialized=True,
                 )
+
+    # ============= V5.2: Pipeline & Destructuring =============
+
+    def visit_PipelineNode(self, node: PipelineNode) -> Optional[str]:
+        """Memeriksa pipeline: nilai | > fungsi  =>  fungsi(nilai)."""
+        self.visit(node.left)
+        self.visit(node.right)
+        return None
+
+    def visit_DestructuringAssignmentNode(self, node: DestructuringAssignmentNode) -> None:
+        """Memeriksa destructuring assignment: buat [a, b] = list / buat {x, y} = objek."""
+        if node.value:
+            self.visit(node.value)
+        # Definisikan semua variabel target dalam scope saat ini
+        for name in node.targets:
+            self.current_scope.define(
+                name=name,
+                kind="variable",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )

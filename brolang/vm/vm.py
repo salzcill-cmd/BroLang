@@ -11,6 +11,17 @@ from brolang.exceptions import RuntimeError_, NameError_, TypeError_
 from brolang.interpreter.builtins import BUILTINS
 
 
+class _Missing:
+    """Sentinel untuk cache lookup yang miss."""
+    __slots__ = ()
+
+    def __bool__(self):
+        return False
+
+
+_MISSING = _Missing()
+
+
 class Frame:
     """Execution frame — represents one function call."""
 
@@ -30,16 +41,18 @@ class Frame:
 class VM:
     """Stack-based bytecode virtual machine."""
 
-    __slots__ = ('frames', 'globals', 'output', '_frame')
+    __slots__ = ('frames', 'globals', 'output', '_frame', '_builtin_cache')
 
     def __init__(self):
         self.globals: Dict[str, Any] = {}
         self.output: List[str] = []
         self._frame = None
+        self._builtin_cache: Dict[str, Any] = {}
 
         # Register builtins
         for name, func in BUILTINS.items():
             self.globals[name] = func
+            self._builtin_cache[name] = func
 
     def run(self, bytecode: Bytecode) -> Any:
         """Execute compiled bytecode."""
@@ -105,11 +118,15 @@ class VM:
                 _append(val)
 
             elif op == _Op.STORE_LOCAL:
-                _locals[arg] = stack[-1]
+                _locals[arg] = _pop()
 
             elif op == _Op.LOAD_GLOBAL:
                 name = names[arg]
-                if name in globals_dict:
+                # Fast path: builtin cache (avoid dict lookup)
+                cached = self._builtin_cache.get(name, _MISSING)
+                if cached is not _MISSING:
+                    _append(cached)
+                elif name in globals_dict:
                     _append(globals_dict[name])
                 else:
                     raise RuntimeError_(
@@ -118,10 +135,14 @@ class VM:
                         solution=f"Deklarasikan '{name}' dengan 'buat {name} = ...'.")
 
             elif op == _Op.STORE_GLOBAL:
-                globals_dict[names[arg]] = stack[-1]
+                globals_dict[names[arg]] = _pop()
+                # Invalidate builtin cache jika nama ditimpa oleh user
+                self._builtin_cache.pop(names[arg], None)
 
             elif op == _Op.DEFINE_GLOBAL:
                 globals_dict[names[arg]] = _pop()
+                # Invalidate builtin cache jika nama ditimpa oleh user
+                self._builtin_cache.pop(names[arg], None)
 
             elif op == _Op.LOAD_DEREF:
                 _append(frame.closure[arg] if frame.closure else None)
@@ -243,7 +264,7 @@ class VM:
             elif op == _Op.CALL_BUILTIN:
                 func_name, arg_count = arg
                 args_list = [_pop() for _ in range(arg_count)][::-1]
-                func = globals_dict[func_name]
+                func = self._builtin_cache.get(func_name) or globals_dict[func_name]
                 result = self._call_builtin(func, args_list, func_name, None)
                 _append(result)
 
@@ -274,6 +295,7 @@ class VM:
                 val = _pop()
                 obj = _pop()
                 self._set_attribute(obj, names[arg], val, None)
+                _append(val)
 
             elif op == _Op.LOAD_METHOD:
                 obj = _pop()

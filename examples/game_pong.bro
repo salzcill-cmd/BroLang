@@ -32,13 +32,14 @@ buat paddle_kecepatan = 350.0
 buat max_skor = 5
 
 # --- Fungsi ---
-def reset_bola():
+fungsi reset_bola()
     global bola_pos, bola_vel
     bola_pos = vektor.Vec2(lebar / 2, tinggi / 2)
     bola_vel = vektor.Vec2(bola_speed_dasar, bola_speed_dasar * 0.7)
+selesai
 
 # --- Update ---
-def update(dt):
+fungsi update(dt)
     global p1_pos, p2_pos, bola_pos, bola_vel
     global p1_skor, p2_skor
 
@@ -89,8 +90,8 @@ def update(dt):
     # Tabrakan paddle 1 (kiri)
     jika (bola_vel.x < 0 dan
           bola_pos.x - bola_r <= p1_pos.x + paddle_w dan
-          bola_pos.x + bola_r >= p1_pos.x and
-          bola_pos.y >= p1_pos.y and
+          bola_pos.x + bola_r >= p1_pos.x dan
+          bola_pos.y >= p1_pos.y dan
           bola_pos.y <= p1_pos.y + paddle_h) maka
         bola_vel.x = bola_vel.x * -1
         bola_pos.x = p1_pos.x + paddle_w + bola_r
@@ -98,9 +99,9 @@ def update(dt):
 
     # Tabrakan paddle 2 (kanan)
     jika (bola_vel.x > 0 dan
-          bola_pos.x + bola_r >= p2_pos.x and
-          bola_pos.x - bola_r <= p2_pos.x + paddle_w and
-          bola_pos.y >= p2_pos.y and
+          bola_pos.x + bola_r >= p2_pos.x dan
+          bola_pos.x - bola_r <= p2_pos.x + paddle_w dan
+          bola_pos.y >= p2_pos.y dan
           bola_pos.y <= p2_pos.y + paddle_h) maka
         bola_vel.x = bola_vel.x * -1
         bola_pos.x = p2_pos.x - bola_r
@@ -117,9 +118,10 @@ def update(dt):
         p1_skor = p1_skor + 1
         reset_bola()
     selesai
+selesai
 
 # --- Gambar ---
-def gambar(screen):
+fungsi gambar(screen)
     grafis.bersihkan((10, 10, 30))
 
     # Garis tengah
@@ -141,6 +143,7 @@ def gambar(screen):
     # Instruksi
     grafis.tulis_teks("W/S", 30, tinggi - 25, "biru", 18)
     grafis.tulis_teks("UP/DOWN", lebar - 80, tinggi - 25, "merah", 18)
+selesai
 
 # --- Main ---
 game.buat_jendela(lebar, tinggi, "Pong 2P - BroLang")

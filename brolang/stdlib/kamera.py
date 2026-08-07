@@ -56,6 +56,47 @@ class Kamera:
         self.offset_x = x
         self.offset_y = y
 
+    def set_posisi(self, x, y):
+        """Set posisi kamera langsung (tanpa smoothing)."""
+        self.x = float(x)
+        self.y = float(y)
+
+    def posisi(self):
+        """Posisi kamera saat ini (x, y)."""
+        return self.x, self.y
+
+    def gerak(self, dx, dy):
+        """Geser kamera (pan) sebesar dx, dy."""
+        self.x += dx
+        self.y += dy
+
+    def reset(self):
+        """Reset kamera ke posisi awal & zoom 1."""
+        self.x = 0.0
+        self.y = 0.0
+        self.zoom = 1.0
+        self.sudut = 0.0
+        self.target = None
+        self.offset_x = 0.0
+        self.offset_y = 0.0
+        self.shake_waktu = 0
+        self.shake_offset_x = 0
+        self.shake_offset_y = 0
+
+    def set_batas_world(self, lebar_world, tinggi_world):
+        """Set batas kamera otomatis dari ukuran world.
+
+        Kamera tidak akan keluar dari world.
+        """
+        self.batas_kiri = 0
+        self.batas_atas = 0
+        self.batas_kanan = lebar_world
+        self.batas_bawah = tinggi_world
+
+    def set_sudut(self, derajat):
+        """Set rotasi kamera (derajat)."""
+        self.sudut = derajat
+
     def set_bounds(self, kiri, atas, kanan, bawah):
         """Set batas pergerakan kamera."""
         self.batas_kiri = kiri
@@ -136,8 +177,20 @@ class Kamera:
         )
 
     def apply(self, x, y):
-        """Menerapkan transformasi kamera ke koordinat."""
-        return self.world_to_screen(x, y)
+        """Menerapkan transformasi kamera ke koordinat (dengan rotasi)."""
+        sx, sy = self.world_to_screen(x, y)
+        if self.sudut:
+            import math
+            rad = math.radians(self.sudut)
+            cx = self.lebar_layar / 2
+            cy = self.tinggi_layar / 2
+            dx = sx - cx
+            dy = sy - cy
+            cos_a = math.cos(rad)
+            sin_a = math.sin(rad)
+            sx = cx + dx * cos_a - dy * sin_a
+            sy = cy + dx * sin_a + dy * cos_a
+        return sx, sy
 
 
 class KameraTopDown(Kamera):
@@ -196,9 +249,29 @@ class KameraSideScroll(Kamera):
             self.shake_offset_y = 0
 
 
-def buat(lebar_layar=800, tinggi_layar=600):
+def buat_kamera(lebar_layar=800, tinggi_layar=600):
     """Membuat kamera baru."""
     return Kamera(lebar_layar, tinggi_layar)
+
+
+def buat(lebar_layar=800, tinggi_layar=600):
+    return Kamera(lebar_layar, tinggi_layar)
+
+
+def buat_layar_penuh():
+    """Membuat kamera yang mengikuti ukuran layar aktif.
+
+    Butuh pygame display aktif (game.buat_jendela sudah dipanggil).
+    """
+    try:
+        import pygame
+        surf = pygame.display.get_surface()
+        if surf is not None:
+            w, h = surf.get_size()
+            return Kamera(w, h)
+    except Exception:
+        pass
+    return Kamera(800, 600)
 
 
 def buat_top_down(lebar_layar=800, tinggi_layar=600):
@@ -215,7 +288,8 @@ module = SimpleNamespace(
     Kamera=Kamera,
     KameraTopDown=KameraTopDown,
     KameraSideScroll=KameraSideScroll,
-    buat=buat,
+    buat_kamera=buat_kamera,
+    buat_layar_penuh=buat_layar_penuh,
     buat_top_down=buat_top_down,
     buat_side_scroll=buat_side_scroll,
 )

@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-5.0-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-5.4-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v5.0</h1>
+<h1 align="center">BroLang v5.4</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/223-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/473-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/110+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/130+Token%20Types-purple?style=flat-square" alt="tokens"/>
-  <img src="https://img.shields.io/badge/25+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
+  <img src="https://img.shields.io/badge/28+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
 </p>
 
 ---
@@ -45,10 +45,149 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 5.0.0
+bro --version    # BroLang 5.4.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v5.4?
+
+### Full Upgrade Library Game 🎮
+Semua modul game di-*full update* — 14 modul game lengkap buat bikin game 2D ala Python Arcade/Pygame:
+
+| Modul | Fitur baru |
+|-------|-----------|
+| `sprite` | **Diperbaiki total** (sebelumnya SyntaxError, ga bisa di-import!) — gambar, sprite sheet, animasi frame, rotasi, flip, alpha, z-order, collider kotak/lingkaran, GrupSprite |
+| `partikel` 🆕 | Particle system: ledakan, hujan, semburan, emisi otomatis, gravitasi partikel |
+| `ui` 🆕 | Tombol (hover+klik+callback), Label, Panel, Bar (health/progress bar) |
+| `game` | Pause/resume, dt-clamp anti-lag, FPS display, background color, reset state |
+| `input` | **Fix konflik event dengan game loop**, scroll wheel, mouse just-pressed, gamepad/joystick |
+| `grafis` | Rounded rect, teks multi-baris, poligon bebas, ellipse, offscreen surface |
+| `animasi` | **Fix easing elastic/bounce crash** + 26 jenis easing + callback on_selesai |
+| `fisika` | Radius per-bodi (bukan hardcode 16), gravitasi configurable, ground detection |
+| `tilemap` | **Fix solid_map** setelah bulk-load, `dari_file`, rendering warna fallback |
+| `kamera` | Reset, pan, rotasi, batas world otomatis, `buat_layar_penuh` |
+| `vektor` | Sudut derajat, `dari_polar`, proyeksi, refleksi, midpoint |
+| `waktu` | Timer, Stopwatch, FPS counter, delta otomatis |
+
+```
+impor game
+impor sprite
+impor ui
+impor partikel
+
+buat pemain = sprite.Sprite(kosong, 100, 300, lebar=34, tinggi=40)
+pemain.warna = "langit"
+buat tombol = ui.Tombol("MULAI", 300, 330, 200, 60)
+buat hp = ui.Bar(100, 100, 10, 42, 220, 18)
+buat efek = partikel.buat_emiter(0, 0)
+```
+
+Coba game showcase lengkapnya:
+```bash
+bro examples/game_arena.bro
+```
+Platformer arena dengan tilemap solid, musuh patroli, tembakan, ledakan partikel, health bar, tombol menu, kamera shake, dan pause — semua pakai API baru.
+
+### Interpreter: Atribut Objek Stdlib
+Objek stdlib (Sprite, Vec2, ui, dll) sekarang bisa **diset atributnya** (`pemain.warna = "merah"`, `pemain.vel_x = 100`) — konsisten dengan transpiler yang sudah mendukungnya sebelumnya.
+
+---
+
+## Apa yang Baru di v5.3?
+
+### Visualisasi Data (`visualisasi`)
+```
+impor visualisasi
+
+buat penjualan = {"Senin": 12, "Selasa": 45, "Rabu": 23, "Kamis": 67, "Jumat": 34}
+
+# Chart ASCII langsung di terminal
+# Senin  │ ███████ 12
+# Selasa │ ███████████████████████████ 45
+# ...
+tulis visualisasi.batang(penjualan, judul="Penjualan Mingguan", satuan="unit")
+
+# Chart SVG + laporan HTML untuk dibuka di browser
+buat svg = visualisasi.batang_svg(penjualan, judul="Penjualan Mingguan")
+visualisasi.simpan_svg("penjualan.svg", svg)
+visualisasi.simpan_html("laporan.html", [svg], judul="Laporan Penjualan")
+```
+Modul `visualisasi` menyediakan 5 jenis chart (bar, garis, pie/donut, scatter, histogram) dalam tiga format: **ASCII** buat tampil langsung di terminal, **SVG/HTML** buat laporan profesional, dan **GUI jendela native** buat tampilan ala game.
+
+### GUI Chart (Pygame) 🎮
+```
+# pip install pygame-ce  (sekali saja)
+impor visualisasi
+
+buat chart1 = {"jenis": "batang", "data": [12, 45, 23], "judul": "Penjualan"}
+buat chart2 = {"jenis": "kue", "data": {"A": 30, "B": 40}, "judul": "Pasar"}
+visualisasi.tampilkan_jendela([chart1, chart2], judul="Dashboard")
+```
+Chart tampil di jendela gelap ala game: animasi masuk, hover tooltip, navigasi keyboard (panah ganti chart, `1-9` lompat, `F` fullscreen, `S` screenshot, `ESC` tutup). Data bisa berupa list nilai, list pasangan `[label, nilai]`, atau objek `{label: nilai}`.
+
+---
+
+## Apa yang Baru di v5.2?
+
+### Keyword Arguments
+```
+fungsi sapa(nama, umur=0)
+    kembali "Halo " + nama + " umur " + teks(umur)
+selesai
+
+tulis sapa(nama="Budi")              # Halo Budi umur 0
+tulis sapa(nama="Ani", umur=25)     # Halo Ani umur 25
+tulis sapa("Citra", umur=30)        # Halo Citra umur 30
+```
+Argumen bernama bikin pemanggilan fungsi lebih jelas & ga perlu inget urutan parameter. Bisa dipakai di fungsi, method, lambda, dan constructor kelas.
+
+### Pipeline Operator (`|>`)
+```
+fungsi kali2(x)
+    kembali x * 2
+selesai
+
+buat hasil = 21 |> kali2            # 42 — nilai dikirim ke fungsi berikutnya
+buat genap = [1, 2, 3, 4] |> saring(lalu(x) x % 2 == 0)  # [2, 4]
+buat plus1 = [1, 2, 3] |> peta(lalu(x) x + 1)           # [2, 3, 4]
+```
+Komposisi fungsi ala Elixir/F# — baca dari kiri ke kanan, ga perlu nested call.
+
+### Destructuring Assignment
+```
+buat [a, b, c] = [1, 2, 3]
+tulis a, b, c     # 1 2 3
+
+buat {x, y} = {"x": 10, "y": 20}
+tulis x, y        # 10 20
+```
+Unpacking list & objek langsung ke variabel, kayak Python/JS.
+
+### Package Manager (BroPM)
+```bash
+bro pkg init                    # Bikin project + manifest brolang.json
+bro pkg install <nama|git-url>  # Install package
+bro pkg publish                 # Publish ke registry lokal
+bro pkg search <kata>           # Cari package
+```
+```
+impor paket-ku
+tulis paket-ku.fungsi_utama()
+```
+Package manager beneran jalan: manifest `brolang.json`, install dari folder lokal / git URL / registry, dan package yang terinstall bisa langsung di-`impor` dari kode BroLang.
+
+### Benchmark Command
+```bash
+bro benchmark <file>   # bandingkan Interpreter vs Transpiler vs Bytecode VM
+bro bench <file>
+```
+Ukur performa ketiga mesin eksekusi BroLang dalam satu command.
+
+### VM Optimasi
+Bytecode VM sekarang punya builtin cache (fast path `LOAD_GLOBAL`/`CALL_BUILTIN`) plus perbaikan stack discipline `STORE_LOCAL`/`STORE_GLOBAL` yang bikin for-loop & assignment berjalan benar dan lebih cepat.
 
 ---
 
@@ -264,7 +403,28 @@ pastikan(42 == 42, "Harus sama!")  # assert
 
 ---
 
-## Semua Fitur (v4.0 + v5.0)
+## Semua Fitur (v4.0 + v5.0 + v5.2 + v5.3 + v5.4)
+
+### v5.4
+- **Full upgrade library game** (14 modul): sprite ditulis ulang, `partikel` 🆕, `ui` 🆕, input event fix, tilemap fix, fisika radius configurable, kamera rotasi, 26 easing animasi, Timer/Stopwatch/FPS
+- `examples/game_arena.bro`: showcase platformer (sprite + fisika + partikel + UI + tilemap + kamera)
+- Interpreter: atribut objek stdlib bisa diset (`pemain.warna = "merah"`)
+
+### v5.3
+- Modul `visualisasi`: chart ASCII + SVG + HTML (bar, garis, pie, scatter, histogram)
+- Export laporan: `simpan_svg`, `simpan_html`, `simpan_txt`
+- **GUI chart (Pygame)**: `tampilkan_jendela` / `tampilkan_batang` / dll. + `simpan_png`
+  - Jendela native ala game: animasi, tooltip, keyboard nav, fullscreen, screenshot
+
+### v5.2
+- Keyword arguments: `sapa(nama="Budi", umur=25)`
+- Pipeline operator: `nilai |> fungsi`
+- Destructuring assignment: `buat [a, b] = list` / `buat {x, y} = objek`
+- Package manager: `bro pkg init/install/remove/list/search/publish/info`
+- Package import: `impor <paket>` untuk package terinstall
+- Benchmark CLI: `bro benchmark <file>`
+
+### v5.0
 
 ### Basic
 - `buat` variabel, `fungsi`, `kelas`, `muat` module
@@ -371,17 +531,29 @@ tulis hasil    # 5.0
 
 ### Game Development
 ```
-muat grafis
+impor game
+impor grafis
+impor input
 
-grafis.buat_layar(800, 600)
+game.buat_jendela(800, 600, "Game Pertamaku")
+game.set_latar_warna("biru_gelap")
 
-selama benar lakukan
-    grafis.mulai_frame()
-    grafis.isi_layar(0, 0, 0)
-    grafis.gambar_kotak(400, 300, 50, 50, 0, 100, 255)
-    grafis.selesai_frame()
+fungsi update(dt)
+    jika input.tombol_baru_ditekan("SPACE") maka
+        tulis "Lompat!"
+    selesai
 selesai
+
+fungsi gambar(screen)
+    grafis.segi_panjang(400, 300, 50, 50, "merah")
+selesai
+
+game.tambah_scene("utama", update, gambar)
+game.ganti_scene("utama")
+game.mulai()
 ```
+
+Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/GAME.md](docs/GAME.md). Contoh lengkap: `bro examples/game_arena.bro`.
 
 ---
 
@@ -408,6 +580,8 @@ selesai
 | `tilemap` | Tilemap support |
 | `kamera` | Camera system |
 | `fisika` | Physics engine |
+| `partikel` | Particle system (ledakan, hujan, semburan) |
+| `ui` | UI components (Tombol, Label, Panel, Bar) |
 | `tes` | Test framework |
 | `profil` | Performance profiler |
 | `debugger` | Step-through debugging |
@@ -416,6 +590,7 @@ selesai
 | `tumpukan` | Stack data structure |
 | `serialisasi` | JSON, base64, CSV |
 | `dasar` | Base encoding utilities |
+| `visualisasi` | Chart & grafik data (ASCII, SVG, HTML, GUI Pygame) |
 
 ---
 
@@ -449,6 +624,23 @@ bro fmt <file>         # Format kode
 bro doc [topik]        # Dokumentasi
 bro new-game <nama>    # Bikin proyek game baru
 bro run-game <file>    # Jalankan game
+bro benchmark <file>   # Benchmark interpreter vs transpiler vs VM
+bro pkg <cmd>          # Package manager (init/install/publish/dll)
+```
+
+### Game Arena (showcase library game)
+
+```bash
+pip install pygame-ce                  # sekali saja, untuk semua modul game
+bro examples/game_arena.bro            # platformer: sprite + fisika + partikel + UI + tilemap + kamera
+```
+
+### GUI Chart
+
+```bash
+pip install pygame-ce              # sekali saja, untuk jendela GUI chart
+bro examples/visualisasi.bro       # tur lengkap: ASCII + HTML + buka jendela GUI
+bro examples/visualisasi_gui.bro   # khusus jendela chart ala game
 ```
 
 ---
@@ -495,7 +687,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**189 test cases, semua passing!** (164 v4.0 + 25 v5.0)
+**473 test cases, semua passing!** (termasuk 61 test library game v5.4, output-consistency tests, suite v5.x, dan test visualisasi: ASCII, SVG, GUI)
 
 ---
 
@@ -519,7 +711,7 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v5.0** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v5.4** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>

@@ -47,6 +47,9 @@ def main(args: Optional[List[str]] = None) -> int:
         "doc": _cmd_doc,
         "new-game": _cmd_new_game,
         "run-game": _cmd_run_game,
+        "pkg": _cmd_pkg,
+        "benchmark": _cmd_benchmark,
+        "bench": _cmd_benchmark,
         "version": _cmd_version,
         "--version": _cmd_version,
         "-v": _cmd_version,
@@ -1018,6 +1021,110 @@ def _cmd_run_game(args: List[str]) -> int:
         return 1
 
 
+def _cmd_pkg(args: List[str]) -> int:
+    """Package manager: bro pkg <command> [options]"""
+    from brolang.package_manager.manager import main as pkg_main
+    return pkg_main(args)
+
+
+def _cmd_benchmark(args: List[str]) -> int:
+    """Benchmark eksekusi file BroLang (interpreter vs transpiler vs VM).
+
+    Penggunaan:
+        bro benchmark <file> [--repeat N]
+    """
+    parser = argparse.ArgumentParser(prog="bro benchmark", description="Benchmark eksekusi BroLang")
+    parser.add_argument("file", help="File BroLang (.bro)")
+    parser.add_argument("--repeat", type=int, default=3, help="Jumlah pengulangan")
+    parsed = parser.parse_args(args)
+
+    file_path = parsed.file
+    if not os.path.exists(file_path):
+        print(f"Error: File '{file_path}' tidak ditemukan.")
+        return 1
+
+    try:
+        import time
+        with open(file_path, "r", encoding="utf-8") as f:
+            source = f.read()
+
+        from brolang.lexer import Lexer
+        from brolang.parser import Parser
+        from brolang.semantic import SemanticAnalyzer
+        from brolang.optimizer import Optimizer
+        from brolang.interpreter import Interpreter
+        from brolang.vm.transpiler import Transpiler
+        from brolang.vm.compiler import Compiler as VMCompiler
+        from brolang.vm.vm import VM
+
+        print(f"\n{'='*60}")
+        print(f"Benchmark: {file_path}")
+        print(f"{'='*60}")
+
+        # Parse sekali
+        lexer = Lexer(source, file_path=file_path)
+        tokens = lexer.tokenize()
+        parser = Parser(tokens, file_path=file_path)
+        ast = parser.parse()
+
+        analyzer = SemanticAnalyzer()
+        analyzer.analyze(ast)
+        optimizer = Optimizer()
+        optimized_ast = optimizer.optimize(ast)
+
+        results = {}
+
+        # 1. Interpreter (tree-walking)
+        times = []
+        for _ in range(parsed.repeat):
+            interp = Interpreter()
+            start = time.perf_counter()
+            interp.interpret(optimized_ast)
+            times.append(time.perf_counter() - start)
+        results["Interpreter"] = sum(times) / len(times)
+
+        # 2. Transpiler → Python
+        times = []
+        transpiler = Transpiler()
+        py_code = transpiler.transpile(optimized_ast)
+        compiled = compile(py_code, file_path, 'exec')
+        for _ in range(parsed.repeat):
+            start = time.perf_counter()
+            exec(compiled, {'__builtins__': __builtins__})
+            times.append(time.perf_counter() - start)
+        results["Transpiler"] = sum(times) / len(times)
+
+        # 3. Bytecode VM
+        times = []
+        vm_compiler = VMCompiler()
+        bytecode = vm_compiler.compile(optimized_ast)
+        for _ in range(parsed.repeat):
+            vm = VM()
+            start = time.perf_counter()
+            vm.run(bytecode)
+            times.append(time.perf_counter() - start)
+        results["Bytecode VM"] = sum(times) / len(times)
+
+        # Tampilkan hasil
+        print(f"\nHasil (rata-rata dari {parsed.repeat} pengulangan):")
+        base = min(results.values())
+        for name, t in sorted(results.items(), key=lambda x: x[1]):
+            ratio = t / base if base > 0 else 0
+            print(f"  {name:<14} {t*1000:>10.3f} ms   ({ratio:.2f}x)")
+
+        interp_ms = results['Interpreter'] * 1000
+        transp_ms = results['Transpiler'] * 1000
+        speedup = results['Interpreter'] / results['Transpiler'] if results['Transpiler'] > 0 else 0
+        print(f"\nTranspiler {speedup:.1f}x lebih cepat dari interpreter "
+              f"({transp_ms:.2f} ms vs {interp_ms:.2f} ms).")
+        print(f"{'='*60}\n")
+        return 0
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
 def _cmd_help(args: List[str]) -> int:
     """Menampilkan bantuan."""
     print("""
@@ -1034,6 +1141,8 @@ Penggunaan:
     bro doc [topik]        : Dokumentasi
     bro new-game <nama>    : Buat proyek game baru
     bro run-game <file>    : Jalankan file game
+    bro benchmark <file>   : Benchmark interpreter vs transpiler vs VM
+    bro pkg <cmd>          : Package manager (init/install/publish/dll)
     bro version            : Informasi versi
 
 Game Development:
@@ -1063,6 +1172,13 @@ Fitur Baru v4.0:
     bro profile          : Profiler
     bro doc              : Documentation
 
+Fitur Baru v5.2:
+    sapa(nama="Budi")    : Keyword arguments
+    nilai |> fungsi       : Pipeline operator
+    buat [a, b] = list    : Destructuring assignment
+    bro pkg               : Package manager
+    bro benchmark         : Benchmark engine
+
 Contoh:
     bro run app.bro
     bro build app.bro -o output.py
@@ -1071,6 +1187,8 @@ Contoh:
     bro doc dasar
     bro new-game rpg_game
     bro run-game main.bro
+    bro benchmark app.bro
+    bro pkg init
 """)
     return 0
 

@@ -2,238 +2,394 @@
 Modul Sprite untuk BroLang Game Development
 ============================================
 
-Menyediakan kelas Sprite untuk game 2D.
+Menyediakan kelas Sprite untuk game 2D dengan dukungan gambar,
+sprite sheet, animasi frame, rotasi, skala, alpha, dan collider.
 
 Contoh:
     impor sprite
     impor grafis
 
     buat player = sprite.Sprite("player.png", 100, 100)
-    player.tambah_animasi("jalan", [0, 1, 2, 3], 0.1)
+    player.tambah_animasi("jalan", [0, 1, 2, 3], kecepatan=0.1)
     player.mainkan_animasi("jalan")
+
+    # Tanpa gambar (kotak berwarna saja)
+    buat musuh = sprite.Sprite(None, 50, 50, lebar=32, tinggi=32)
+    musuh.warna = "merah"
 """
 
+import math
+import os
 from types import SimpleNamespace
+
+try:
+    import pygame
+except ImportError:
+    pygame = None
+
+
+def _load_image(gambar):
+    """Muat gambar dari path / pygame Surface / objek bergambar."""
+    if gambar is None:
+        return None
+    if isinstance(gambar, str):
+        if pygame is None:
+            return None
+        try:
+            return pygame.image.load(gambar).convert_alpha()
+        except (pygame.error, FileNotFoundError, OSError):
+            return None
+    # Sudah berupa Surface atau objek dengan atribut get_width/get_height
+    return gambar
 
 
 class Sprite:
     """Sprite untuk game 2D."""
 
-    def __init__(self, gambar=None, x=0, y=0, lebar=32, tinggi=32):
-        self.x = x
-        self.y = y
+    def __init__(self, gambar=None, x=0, y=0, lebar=32, tinggi=32,
+                 ukuran_frame_x=32, ukuran_frame_y=32):
+        self.x = float(x)
+        self.y = float(y)
         self.lebar = lebar
         self.tinggi = tinggi
-        self.gambar = gambar
+        # Atribut gambar diberi nama 'surface' agar TIDAK menimpa method gambar()
+        self.surface = _load_image(gambar)
+        self.ukuran_frame_x = ukuran_frame_x
+        self.ukuran_frame_y = ukuran_frame_y
+
+        # Render properties
         self.terlihat = True
         self.aktif = True
         self.skala_x = 1.0
         self.skala_y = 1.0
-        self sudut = 0
+        self.sudut = 0.0          # derajat
         self.alpha = 255
-        self.warna = "putih"
+        self.flip_x = False
+        self.flip_y = False
+        self.warna = "putih"      # dipakai jika tidak ada gambar
+        self.z = 0                # urutan gambar (makin besar makin depan)
+        self.tint = None          # (r, g, b) untuk overlay warna
 
         # Animasi
         self._animasi = {}
         self._animasi_saat_ini = None
         self._frame_saat_ini = 0
-        self._waktu_frame = 0
+        self._waktu_frame = 0.0
         self._kecepatan_animasi = 1.0
         self._loop_animasi = True
+        self._satu_putaran_selesai = False
+        self.on_selesai = None    # callback saat animasi non-loop selesai
 
-        # Fisika
-        self.kecepatan_x = 0
-        self.kecepatan_y = 0
-        self.gravitasi = 0
-        self.gesekan = 0.98
-        this = self
+        # Gerak sederhana
+        self.kecepatan_x = 0.0
+        self.kecepatan_y = 0.0
+        self.gravitasi = 0.0
+        self.gesekan = 0.0        # 0 = tanpa gesekan, 0.98 = gesekan kuat
+        self.batasan = None       # SimpleNamespace(lebar, tinggi) untuk clamp
 
-        # Collision
-        self._collider = None
-        this.kotak_collider = SimpleNamespace(
-            x=x, y=y, lebar=lebar, tinggi=tinggi
-        )
+        # Collider: "rect" (default) atau "lingkaran"
+        self.mode_collider = "rect"
+        self.radius = max(lebar, tinggi) / 2.0
+        self.offset_x = 0.0
+        self.offset_y = 0.0
+
+    # ---------------- Frame / Animasi ----------------
+
+    def _region_frame(self, frame):
+        """Konversi frame ke region (x, y, w, h) pada sprite sheet."""
+        if isinstance(frame, (list, tuple)):
+            if len(frame) == 4:
+                return (int(frame[0]), int(frame[1]),
+                        int(frame[2]), int(frame[3]))
+            return (int(frame[0]), int(frame[1]),
+                    self.ukuran_frame_x, self.ukuran_frame_y)
+        # frame berupa angka -> indeks grid pada sprite sheet
+        kolom = max(1, int(self.surface.get_width() / self.ukuran_frame_x)
+                    if self.surface else 1)
+        idx = int(frame)
+        return (idx % kolom * self.ukuran_frame_x,
+                idx // kolom * self.ukuran_frame_y,
+                self.ukuran_frame_x, self.ukuran_frame_y)
+
+    def tambah_animasi(self, nama, frames, kecepatan=0.1, loop=True):
+        """Menambahkan animasi baru.
+
+        frames: list angka indeks grid, atau list region (x, y, w, h).
+        """
+        self._animasi[nama] = {
+            "frames": frames,
+            "kecepatan": max(0.001, float(kecepatan)),
+            "loop": loop,
+        }
+        return self
+
+    def mainkan_animasi(self, nama, loop=None):
+        """Memainkan animasi. Kembalikan False jika nama tidak ada."""
+        if nama not in self._animasi:
+            return False
+        self._animasi_saat_ini = nama
+        self._frame_saat_ini = 0
+        self._waktu_frame = 0.0
+        self._satu_putaran_selesai = False
+        if loop is not None:
+            self._animasi[nama]["loop"] = loop
+        self._loop_animasi = self._animasi[nama]["loop"]
+        return True
+
+    def berhenti_animasi(self):
+        """Menghentikan animasi dan kembali ke frame 0."""
+        self._animasi_saat_ini = None
+        self._frame_saat_ini = 0
+        self._satu_putaran_selesai = False
+
+    def frame_sekarang(self):
+        """Region frame yang sedang aktif, atau None."""
+        if not self._animasi_saat_ini:
+            return None
+        anim = self._animasi.get(self._animasi_saat_ini)
+        if not anim:
+            return None
+        frames = anim["frames"]
+        if not frames:
+            return None
+        idx = min(self._frame_saat_ini, len(frames) - 1)
+        return frames[idx]
+
+    def animasi_selesai(self):
+        """True jika animasi non-loop sudah selesai satu putaran."""
+        return self._satu_putaran_selesai
+
+    def set_fps_animasi(self, fps):
+        """Set kecepatan animasi dalam frame per detik."""
+        if fps > 0:
+            self._kecepatan_animasi = fps
+        return self
+
+    def daftar_animasi(self):
+        return list(self._animasi.keys())
+
+    # ---------------- Update ----------------
 
     def update(self, dt):
-        """Update sprite."""
+        """Update posisi, gravitasi, dan animasi."""
         if not self.aktif:
             return
 
-        # Update posisi berdasarkan kecepatan
-        self.x += self.kecepatan_x * dt
-        self.y += self.kecepatan_y * dt
-
-        # Terapkan gravitasi
         if self.gravitasi != 0:
             self.kecepatan_y += self.gravitasi * dt
 
-        # Terapkan gesekan
-        if self.gesekan != 0:
-            self.kecepatan_x *= self.gesekan
-            self.kecepatan_y *= self.gesekan
+        self.x += self.kecepatan_x * dt
+        self.y += self.kecepatan_y * dt
 
-        # Update animasi
+        if self.gesekan > 0:
+            self.kecepatan_x *= max(0.0, 1.0 - self.gesekan * dt)
+            self.kecepatan_y *= max(0.0, 1.0 - self.gesekan * dt)
+
+        # Batasi dalam area (mis. layar)
+        if self.batasan is not None:
+            self.x = max(0.0, min(float(self.batasan.lebar) - self.lebar, self.x))
+            self.y = max(0.0, min(float(self.batasan.tinggi) - self.tinggi, self.y))
+
+        # Animasi
         if self._animasi_saat_ini and self._animasi_saat_ini in self._animasi:
             anim = self._animasi[self._animasi_saat_ini]
             self._waktu_frame += dt * self._kecepatan_animasi
-            if self._waktu_frame >= anim['kecepatan']:
-                self._waktu_frame = 0
+            langkah = 0
+            while self._waktu_frame >= anim["kecepatan"] - 1e-9 and langkah < 60:
+                self._waktu_frame -= anim["kecepatan"]
                 self._frame_saat_ini += 1
-                if self._frame_saat_ini >= len(anim['frames']):
-                    if self._loop_animasi:
+                langkah += 1
+                if self._frame_saat_ini >= len(anim["frames"]):
+                    if anim["loop"]:
                         self._frame_saat_ini = 0
                     else:
-                        self._frame_saat_ini = len(anim['frames']) - 1
-                        self._animasi_saat_ini = None
+                        self._frame_saat_ini = len(anim["frames"]) - 1
+                        self._satu_putaran_selesai = True
+                        if self.on_selesai is not None:
+                            cb = self.on_selesai
+                            self.on_selesai = None
+                            cb(self)
+                        break
 
-        # Update collision box
-        self.kotak_collider.x = self.x
-        self.kotak_collider.y = self.y
+    # ---------------- Gambar ----------------
 
-    def gambar(self, screen):
-        """Menggambar sprite."""
-        if not self.terlihat or not self.gambar:
+    def _surface_frame(self):
+        """Surface untuk frame saat ini (atau gambar penuh)."""
+        if self.surface is None:
+            return None
+        frame = self.frame_sekarang()
+        if frame is None:
+            return self.surface
+        rx, ry, rw, rh = self._region_frame(frame)
+        try:
+            return self.surface.subsurface(pygame.Rect(rx, ry, rw, rh))
+        except (ValueError, pygame.error):
+            return self.surface
+
+    def gambar(self, screen, kamera=None, posisi_x=None, posisi_y=None):
+        """Menggambar sprite. kamera opsional (objek dengan world_to_screen)."""
+        if not self.terlihat or not self.aktif:
+            return
+        if pygame is None:
             return
 
-        # Simple rect drawing if no image
-        if hasattr(screen, 'fill'):
-            from pygame import Rect
-            rect = Rect(int(self.x), int(self.y), self.lebar, self.tinggi)
-            screen.fill(self.warna, rect)
+        gx = self.x if posisi_x is None else posisi_x
+        gy = self.y if posisi_y is None else posisi_y
+        if kamera is not None:
+            gx, gy = kamera.world_to_screen(gx, gy)
 
-    def tambah_animasi(self, nama, frames, kecepatan=0.1, loop=True):
-        """Menambahkan animasi baru."""
-        self._animasi[nama] = {
-            'frames': frames,
-            'kecepatan': kecepatan,
-            'loop': loop,
-        }
+        surf = self._surface_frame()
+        if surf is not None:
+            w = int(surf.get_width() * self.skala_x)
+            h = int(surf.get_height() * self.skala_y)
+            if w <= 0 or h <= 0:
+                return
+            if self.skala_x != 1.0 or self.skala_y != 1.0:
+                surf = pygame.transform.smoothscale(surf, (w, h))
+            if self.flip_x or self.flip_y:
+                surf = pygame.transform.flip(surf, self.flip_x, self.flip_y)
+            if self.alpha < 255:
+                surf.set_alpha(max(0, min(255, int(self.alpha))))
+            if self.tint is not None:
+                overlay = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+                overlay.fill((*self.tint, 90))
+                surf = surf.copy()
+                surf.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            if self.sudut != 0.0:
+                # Rotasi berputar di tengah sprite (bukan pojok kiri-atas)
+                surf = pygame.transform.rotate(surf, self.sudut)
+                rect = surf.get_rect(center=(int(gx) + int(w) // 2,
+                                              int(gy) + int(h) // 2))
+                screen.blit(surf, rect)
+            else:
+                screen.blit(surf, (int(gx), int(gy)))
+        else:
+            # Tidak ada gambar -> kotak berwarna
+            import brolang.stdlib.grafis as grafis
+            grafis.segi_panjang(gx, gy, self.lebar * self.skala_x,
+                                self.tinggi * self.skala_y, self.warna)
 
-    def mainkan_animasi(self, nama, loop=True):
-        """Memainkan animasi."""
-        if nama in self._animasi:
-            self._animasi_saat_ini = nama
-            self._frame_saat_ini = 0
-            self._waktu_frame = 0
-            self._loop_animasi = loop
+    # ---------------- Collider ----------------
 
-    def berhenti_animasi(self):
-        """Menghentikan animasi."""
-        self._animasi_saat_ini = None
-        self._frame_saat_ini = 0
+    def _rect_collider(self):
+        """Rectangle collider (dengan offset)."""
+        return (
+            self.x + self.offset_x,
+            self.y + self.offset_y,
+            self.lebar,
+            self.tinggi,
+        )
 
     def cek_tabrakan(self, sprite_lain):
-        """Mengecek tabrakan dengan sprite lain."""
+        """AABB collision dengan sprite lain."""
         if not self.aktif or not sprite_lain.aktif:
             return False
-
-        # AABB collision
-        return (
-            self.x < sprite_lain.x + sprite_lain.lebar and
-            self.x + self.lebar > sprite_lain.x and
-            self.y < sprite_lain.y + sprite_lain.tinggi and
-            self.y + self.tinggi > sprite_lain.y
-        )
+        if self.mode_collider == "lingkaran" or sprite_lain.mode_collider == "lingkaran":
+            return self.cek_tabrakan_lingkaran(sprite_lain)
+        ax, ay, aw, ah = self._rect_collider()
+        bx, by, bw, bh = sprite_lain._rect_collider()
+        return (ax < bx + bw and ax + aw > bx and
+                ay < by + bh and ay + ah > by)
 
     def cek_tabrakan_lingkaran(self, sprite_lain):
-        """Mengecek tabrakan lingkaran."""
+        """Collision lingkaran (pakai radius tiap sprite)."""
         if not self.aktif or not sprite_lain.aktif:
             return False
+        cx1 = self.x + self.lebar / 2 + self.offset_x
+        cy1 = self.y + self.tinggi / 2 + self.offset_y
+        cx2 = sprite_lain.x + sprite_lain.lebar / 2 + sprite_lain.offset_x
+        cy2 = sprite_lain.y + sprite_lain.tinggi / 2 + sprite_lain.offset_y
+        dx = cx1 - cx2
+        dy = cy1 - cy2
+        r = self.radius + sprite_lain.radius
+        return dx * dx + dy * dy < r * r
 
-        import math
-        dx = (self.x + self.lebar / 2) - (sprite_lain.x + sprite_lain.lebar / 2)
-        dy = (self.y + self.tinggi / 2) - (sprite_lain.y + sprite_lain.tinggi / 2)
-        jarak = math.sqrt(dx * dx + dy * dy)
-        radius1 = max(self.lebar, self.tinggi) / 2
-        radius2 = max(sprite_lain.lebar, sprite_lain.tinggi) / 2
-
-        return jarak < radius1 + radius2
+    def cek_titik(self, px, py):
+        """Cek apakah titik berada di dalam sprite."""
+        ax, ay, aw, ah = self._rect_collider()
+        return ax <= px <= ax + aw and ay <= py <= ay + ah
 
     def di_dalam_bounds(self, lebar_layar, tinggi_layar):
-        """Mengecek apakah sprite di dalam layar."""
-        return (
-            self.x >= 0 and
-            self.x + self.lebar <= lebar_layar and
-            self.y >= 0 and
-            self.y + self.tinggi <= tinggi_layar
-        )
+        return (0 <= self.x and self.x + self.lebar <= lebar_layar and
+                0 <= self.y and self.y + self.tinggi <= tinggi_layar)
 
     def arah_ke(self, x, y, kecepatan=100):
-        """Menggerakkan sprite ke arah titik."""
-        import math
+        """Set kecepatan menuju titik (x, y)."""
         dx = x - self.x
         dy = y - self.y
-        jarak = math.sqrt(dx * dx + dy * dy)
-        if jarak > 0:
-            self.kecepatan_x = (dx / jarak) * kecepatan
-            self.kecepatan_y = (dy / jarak) * kecepatan
+        j = math.hypot(dx, dy)
+        if j > 0:
+            self.kecepatan_x = (dx / j) * kecepatan
+            self.kecepatan_y = (dy / j) * kecepatan
 
     def jarak_ke(self, x, y):
-        """Menghitung jarak ke titik."""
-        import math
-        dx = x - self.x
-        dy = y - self.y
-        return math.sqrt(dx * dx + dy * dy)
+        return math.hypot(x - self.x, y - self.y)
+
+    def ke_awal(self, x, y):
+        """Kembalikan ke posisi awal (reset gerak)."""
+        self.x = float(x)
+        self.y = float(y)
+        self.kecepatan_x = 0.0
+        self.kecepatan_y = 0.0
+        return self
 
 
 class GrupSprite:
-    """Grup untuk mengelola beberapa sprite."""
+    """Grup untuk mengelola banyak sprite."""
 
     def __init__(self):
         self.sprites = []
-        self._visible = True
 
-    def tambah(self, sprite_obj):
-        """Menambahkan sprite ke grup."""
-        self.sprites.append(sprite_obj)
+    def tambah(self, *sprites):
+        for s in sprites:
+            if s not in self.sprites:
+                self.sprites.append(s)
+        return self
 
-    def hapus(self, sprite_obj):
-        """Menghapus sprite dari grup."""
+    def hapus_sprite(self, sprite_obj):
         if sprite_obj in self.sprites:
             self.sprites.remove(sprite_obj)
 
-    def update(self, dt):
-        """Update semua sprite dalam grup."""
-        for sprite_obj in self.sprites:
-            sprite_obj.update(dt)
+    def hapus(self, sprite_obj):
+        """Alias Python untuk hapus_sprite() (nama 'hapus' tabrakan keyword)."""
+        self.hapus_sprite(sprite_obj)
 
-    def gambar(self, screen):
-        """Menggambar semua sprite dalam grup."""
-        for sprite_obj in self.sprites:
-            sprite_obj.gambar(screen)
+    def hapus_tidak_aktif(self):
+        self.sprites = [s for s in self.sprites if s.aktif]
+
+    def update(self, dt):
+        for s in self.sprites:
+            s.update(dt)
+
+    def gambar(self, screen, kamera=None):
+        for s in sorted(self.sprites, key=lambda sp: sp.z):
+            s.gambar(screen, kamera=kamera)
 
     def cek_tabrakan(self, sprite_lain):
-        """Mengecek tabrakan dengan sprite lain."""
-        tabrakan = []
-        for sprite_obj in self.sprites:
-            if sprite_obj.cek_tabrakan(sprite_lain):
-                tabrakan.append(sprite_obj)
-        return tabrakan
+        return [s for s in self.sprites if s.cek_tabrakan(sprite_lain)]
 
     def cek_tabrakan_grup(self, grup_lain):
-        """Mengecek tabrakan antar grup."""
-        tabrakan = []
-        for sprite_obj in self.sprites:
-            for sprite_lain in grup_lain.sprites:
-                if sprite_obj.cek_tabrakan(sprite_lain):
-                    tabrakan.append((sprite_obj, sprite_lain))
-        return tabrakan
+        return [(a, b) for a in self.sprites
+                for b in grup_lain.sprites if a.cek_tabrakan(b)]
 
     def jumlah(self):
-        """Jumlah sprite dalam grup."""
         return len(self.sprites)
 
-    def kosong(self):
-        """Mengecek apakah grup kosong."""
+    def apakah_kosong(self):
         return len(self.sprites) == 0
 
+    def kosong(self):
+        """Alias Python untuk apakah_kosong() (nama 'kosong' tabrakan keyword)."""
+        return self.apakah_kosong()
+
     def kosongkan(self):
-        """Mengosongkan grup."""
         self.sprites.clear()
 
     def dapatkan_semua(self):
-        """Mendapatkan semua sprite."""
         return self.sprites[:]
+
+    def pertama(self):
+        return self.sprites[0] if self.sprites else None
 
 
 module = SimpleNamespace(

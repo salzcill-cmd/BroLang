@@ -74,9 +74,9 @@ class Vektor2D:
 
 
 class Bodi:
-    """Bodi fisika dengan massa dan kecepatan."""
+    """Bodi fisika dengan massa, kecepatan, dan ukuran."""
 
-    def __init__(self, x=0, y=0, massa=1.0):
+    def __init__(self, x=0, y=0, massa=1.0, radius=16):
         self.posisi = Vektor2D(x, y)
         self.kecepatan = Vektor2D(0, 0)
         self.percepatan = Vektor2D(0, 0)
@@ -84,10 +84,26 @@ class Bodi:
         self.massa = massa
         this = self
 
+        this.radius = radius
+        this.lebar = radius * 2
+        this.tinggi = radius * 2
         this.gesekan = 0.99
         this.elastisitas = 0.8
         this.bounce = 0.8
         this.grounded = False
+        this.gravitasi_diterapkan = False
+
+    def set_radius(self, radius):
+        """Set radius bodi (untuk collision lingkaran)."""
+        self.radius = radius
+        self.lebar = radius * 2
+        self.tinggi = radius * 2
+
+    def set_ukuran(self, lebar, tinggi):
+        """Set ukuran bodi (untuk collision kotak / bounds)."""
+        self.lebar = lebar
+        self.tinggi = tinggi
+        self.radius = min(lebar, tinggi) / 2
 
     def tambah_gaya(self, x, y):
         """Menambahkan gaya ke bodi."""
@@ -99,18 +115,20 @@ class Bodi:
 
     def update(self, dt):
         """Update fisika bodi."""
+        self.grounded = False
         if self.massa > 0:
             # F = ma => a = F/m
             self.percepatan = self.gaya.bagi(self.massa)
             # v = v + a*dt
             self.kecepatan = self.kecepatan.tambah(self.percepatan.kali(dt))
-            # Apply friction
-            self.kecepatan = self.kecepatan.kali(self.gesekan)
+            # Apply friction (hanya sumbu x agar tidak mengganggu lompatan)
+            self.kecepatan.x *= self.gesekan
             # p = p + v*dt
             self.posisi = self.posisi.tambah(self.kecepatan.kali(dt))
 
         # Reset gaya
         self.gaya = Vektor2D(0, 0)
+        self.gravitasi_diterapkan = False
 
     def set_posisi(self, x, y):
         """Set posisi bodi."""
@@ -131,12 +149,17 @@ class Bodi:
 class FisikaWorld:
     """Dunia fisika untuk simulasi."""
 
-    def __init__(self):
+    def __init__(self, gravitasi_y=490.0):
         self.bodies = []
         this = self
 
-        this.gravitasi = Vektor2D(0, 9.8 * 50)  # Scale for pixels
+        # Gravitasi dalam pixel/detik^2 (default ~9.8 m/s2 di-skala 50x)
+        this.gravitasi = Vektor2D(0, gravitasi_y)
         this.aktif = True
+
+    def set_gravitasi(self, x, y):
+        """Set gravitasi dunia (pixel/detik^2)."""
+        self.gravitasi = Vektor2D(x, y)
 
     def tambah_bodi(self, bodi):
         """Menambahkan bodi ke dunia."""
@@ -147,33 +170,37 @@ class FisikaWorld:
         if bodi in self.bodies:
             self.bodies.remove(bodi)
 
+    def bersihkan(self):
+        """Hapus semua bodi dari dunia."""
+        self.bodies.clear()
+
     def update(self, dt):
         """Update seluruh dunia fisika."""
         if not self.aktif:
             return
 
         for bodi in self.bodies:
-            # Apply gravity
-            bodi.tambah_gaya_vec(self.gravitasi.kali(bodi.massa))
+            # Apply gravity (sekali per frame)
+            if not bodi.gravitasi_diterapkan:
+                bodi.tambah_gaya_vec(self.gravitasi.kali(bodi.massa))
+                bodi.gravitasi_diterapkan = True
             bodi.update(dt)
 
     def check_collision(self, bodi1, bodi2):
-        """Mengecek tabrakan antar bodi."""
+        """Mengecek tabrakan antar bodi (pakai radius tiap bodi)."""
         jarak = bodi1.posisi.distance_to(bodi2.posisi)
-        # Simple circle collision
-        radius1 = 16  # Default radius
-        radius2 = 16
-        return jarak < radius1 + radius2
+        radius_total = bodi1.radius + bodi2.radius
+        return jarak < radius_total
 
     def resolve_collision(self, bodi1, bodi2):
-        """Menyelesaikan tabrakan."""
+        """Menyelesaikan tabrakan (impulse + koreksi posisi)."""
         if not self.check_collision(bodi1, bodi2):
             return
 
-        # Simple elastic collision
         dx = bodi2.posisi.x - bodi1.posisi.x
         dy = bodi2.posisi.y - bodi1.posisi.y
         jarak = math.sqrt(dx * dx + dy * dy)
+        radius_total = bodi1.radius + bodi2.radius
 
         if jarak == 0:
             return
@@ -197,6 +224,9 @@ class FisikaWorld:
         e = min(bodi1.elastisitas, bodi2.elastisitas)
 
         # Impulse scalar
+        total_massa = bodi1.massa + bodi2.massa
+        if total_massa == 0:
+            return
         j = -(1 + e) * dvn
         j /= 1 / bodi1.massa + 1 / bodi2.massa
 
@@ -206,46 +236,65 @@ class FisikaWorld:
         bodi2.kecepatan.x -= j * nx / bodi2.massa
         bodi2.kecepatan.y -= j * ny / bodi2.massa
 
+        # Koreksi posisi agar tidak saling menembus
+        overlap = radius_total - jarak
+        if overlap > 0:
+            kor = overlap / total_massa * 0.8
+            bodi1.posisi.x -= nx * kor * bodi2.massa
+            bodi1.posisi.y -= ny * kor * bodi2.massa
+            bodi2.posisi.x += nx * kor * bodi1.massa
+            bodi2.posisi.y += ny * kor * bodi1.massa
+
     def check_bounds(self, bodi, lebar, tinggi, bounce=True):
-        """Mengecek tabrakan dengan batas layar."""
-        radius = 16
+        """Mengecek tabrakan dengan batas layar (pakai radius bodi)."""
+        r = bodi.radius
 
-        if bodi.posisi.x - radius < 0:
-            bodi.posisi.x = radius
+        if bodi.posisi.x - r < 0:
+            bodi.posisi.x = r
             if bounce:
                 bodi.kecepatan.x *= -bodi.bounce
             else:
                 bodi.kecepatan.x = 0
-        elif bodi.posisi.x + radius > lebar:
-            bodi.posisi.x = lebar - radius
+        elif bodi.posisi.x + r > lebar:
+            bodi.posisi.x = lebar - r
             if bounce:
                 bodi.kecepatan.x *= -bodi.bounce
             else:
                 bodi.kecepatan.x = 0
 
-        if bodi.posisi.y - radius < 0:
-            bodi.posisi.y = radius
+        if bodi.posisi.y - r < 0:
+            bodi.posisi.y = r
             if bounce:
                 bodi.kecepatan.y *= -bodi.bounce
             else:
                 bodi.kecepatan.y = 0
-        elif bodi.posisi.y + radius > tinggi:
-            bodi.posisi.y = tinggi - radius
+        elif bodi.posisi.y + r > tinggi:
+            bodi.posisi.y = tinggi - r
             bodi.grounded = True
             if bounce:
                 bodi.kecepatan.y *= -bodi.bounce
             else:
                 bodi.kecepatan.y = 0
 
+    def bodi_di_posisi(self, x, y, radius=None):
+        """Mencari bodi yang mengandung titik (x, y)."""
+        for bodi in self.bodies:
+            r = radius if radius is not None else bodi.radius
+            dx = bodi.posisi.x - x
+            dy = bodi.posisi.y - y
+            if dx * dx + dy * dy <= r * r:
+                return bodi
+        return None
 
-def buat_bodi(x=0, y=0, massa=1.0):
+
+def buat_bodi(x=0, y=0, massa=1.0, radius=16):
     """Membuat bodi baru."""
-    return Bodi(x, y, massa)
+    return Bodi(x, y, massa, radius)
 
 
-def buat_dunia():
+def buat_dunia(gravitasi_y=490.0):
     """Membuat dunia fisika baru."""
-    return FisikaWorld()
+    return FisikaWorld(gravitasi_y)
 
 
 def buat_vektor(x=0, y=0):

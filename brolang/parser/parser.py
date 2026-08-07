@@ -79,6 +79,8 @@ from brolang.ast.nodes import (
     NamespaceNode, UseNode, AccessModifierNode,
     NullCoalescingNode, OptionalChainingNode,
     ForEachNode, ChainedComparisonNode,
+    # V5.2 Nodes
+    PipelineNode, DestructuringAssignmentNode,
 )
 from brolang.exceptions import ParserError
 
@@ -311,6 +313,13 @@ class Parser:
     def _parse_assignment(self) -> AssignmentNode:
         """buat identifier (. identifier)? = expression"""
         token = self._advance()  # buat
+
+        # Destructuring assignment: buat [a, b] = list atau buat {x, y} = objek
+        if self._check(TokenType.TOKEN_LBRACKET):
+            return self._parse_destructuring_assignment(token, is_array=True)
+        if self._check(TokenType.TOKEN_LBRACE):
+            return self._parse_destructuring_assignment(token, is_array=False)
+
         id_token = self._expect(
             TokenType.TOKEN_IDENTIFIER,
             message="Setelah 'buat', harus diikuti nama variabel.",
@@ -342,6 +351,44 @@ class Parser:
             target=target,
             value=value,
             is_declaration=True,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_destructuring_assignment(self, token: Token, is_array: bool) -> DestructuringAssignmentNode:
+        """Destructuring assignment: buat [a, b] = list atau buat {x, y} = objek"""
+        open_tok = self._advance()  # [ atau {
+        targets = []
+
+        if not self._check(TokenType.TOKEN_RBRACKET if is_array else TokenType.TOKEN_RBRACE):
+            id_token = self._expect(
+                TokenType.TOKEN_IDENTIFIER,
+                message=f"Setelah '{'[' if is_array else '{'}', harus ada nama variabel.",
+            )
+            targets.append(id_token.value)
+            while self._match(TokenType.TOKEN_COMMA):
+                if self._check(TokenType.TOKEN_RBRACKET if is_array else TokenType.TOKEN_RBRACE):
+                    break
+                id_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                targets.append(id_token.value)
+
+        if is_array:
+            self._expect(TokenType.TOKEN_RBRACKET, message="Destructuring list harus ditutup dengan ']'.")
+        else:
+            self._expect(TokenType.TOKEN_RBRACE, message="Destructuring objek harus ditutup dengan '}'.")
+
+        self._expect(
+            TokenType.TOKEN_ASSIGN,
+            message="Destructuring harus diikuti '=' dan nilai.",
+            solution="Gunakan: buat [a, b] = [1, 2]",
+            example="buat [x, y] = [10, 20]",
+        )
+        value = self._parse_expression()
+
+        return DestructuringAssignmentNode(
+            targets=targets,
+            is_array=is_array,
+            value=value,
             line=token.line,
             column=token.column,
         )
@@ -758,8 +805,8 @@ class Parser:
         module = ".".join(parts)
 
         alias = None
-        if self._check(TokenType.TOKEN_IDENTIFIER) and self.current_token.value == "sebagai":
-            self._advance()
+        # 'sebagai' adalah keyword (TOKEN_SEBAGAI), bukan identifier
+        if self._match(TokenType.TOKEN_SEBAGAI):
             alias_token = self._expect(
                 TokenType.TOKEN_IDENTIFIER,
                 message="Setelah 'sebagai', harus ada alias.",
@@ -1043,7 +1090,17 @@ class Parser:
 
     def _parse_expression(self) -> ASTNode:
         """Expression dengan precedence climbing."""
-        return self._parse_null_coalescing_expr()
+        return self._parse_pipeline_expr()
+
+    def _parse_pipeline_expr(self) -> ASTNode:
+        """Pipeline operator: nilai |> fungsi atau nilai |> lalu(x) x * 2"""
+        left = self._parse_null_coalescing_expr()
+        while self._check(TokenType.TOKEN_PIPE_GREATER):
+            self._advance()  # |>
+            right = self._parse_null_coalescing_expr()
+            left = PipelineNode(left=left, right=right,
+                                line=left.line, column=left.column)
+        return left
 
     def _parse_null_coalescing_expr(self) -> ASTNode:
         """Null coalescing: expr ?? default"""
@@ -1264,7 +1321,18 @@ class Parser:
                 solution="Periksa sintaks di sekitar sini.",
             )
         elif self._check(TokenType.TOKEN_INPUT):
-            node = self._parse_input()
+            if self._peek(1) == TokenType.TOKEN_DOT:
+                # 'input' dipakai sebagai nama modul (mis. 'impor input'),
+                # bukan builtin input(). Akses atribut ditangani _parse_postfix.
+                token = self._advance()
+                node = IdentifierNode(name="input", line=token.line, column=token.column)
+            else:
+                node = self._parse_input()
+        elif self._check(TokenType.TOKEN_TIPE):
+            # 'tipe' sebagai fungsi: tipe(nilai). (Sebagai statement,
+            # 'tipe Nama = ...' tetap jadi type alias di _parse_statement.)
+            token = self._advance()
+            node = IdentifierNode(name="tipe", line=token.line, column=token.column)
         # v5.0: HOF and Result/Option in expression context
         elif self._check(TokenType.TOKEN_PETA):
             node = self._parse_map_call()
@@ -1299,11 +1367,11 @@ class Parser:
         # Function call
         if self._check(TokenType.TOKEN_LPAREN):
             self._advance()  # (
-            args = self._parse_argument_list()
+            args, kwargs = self._parse_argument_list()
             self._expect(TokenType.TOKEN_RPAREN,
                          message="Argumen fungsi tidak ditutup.",
                          solution="Tambahkan ')' setelah argumen.")
-            node = CallNode(function=node, args=args, line=token.line, column=token.column)
+            node = CallNode(function=node, args=args, kwargs=kwargs, line=token.line, column=token.column)
 
         return node
 
@@ -1315,9 +1383,9 @@ class Parser:
                 if isinstance(node, CallNode):
                     break
                 self._advance()  # (
-                args = self._parse_argument_list()
+                args, kwargs = self._parse_argument_list()
                 self._expect(TokenType.TOKEN_RPAREN)
-                node = CallNode(function=node, args=args, line=node.line, column=node.column)
+                node = CallNode(function=node, args=args, kwargs=kwargs, line=node.line, column=node.column)
             elif self._check(TokenType.TOKEN_LBRACKET):
                 # Indexing or slicing
                 self._advance()  # [
@@ -1373,7 +1441,7 @@ class Parser:
                 if self._check(TokenType.TOKEN_LPAREN):
                     # Method call: obj.method()
                     self._advance()  # (
-                    args = self._parse_argument_list()
+                    args, kwargs = self._parse_argument_list()
                     self._expect(TokenType.TOKEN_RPAREN)
                     # Build: ObjectAccessNode(obj, method) as the call target
                     access_node = ObjectAccessNode(
@@ -1385,6 +1453,7 @@ class Parser:
                     node = CallNode(
                         function=access_node,
                         args=args,
+                        kwargs=kwargs,
                         is_method=True,
                         object_name=attr_name,
                         line=id_token.line,
@@ -1410,13 +1479,27 @@ class Parser:
         return node
 
     def _parse_argument_list(self) -> List[ASTNode]:
-        """Mem-parse daftar argumen fungsi."""
+        """Mem-parse daftar argumen fungsi (termasuk keyword arguments)."""
         args = []
+        kwargs = []
         if not self._check(TokenType.TOKEN_RPAREN):
-            args.append(self._parse_expression())
+            first = self._parse_expression()
+            # Keyword argument: nama = nilai
+            if self._check(TokenType.TOKEN_ASSIGN) and isinstance(first, IdentifierNode):
+                self._advance()  # =
+                value = self._parse_expression()
+                kwargs.append((first.name, value))
+            else:
+                args.append(first)
             while self._match(TokenType.TOKEN_COMMA):
-                args.append(self._parse_expression())
-        return args
+                expr = self._parse_expression()
+                if self._check(TokenType.TOKEN_ASSIGN) and isinstance(expr, IdentifierNode):
+                    self._advance()  # =
+                    value = self._parse_expression()
+                    kwargs.append((expr.name, value))
+                else:
+                    args.append(expr)
+        return args, kwargs
 
     def _parse_list_literal(self) -> ASTNode:
         """[expression (, expression)*] atau [expr lalu var dalam iterable]"""
@@ -1436,7 +1519,11 @@ class Parser:
                     TokenType.TOKEN_DALAM,
                     message="Setelah variabel, harus ada 'dalam'.",
                 )
-                iterable = self._parse_expression()
+                # Iterable di-parse tanpa ternary di top-level, agar 'jika'
+                # berikutnya = filter, bukan ternary (bug: "Ternary membutuhkan
+                # 'lainnya'"). Ternary tetap bisa dipakai dalam kurung:
+                # [x lalu x dalam (a jika b lainnya c)]
+                iterable = self._parse_comprehension_iterable()
 
                 # Optional filter: [expr lalu var dalam iterable jika kondisi]
                 condition = None
@@ -1461,6 +1548,26 @@ class Parser:
                      solution="Tambahkan ']' setelah elemen list.",
                      example="[1, 2, 3]")
         return ListNode(elements=elements, line=token.line, column=token.column)
+
+    def _parse_comprehension_iterable(self) -> ASTNode:
+        """Parse iterable list comprehension tanpa ternary di level teratas.
+
+        Sama seperti _parse_expression tapi melewatkan level _parse_ternary,
+        sehingga 'jika' setelah iterable jadi filter comprehension. Ternary di
+        dalam kurung/argumen tetap didukung.
+        """
+        left = self._parse_or()
+        while self._check(TokenType.TOKEN_QUESTION):
+            self._advance()  # ??
+            right = self._parse_or()
+            left = NullCoalescingNode(left=left, right=right,
+                                      line=left.line, column=left.column)
+        while self._check(TokenType.TOKEN_PIPE_GREATER):
+            self._advance()  # |>
+            right = self._parse_comprehension_iterable()
+            left = PipelineNode(left=left, right=right,
+                                line=left.line, column=left.column)
+        return left
 
     def _parse_object_literal(self):
         """{string: expression} for dict, or {expr, expr} for set"""
@@ -2067,39 +2174,54 @@ class Parser:
     # ============= V5.0: Higher-Order Functions =============
 
     def _parse_map_call(self) -> MapNode:
-        """peta(iterable, fungsi)"""
+        """peta(iterable, fungsi) atau peta(fungsi) [untuk pipeline]"""
         token = self._advance()  # peta
         self._expect(TokenType.TOKEN_LPAREN)
-        iterable = self._parse_expression()
-        self._expect(TokenType.TOKEN_COMMA)
-        function = self._parse_expression()
+        first = self._parse_expression()
+        if self._match(TokenType.TOKEN_COMMA):
+            function = self._parse_expression()
+            self._expect(TokenType.TOKEN_RPAREN)
+            return MapNode(iterable=first, function=function,
+                           line=token.line, column=token.column)
         self._expect(TokenType.TOKEN_RPAREN)
-        return MapNode(iterable=iterable, function=function,
+        # Bentuk pipeline: iterable diisi oleh nilai kiri |>
+        return MapNode(iterable=None, function=first,
                        line=token.line, column=token.column)
 
     def _parse_filter_call(self) -> FilterNode:
-        """saring(iterable, kondisi)"""
+        """saring(iterable, kondisi) atau saring(kondisi) [untuk pipeline]"""
         token = self._advance()  # saring
         self._expect(TokenType.TOKEN_LPAREN)
-        iterable = self._parse_expression()
-        self._expect(TokenType.TOKEN_COMMA)
-        condition = self._parse_expression()
+        first = self._parse_expression()
+        if self._match(TokenType.TOKEN_COMMA):
+            condition = self._parse_expression()
+            self._expect(TokenType.TOKEN_RPAREN)
+            return FilterNode(iterable=first, condition=condition,
+                              line=token.line, column=token.column)
         self._expect(TokenType.TOKEN_RPAREN)
-        return FilterNode(iterable=iterable, condition=condition,
+        return FilterNode(iterable=None, condition=first,
                           line=token.line, column=token.column)
 
     def _parse_reduce_call(self) -> ReduceNode:
-        """kurangi(iterable, fungsi, awal?)"""
+        """kurangi(iterable, fungsi, awal?) atau kurangi(fungsi, awal?) [untuk pipeline]"""
         token = self._advance()  # kurangi
         self._expect(TokenType.TOKEN_LPAREN)
-        iterable = self._parse_expression()
-        self._expect(TokenType.TOKEN_COMMA)
-        function = self._parse_expression()
+        first = self._parse_expression()
+        second = None
         initial = None
         if self._match(TokenType.TOKEN_COMMA):
-            initial = self._parse_expression()
+            second = self._parse_expression()
+            if self._match(TokenType.TOKEN_COMMA):
+                initial = self._parse_expression()
         self._expect(TokenType.TOKEN_RPAREN)
-        return ReduceNode(iterable=iterable, function=function, initial=initial,
+
+        # Bentuk pipeline: argumen pertama adalah fungsi (lambda) atau hanya ada satu argumen
+        is_pipeline = isinstance(first, LambdaNode) or second is None
+        if is_pipeline:
+            return ReduceNode(iterable=None, function=first, initial=second,
+                              line=token.line, column=token.column)
+        # Bentuk normal: kurangi(iterable, fungsi, awal?)
+        return ReduceNode(iterable=first, function=second, initial=initial,
                           line=token.line, column=token.column)
 
     # ============= V5.0: Result/Option Types =============

@@ -16,6 +16,7 @@ Fitur:
 
 from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass, field
+import os
 from brolang.ast.nodes import (
     ASTNode, ASTVisitor,
     ProgramNode, NumberNode, DecimalNode, StringNode,
@@ -50,6 +51,8 @@ from brolang.ast.nodes import (
     NamespaceNode, UseNode, AccessModifierNode,
     NullCoalescingNode, OptionalChainingNode,
     ForEachNode, ChainedComparisonNode,
+    # V5.2 Nodes
+    PipelineNode, DestructuringAssignmentNode,
 )
 from brolang.exceptions import (
     RuntimeError_, TypeError_, NameError_,
@@ -404,6 +407,36 @@ class Interpreter(ASTVisitor):
         if self.current_env.parent is not None:
             self.current_env = self.current_env.parent
 
+    def _bind_params(self, params, defaults, args, kwargs, node=None):
+        """Gabungkan argumen posisi + keyword arguments sesuai urutan params.
+
+        Returns:
+            List[(nama_param, nilai)]
+        """
+        values = list(args)
+        for name, val in kwargs.items():
+            if name not in params:
+                raise RuntimeError_(
+                    message=f"Keyword argument '{name}' tidak dikenal.",
+                    line=getattr(node, 'line', 0) if node else 0,
+                    column=getattr(node, 'column', 0) if node else 0,
+                    solution=f"Parameter yang tersedia: {', '.join(params)}.",
+                )
+            idx = params.index(name)
+            while len(values) <= idx:
+                values.append(None)
+            values[idx] = val
+
+        bound = []
+        for i, param in enumerate(params):
+            if i < len(values):
+                bound.append((param, values[i]))
+            elif i < len(defaults) and defaults[i] is not None:
+                bound.append((param, self.visit(defaults[i])))
+            else:
+                bound.append((param, None))
+        return bound
+
     # ============= Visitor Methods =============
 
     def visit_ProgramNode(self, node: ProgramNode) -> Any:
@@ -533,6 +566,20 @@ class Interpreter(ASTVisitor):
             if isinstance(obj, BroLangInstance):
                 obj.set(node.target.property, value)
                 return value
+            # Python/stdlib object (Sprite, Vec2, ui, partikel, dll):
+            # set atribut langsung — konsisten dengan transpiler.
+            # Module (SimpleNamespace) tetap error agar typo tidak tertutup.
+            import types as _types
+            if isinstance(obj, _types.SimpleNamespace):
+                raise RuntimeError_(
+                    message=f"Objek tidak memiliki atribut '{node.target.property}'.",
+                    line=node.line, column=node.column,
+                )
+            try:
+                setattr(obj, node.target.property, value)
+                return value
+            except (AttributeError, TypeError):
+                pass
             raise RuntimeError_(
                 message=f"Objek tidak memiliki atribut '{node.target.property}'.",
                 line=node.line, column=node.column,
@@ -821,23 +868,13 @@ class Interpreter(ASTVisitor):
         """Deklarasi fungsi dengan closure support."""
         closure_env = self.current_env
 
-        def bro_function(*args):
+        def bro_function(*args, **kwargs):
             old_env = self.current_env
             self._push_env()
             self.current_env.parent = closure_env
 
-            for i, param in enumerate(node.params):
-                if i < len(args):
-                    self.current_env.define_variable(param, args[i])
-                elif i < len(node.defaults):
-                    dv = node.defaults[i]
-                    if dv is not None:
-                        default_val = self.visit(dv)
-                        self.current_env.define_variable(param, default_val)
-                    else:
-                        self.current_env.define_variable(param, None)
-                else:
-                    self.current_env.define_variable(param, None)
+            for param, val in self._bind_params(node.params, node.defaults, args, kwargs, node):
+                self.current_env.define_variable(param, val)
 
             try:
                 result = None
@@ -854,11 +891,12 @@ class Interpreter(ASTVisitor):
                 self.current_env = old_env
                 return e.value
 
-        def generator_func(*args):
+        def generator_func(*args, **kwargs):
+            bound = self._bind_params(node.params, node.defaults, args, kwargs, node)
             return BroLangGenerator(
                 body=node.body,
-                params=node.params,
-                args=args,
+                params=[p for p, _ in bound],
+                args=[v for _, v in bound],
                 defaults=node.defaults,
                 closure_env=closure_env,
                 interpreter=self,
@@ -879,6 +917,7 @@ class Interpreter(ASTVisitor):
     def visit_CallNode(self, node: CallNode) -> Any:
         """Function/method call."""
         args = [self.visit(arg) for arg in node.args]
+        kwargs = {name: self.visit(val) for name, val in node.kwargs}
 
         # Method call
         if node.is_method and node.object_name:
@@ -904,7 +943,9 @@ class Interpreter(ASTVisitor):
                                 line=node.line, column=node.column,
                                 solution=f"Akses '{method_name}' hanya bisa dari kelas {obj.klass.name} atau keturunannya.",
                             )
-                        return method(obj, *args) if not getattr(method, '_brolang_static', False) else method(*args)
+                        if not getattr(method, '_brolang_static', False):
+                            return method(obj, *args, **kwargs)
+                        return method(*args, **kwargs)
                     # Built-in get/set for property access (only if no class method)
                     if method_name == "get":
                         return obj.get(args[0], caller_class=self._current_class_name) if args else obj
@@ -915,22 +956,22 @@ class Interpreter(ASTVisitor):
                 if hasattr(obj, method_name):
                     bound_method = getattr(obj, method_name)
                     if callable(bound_method):
-                        return bound_method(*args)
+                        return bound_method(*args, **kwargs)
                 # List methods
                 if isinstance(obj, list):
                     methods = self._get_list_methods(obj)
                     if method_name in methods:
-                        return methods[method_name](*args)
+                        return methods[method_name](*args, **kwargs)
                 # Dict methods
                 if isinstance(obj, dict):
                     methods = self._get_dict_methods(obj)
                     if method_name in methods:
-                        return methods[method_name](*args)
+                        return methods[method_name](*args, **kwargs)
                 # String methods
                 if isinstance(obj, str):
                     methods = self._get_string_methods(obj)
                     if method_name in methods:
-                        return methods[method_name](*args)
+                        return methods[method_name](*args, **kwargs)
                 raise RuntimeError_(
                     message=f"Objek tidak memiliki method '{method_name}'.",
                 )
@@ -944,11 +985,11 @@ class Interpreter(ASTVisitor):
             while env is not None:
                 if func_name in env.functions:
                     func = env.functions[func_name]
-                    return func(*args)
+                    return func(*args, **kwargs)
                 if env.has_variable(func_name):
                     func = env.get_variable(func_name)
                     if callable(func):
-                        return func(*args)
+                        return func(*args, **kwargs)
                 env = env.parent
 
             raise NameError_(
@@ -960,7 +1001,7 @@ class Interpreter(ASTVisitor):
         # Call on expression result
         func = self.visit(node.function)
         if callable(func):
-            return func(*args)
+            return func(*args, **kwargs)
 
         raise RuntimeError_(
             message=f"'{func}' bukan fungsi yang bisa dipanggil.",
@@ -1020,7 +1061,7 @@ class Interpreter(ASTVisitor):
                         )
 
         # Constructor: create instance
-        def class_constructor(*args):
+        def class_constructor(*args, **kwargs):
             if klass.is_abstract:
                 raise RuntimeError_(
                     message=f"Tidak bisa membuat instance dari kelas abstrak '{node.name}'.",
@@ -1032,7 +1073,7 @@ class Interpreter(ASTVisitor):
             self._current_class_name = node.name
             init_method = klass.get_method("__init__")
             if init_method:
-                init_method(instance, *args)
+                init_method(instance, *args, **kwargs)
             self._current_class_name = old_class_name
             return instance
 
@@ -1058,17 +1099,14 @@ class Interpreter(ASTVisitor):
         is_static = getattr(node, 'is_static', False)
 
         if is_static:
-            def static_method(*args):
+            def static_method(*args, **kwargs):
                 old_env = self.current_env
                 old_class_name = self._current_class_name
                 self._current_class_name = owner_class_name
                 self._push_env()
 
-                for i, param in enumerate(node.params):
-                    if i < len(args):
-                        self.current_env.define_variable(param, args[i])
-                    else:
-                        self.current_env.define_variable(param, None)
+                for param, val in self._bind_params(node.params, node.defaults, args, kwargs, node):
+                    self.current_env.define_variable(param, val)
 
                 try:
                     result = None
@@ -1090,22 +1128,23 @@ class Interpreter(ASTVisitor):
             static_method._brolang_static = True
             return static_method
 
-        def method(self_instance, *args):
+        def method(self_instance, *args, **kwargs):
             old_env = self.current_env
             old_class_name = self._current_class_name
             self._current_class_name = owner_class_name
             self._push_env()
             self.current_env.define_variable("self", self_instance)
 
-            for i, param in enumerate(node.params):
-                # Skip 'self' if present in params
-                if param == "self":
-                    continue
-                adjusted_idx = i - 1 if node.params[0] == "self" else i
-                if adjusted_idx >= 0 and adjusted_idx < len(args):
-                    self.current_env.define_variable(param, args[adjusted_idx])
-                else:
-                    self.current_env.define_variable(param, None)
+            # Params tanpa 'self'
+            real_params = [p for p in node.params if p != "self"]
+            real_defaults = []
+            for p in node.params:
+                if p != "self":
+                    idx = node.params.index(p)
+                    real_defaults.append(node.defaults[idx] if idx < len(node.defaults) else None)
+
+            for param, val in self._bind_params(real_params, real_defaults, args, kwargs, node):
+                self.current_env.define_variable(param, val)
 
             try:
                 result = None
@@ -1214,6 +1253,18 @@ class Interpreter(ASTVisitor):
             alias = node.alias or module_name.split(".")[0]
             self.current_env.variables[alias] = module
         except ImportError:
+            # Coba package BroLang yang terinstall (bro pkg install)
+            try:
+                from brolang.package_manager.manager import PackageManager
+                pkg_manager = PackageManager()
+                pkg_dir = pkg_manager.find_package(module_name)
+                if pkg_dir:
+                    module_obj = self._load_brolang_package(pkg_dir, module_name)
+                    alias = node.alias or module_name
+                    self.current_env.variables[alias] = module_obj
+                    return
+            except Exception:
+                pass
             # Try Python import
             try:
                 import importlib
@@ -1224,8 +1275,62 @@ class Interpreter(ASTVisitor):
                 raise RuntimeError_(
                     message=f"Module '{module_name}' tidak ditemukan.",
                     line=node.line, column=node.column,
-                    solution=f"Pastikan modul '{module_name}' sudah terinstal.",
+                    solution=f"Pastikan modul '{module_name}' sudah terinstal (bro pkg install {module_name}).",
                 )
+
+    def _load_brolang_package(self, pkg_dir: str, module_name: str) -> Any:
+        """Memuat package BroLang (.bro) dari folder terinstall sebagai module.
+
+        Mengeksekusi file main package (brolang.json / __init__.bro) dalam
+        interpreter terpisah dan mengumpulkan fungsi/kelas yang didefinisikan.
+        """
+        import types
+        import json
+        from brolang.lexer import Lexer
+        from brolang.parser import Parser
+
+        # Tentukan file main
+        main_file = "__init__.bro"
+        manifest_path = os.path.join(pkg_dir, "brolang.json")
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                main_file = manifest.get("main", main_file)
+            except json.JSONDecodeError:
+                pass
+
+        main_path = os.path.join(pkg_dir, main_file)
+        if not os.path.exists(main_path):
+            # Cari file .bro pertama sebagai fallback
+            for f in sorted(os.listdir(pkg_dir)):
+                if f.endswith(".bro"):
+                    main_path = os.path.join(pkg_dir, f)
+                    break
+            else:
+                raise RuntimeError_(
+                    message=f"Package '{module_name}' tidak memiliki file .bro.",
+                )
+
+        with open(main_path, "r", encoding="utf-8") as f:
+            source = f.read()
+
+        sub_interp = Interpreter()
+        ast = Parser(Lexer(source, file_path=main_path).tokenize(), file_path=main_path).parse()
+        sub_interp.interpret(ast)
+
+        # Kumpulkan API publik: fungsi + kelas + variabel
+        module_obj = types.SimpleNamespace()
+        env = sub_interp.global_env
+        for name in list(env.functions.keys()):
+            setattr(module_obj, name, env.functions[name])
+        for name in list(env.classes.keys()):
+            setattr(module_obj, name, env.variables[name])
+        for name, val in env.variables.items():
+            if not name.startswith("_"):
+                setattr(module_obj, name, val)
+        module_obj.__name__ = module_name
+        return module_obj
 
     def visit_FromImportNode(self, node: FromImportNode) -> None:
         """From-import statement."""
@@ -1398,16 +1503,13 @@ class Interpreter(ASTVisitor):
         # Capture the enclosing environment at definition time (closure)
         closure_env = self.current_env
         
-        def lambda_func(*args):
+        def lambda_func(*args, **kwargs):
             old_env = self.current_env
             # Create new env with captured closure env as parent
             self._push_env()
             self.current_env.parent = closure_env
-            for i, param in enumerate(node.params):
-                if i < len(args):
-                    self.current_env.define_variable(param, args[i])
-                else:
-                    self.current_env.define_variable(param, None)
+            for param, val in self._bind_params(node.params, [], args, kwargs, node):
+                self.current_env.define_variable(param, val)
             try:
                 result = self.visit(node.body)
                 self._pop_env()
@@ -1776,23 +1878,13 @@ class Interpreter(ASTVisitor):
         # The 'tunggu' (await) just calls the function directly
         closure_env = self.current_env
 
-        def async_function(*args):
+        def async_function(*args, **kwargs):
             old_env = self.current_env
             self._push_env()
             self.current_env.parent = closure_env
 
-            for i, param in enumerate(node.params):
-                if i < len(args):
-                    self.current_env.define_variable(param, args[i])
-                elif i < len(node.defaults):
-                    dv = node.defaults[i]
-                    if dv is not None:
-                        default_val = self.visit(dv)
-                        self.current_env.define_variable(param, default_val)
-                    else:
-                        self.current_env.define_variable(param, None)
-                else:
-                    self.current_env.define_variable(param, None)
+            for param, val in self._bind_params(node.params, node.defaults, args, kwargs, node):
+                self.current_env.define_variable(param, val)
 
             try:
                 result = None
@@ -1850,23 +1942,13 @@ class Interpreter(ASTVisitor):
         # First define the function
         closure_env = self.current_env
 
-        def bro_function(*args):
+        def bro_function(*args, **kwargs):
             old_env = self.current_env
             self._push_env()
             self.current_env.parent = closure_env
 
-            for i, param in enumerate(node.params):
-                if i < len(args):
-                    self.current_env.define_variable(param, args[i])
-                elif i < len(node.defaults):
-                    dv = node.defaults[i]
-                    if dv is not None:
-                        default_val = self.visit(dv)
-                        self.current_env.define_variable(param, default_val)
-                    else:
-                        self.current_env.define_variable(param, None)
-                else:
-                    self.current_env.define_variable(param, None)
+            for param, val in self._bind_params(node.params, node.defaults, args, kwargs, node):
+                self.current_env.define_variable(param, val)
 
             try:
                 result = None
@@ -1914,11 +1996,11 @@ class Interpreter(ASTVisitor):
 
         klass = BroLangClass(node.name, methods, parent_class)
 
-        def class_constructor(*args):
+        def class_constructor(*args, **kwargs):
             instance = BroLangInstance(klass)
             init_method = klass.get_method("__init__")
             if init_method:
-                init_method(instance, *args)
+                init_method(instance, *args, **kwargs)
             return instance
 
         # Apply decorators
@@ -2516,3 +2598,98 @@ class Interpreter(ASTVisitor):
         self.current_env.define_variable(node.variable, None)
         # The actual matching is handled by the match expression
         return None
+
+    # ============= V5.2: Pipeline Operator =============
+
+    def visit_PipelineNode(self, node: PipelineNode) -> Any:
+        """Pipeline operator: nilai | > fungsi atau nilai | > lalu(x) x * 2
+
+        Semantik:
+          - nilai | > f            => f(nilai)
+          - nilai | > lalu(x) x*2  => (lalu(x) x*2)(nilai)
+          - nilai | > f(args)      => f(nilai, args...)
+          - nilai | > peta(f)      => peta(nilai, f)
+        """
+        left = self.visit(node.left)
+        right = node.right
+
+        # Higher-order functions dengan iterable dari pipeline
+        if isinstance(right, MapNode):
+            func = self.visit(right.function)
+            return [func(x) for x in left]
+        if isinstance(right, FilterNode):
+            cond = self.visit(right.condition)
+            return [x for x in left if cond(x)]
+        if isinstance(right, ReduceNode):
+            func = self.visit(right.function)
+            initial = self.visit(right.initial) if right.initial else None
+            if initial is not None:
+                result = initial
+                for x in left:
+                    result = func(result, x)
+                return result
+            items = list(left)
+            if not items:
+                return None
+            result = items[0]
+            for x in items[1:]:
+                result = func(result, x)
+            return result
+
+        # Jika sisi kanan adalah CallNode, sisipkan nilai kiri sebagai argumen pertama
+        if isinstance(right, CallNode):
+            args = [self.visit(a) for a in right.args]
+            kwargs = {name: self.visit(v) for name, v in right.kwargs}
+            func = self.visit(right.function)
+            if callable(func):
+                return func(left, *args, **kwargs)
+            raise RuntimeError_(
+                message=f"'{right.function}' bukan fungsi yang bisa dipanggil.",
+                line=node.line, column=node.column,
+            )
+
+        # Jika sisi kanan adalah lambda atau identifier, panggil dengan nilai kiri
+        func = self.visit(right)
+        if callable(func):
+            return func(left)
+
+        raise RuntimeError_(
+            message=f"Sisi kanan pipeline harus berupa fungsi, tapi mendapatkan {type(right).__name__}.",
+            line=node.line, column=node.column,
+            solution="Gunakan: nilai |> fungsi atau nilai |> lalu(x) ekspresi",
+        )
+
+    # ============= V5.2: Destructuring Assignment =============
+
+    def visit_DestructuringAssignmentNode(self, node: DestructuringAssignmentNode) -> Any:
+        """Destructuring assignment: buat [a, b] = list / buat {x, y} = objek"""
+        value = self.visit(node.value)
+
+        if node.is_array:
+            if not isinstance(value, (list, tuple)):
+                raise TypeError_(
+                    message=f"Destructuring list membutuhkan list/tuple, tapi mendapatkan {type(value).__name__}.",
+                    line=node.line, column=node.column,
+                    solution="Gunakan: buat [a, b] = [1, 2]",
+                )
+            if len(value) < len(node.targets):
+                raise RuntimeError_(
+                    message=f"Tidak cukup elemen untuk destructuring: butuh {len(node.targets)}, ada {len(value)}.",
+                    line=node.line, column=node.column,
+                )
+            for i, name in enumerate(node.targets):
+                self.current_env.define_variable(name, value[i])
+        else:
+            if not isinstance(value, dict):
+                raise TypeError_(
+                    message=f"Destructuring objek membutuhkan objek/dict, tapi mendapatkan {type(value).__name__}.",
+                    line=node.line, column=node.column,
+                    solution="Gunakan: buat {x, y} = {\"x\": 1, \"y\": 2}",
+                )
+            for name in node.targets:
+                if name in value:
+                    self.current_env.define_variable(name, value[name])
+                else:
+                    self.current_env.define_variable(name, None)
+
+        return value

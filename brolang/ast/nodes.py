@@ -334,9 +334,42 @@ class CallNode(ASTNode):
     args: List[ASTNode] = field(default_factory=list)
     is_method: bool = False
     object_name: Optional[str] = None
+    kwargs: List[tuple] = field(default_factory=list)  # [(nama, ASTNode)]
 
     def get_children(self) -> List[Any]:
-        return [self.function] + self.args
+        children = [self.function] + self.args
+        for _, v in self.kwargs:
+            children.append(v)
+        return children
+
+
+# ============= V5.2: Pipeline Operator =============
+
+@dataclass
+class PipelineNode(ASTNode):
+    """Node untuk pipeline operator: nilai | > fungsi
+
+    Semantik: nilai | > f  =>  f(nilai)
+             nilai | > lalu(x) x * 2  =>  (lalu(x) x * 2)(nilai)
+    """
+    left: ASTNode = field(default_factory=lambda: NumberNode(0))
+    right: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+
+    def get_children(self) -> List[Any]:
+        return [self.left, self.right]
+
+
+# ============= V5.2: Destructuring Assignment =============
+
+@dataclass
+class DestructuringAssignmentNode(ASTNode):
+    """Node untuk destructuring assignment: buat [a, b] = list / buat {x, y} = objek"""
+    targets: List[str] = field(default_factory=list)
+    is_array: bool = True  # True untuk [a, b], False untuk {x, y}
+    value: ASTNode = field(default_factory=lambda: ListNode())
+
+    def get_children(self) -> List[Any]:
+        return [self.value]
 
 
 # ============= Classes =============

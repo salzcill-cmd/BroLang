@@ -13,6 +13,7 @@ Modul yang tersedia:
 - json       : JSON parsing
 - jaringan   : HTTP client
 - acak       : Random number generation
+- visualisasi: Chart & grafik data (ASCII, SVG, HTML)
 
 Modul Game:
 - vektor     : Vektor 2D/3D (Vec2, Vec3) untuk game
@@ -131,6 +132,12 @@ def _load_module(name: str) -> None:
     elif name == "kamera":
         from brolang.stdlib.kamera import module as kamera_module
         register_module("kamera", kamera_module)
+    elif name == "partikel":
+        from brolang.stdlib.partikel import module as partikel_module
+        register_module("partikel", partikel_module)
+    elif name == "ui":
+        from brolang.stdlib.ui import module as ui_module
+        register_module("ui", ui_module)
     elif name == "fisika":
         from brolang.stdlib.fisika import module as fisika_module
         register_module("fisika", fisika_module)
@@ -143,3 +150,6 @@ def _load_module(name: str) -> None:
     elif name == "tes":
         from brolang.stdlib.tes import module as tes_module
         register_module("tes", tes_module)
+    elif name == "visualisasi":
+        from brolang.stdlib.visualisasi import module as vis_module
+        register_module("visualisasi", vis_module)

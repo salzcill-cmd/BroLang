@@ -1,6 +1,6 @@
 # Command Line Interface (CLI)
 
-> **BroLang CLI powerful banget.** Compiler, formatter, REPL, debug mode - ada semua.
+> **BroLang CLI powerful banget.** Compiler, formatter, REPL, package manager, benchmark - ada semua.
 
 ## Perintah Dasar
 
@@ -19,6 +19,45 @@ bro --compile main.bro --output myapp
 
 # Format kode otomatis
 bro format main.bro
+```
+
+## Package Manager (BroPM) — v5.2
+
+```bash
+bro pkg init                    # Bikin project baru + manifest brolang.json
+bro pkg install <nama|path|git-url>  # Install package
+bro pkg remove <nama>           # Hapus package
+bro pkg list                    # List package terinstall
+bro pkg search <kata>           # Cari di registry
+bro pkg publish                 # Publish ke registry lokal
+bro pkg info <nama>             # Info package
+bro pkg manifest                # Tampilkan manifest brolang.json
+```
+
+Package yang terinstall bisa langsung dipakai dari kode:
+```
+impor paket-ku
+tulis paket-ku.fungsi_utama()
+```
+
+## Benchmark — v5.2
+
+```bash
+# Bandingkan Interpreter vs Transpiler vs Bytecode VM
+bro benchmark main.bro
+bro bench main.bro --repeat 5
+```
+
+```
+Benchmark: main.bro
+============================================================
+Hasil (rata-rata dari 3 pengulangan):
+  Transpiler        0.042 ms   (1.00x)
+  Bytecode VM       3.821 ms   (91.02x)
+  Interpreter       4.093 ms   (97.45x)
+
+Transpiler 97.4x lebih cepat dari interpreter (0.04 ms vs 4.09 ms).
+============================================================
 ```
 
 ## Debug Mode
@@ -68,3 +107,5 @@ bro main.bro --optimize --optimize-full
 | `format` | Format kode |
 | `-h`, `--help` | Bantuan |
 | `-v`, `--version` | Versi BroLang |
+| `pkg` | Package manager (init/install/publish/dll) |
+| `benchmark` / `bench` | Benchmark interpreter vs transpiler vs VM |

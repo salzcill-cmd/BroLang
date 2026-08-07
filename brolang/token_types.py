@@ -87,6 +87,7 @@ class TokenType(Enum):
     TOKEN_COLON = auto()       # :
     TOKEN_ARROW = auto()       # ->
     TOKEN_PIPE = auto()        # |
+    TOKEN_PIPE_GREATER = auto() # |> (pipeline operator, v5.2)
     TOKEN_AMPERSAND = auto()   # &
     TOKEN_CARET = auto()       # ^
     TOKEN_TILDE = auto()       # ~

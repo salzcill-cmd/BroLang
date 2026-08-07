@@ -429,5 +429,7 @@ class Optimizer(ASTVisitor):
     def visit_CallNode(self, node: CallNode) -> CallNode:
         func = self.visit(node.function)
         args = [self.visit(arg) for arg in node.args]
-        return CallNode(function=func, args=args, is_method=node.is_method,
+        kwargs = [(name, self.visit(val)) for name, val in node.kwargs]
+        return CallNode(function=func, args=args, kwargs=kwargs,
+                        is_method=node.is_method,
                         object_name=node.object_name, line=node.line, column=node.column)

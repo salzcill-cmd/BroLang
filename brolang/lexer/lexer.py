@@ -44,6 +44,7 @@ class Lexer:
         self.indent_stack: List[int] = [0]
         self._at_line_start: bool = True
         self._pending_indents: List[Token] = []
+        self._bracket_depth: int = 0
 
     def _current(self) -> Optional[str]:
         '''Mengembalikan karakter saat ini, atau None jika EOF.'''
@@ -465,6 +466,9 @@ class Lexer:
         if char == '|' and self._current() == '|':
             self._advance()
             return Token(TokenType.TOKEN_ATAU, '||', start_line, start_col)
+        if char == '|' and self._current() == '>':
+            self._advance()
+            return Token(TokenType.TOKEN_PIPE_GREATER, '|>', start_line, start_col)
         if char == ':' and self._current() == '=':
             self._advance()
             return Token(TokenType.TOKEN_WALRUS, ':=', start_line, start_col)
@@ -510,6 +514,16 @@ class Lexer:
                 solution=f'Hapus karakter \'{char}\' atau ganti dengan yang benar.',
             )
 
+        # Lacak kedalaman bracket agar ekspresi multi-baris (di dalam kurung)
+        # tidak dianggap sebagai perubahan indentasi blok.
+        if token_type in (TokenType.TOKEN_LPAREN, TokenType.TOKEN_LBRACKET,
+                          TokenType.TOKEN_LBRACE):
+            self._bracket_depth += 1
+        elif token_type in (TokenType.TOKEN_RPAREN, TokenType.TOKEN_RBRACKET,
+                            TokenType.TOKEN_RBRACE):
+            if self._bracket_depth > 0:
+                self._bracket_depth -= 1
+
         return Token(token_type, char, start_line, start_col)
 
     def tokenize(self) -> List[Token]:
@@ -525,9 +539,15 @@ class Lexer:
         while self._current() is not None:
             char = self._current()
 
-            # Handle indent at line start before anything else
+            # Handle indent at line start before anything else.
+            # Di dalam kurung/bracket, indentasi baris lanjutan diabaikan
+            # sehingga ekspresi multi-baris (mis. kondisi jika panjang) didukung.
             if self._at_line_start:
-                self._handle_indent()
+                if self._bracket_depth == 0:
+                    self._handle_indent()
+                else:
+                    self._skip_whitespace()
+                    self._at_line_start = False
                 if self._current() is None:
                     break
                 # After handling indent, re-read char
@@ -541,8 +561,10 @@ class Lexer:
 
             if char == '\n':
                 self._advance()
-                self.tokens.append(Token(TokenType.TOKEN_NEWLINE, '\n', self.line - 1, self.column))
-                self._at_line_start = True
+                # Di dalam bracket, baris baru hanyalah pemisah visual
+                # (tidak menghasilkan token NEWLINE).
+                if self._bracket_depth == 0:
+                    self.tokens.append(Token(TokenType.TOKEN_NEWLINE, '\n', self.line - 1, self.column))
                 continue
 
             if char == '#' or (char == '|' and self._peek() == '#'):

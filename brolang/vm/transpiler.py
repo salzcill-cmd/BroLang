@@ -38,6 +38,15 @@ def _brolang_rentang(*args):
 def _brolang_jenis(x):
     return type(x).__name__
 
+def _brolang_tipe(x):
+    _m = {int: 'angka', float: 'desimal', str: 'teks', bool: 'boolean',
+          list: 'list', dict: 'objek', tuple: 'tuple', set: 'set', type(None): 'kosong'}
+    return _m.get(type(x), type(x).__name__)
+
+def _brolang_stdlib_get(name):
+    from brolang.stdlib import get_stdlib_module as _g
+    return _g(name)
+
 _tulis = _brolang_tulis
 '''
 
@@ -49,11 +58,13 @@ class Transpiler:
         self._indent = 0
         self._lines: List[str] = []
         self._in_class = False
+        self._modules: set = set()  # nama identifier yang merupakan modul (impor)
 
     def transpile(self, node: ASTNode) -> str:
         """Transpile AST root → Python source code string."""
         self._lines = []
         self._indent = 0
+        self._modules = set()
         self._emit_stmt(node)
         return RUNTIME_HELPERS + '\n' + '\n'.join(self._lines) + '\n'
 
@@ -139,6 +150,8 @@ class Transpiler:
             self._emit_async_function(node)
         elif isinstance(node, WithNode):
             self._emit_with(node)
+        elif isinstance(node, DestructuringAssignmentNode):
+            self._emit_destructuring_assignment(node)
         elif isinstance(node, NamespaceNode):
             self._emit_namespace(node)
         elif isinstance(node, MacroDefNode):
@@ -174,7 +187,7 @@ class Transpiler:
 
     def _emit_function(self, node: FunctionNode, is_async=False):
         prefix = 'async ' if is_async else ''
-        params = ', '.join(node.params)
+        params = self._emit_params_with_defaults(node)
         self._line(f'{prefix}def {node.name}({params}):')
         self._indent += 1
         if not node.body:
@@ -186,7 +199,7 @@ class Transpiler:
         self._blank()
 
     def _emit_generator_function(self, node: GeneratorFunctionNode):
-        params = ', '.join(node.params)
+        params = self._emit_params_with_defaults(node)
         self._line(f'def {node.name}({params}):')
         self._indent += 1
         if not node.body:
@@ -342,10 +355,22 @@ class Transpiler:
         self._line(f'del {target}')
 
     def _emit_import(self, node: ImportNode):
+        # Module stdlib BroLang bukan package Python top-level. Coba import
+        # biasa dulu; kalau gagal, muat lewat get_stdlib_module agar `bro run`
+        # tidak jatuh ke interpreter (yang membuat output dobel).
+        bind = node.alias or node.module.split('.')[0]
+        self._modules.add(bind)
+        self._line('try:')
+        self._indent += 1
         if node.alias:
             self._line(f'import {node.module} as {node.alias}')
         else:
             self._line(f'import {node.module}')
+        self._indent -= 1
+        self._line('except ImportError:')
+        self._indent += 1
+        self._line(f'{bind} = _brolang_stdlib_get({node.module!r})')
+        self._indent -= 1
 
     def _emit_from_import(self, node: FromImportNode):
         names = ', '.join(node.names)
@@ -500,6 +525,29 @@ class Transpiler:
             defaults=node.defaults, body=node.body
         ), is_async=True)
 
+    def _emit_params_with_defaults(self, node) -> str:
+        """Buat daftar parameter dengan default value: 'a, b=0, c="x"'."""
+        params = []
+        defaults = getattr(node, 'defaults', None) or []
+        for i, name in enumerate(node.params):
+            if i < len(defaults) and defaults[i] is not None:
+                default_expr = self._emit_expr(defaults[i])
+                params.append(f'{name}={default_expr}')
+            else:
+                params.append(name)
+        return ', '.join(params)
+
+    def _emit_destructuring_assignment(self, node: DestructuringAssignmentNode):
+        targets = ', '.join(node.targets)
+        value = self._emit_expr(node.value)
+        if node.is_array:
+            self._line(f'{targets} = {value}')
+        else:
+            # Objek: bongkar per kunci (pakai .get agar konsisten dengan
+            # interpreter yang memberi None untuk kunci yang tidak ada)
+            parts = ', '.join(f'{value}.get({t!r}, None)' for t in node.targets)
+            self._line(f'{targets} = {parts}')
+
     def _emit_with(self, node: WithNode):
         ctx = self._emit_expr(node.context_expr)
         if node.as_name:
@@ -615,6 +663,32 @@ class Transpiler:
             return f'[{expr} for {node.variable} in {iterable}{cond}]'
         elif isinstance(node, FStringNode):
             return self._emit_fstring(node)
+        elif isinstance(node, PipelineNode):
+            left = self._emit_expr(node.left)
+            right = node.right
+            if isinstance(right, MapNode):
+                func = self._emit_expr(right.function)
+                return f'list(map({func}, {left}))'
+            if isinstance(right, FilterNode):
+                cond = self._emit_expr(right.condition)
+                if isinstance(right.condition, LambdaNode):
+                    return f'list(filter({cond}, {left}))'
+                return f'list(filter(lambda x: {cond}, {left}))'
+            if isinstance(right, ReduceNode):
+                func = self._emit_expr(right.function)
+                if right.initial:
+                    return f'__import__("functools").reduce({func}, {left}, {self._emit_expr(right.initial)})'
+                return f'__import__("functools").reduce({func}, {left})'
+            if isinstance(right, CallNode):
+                args = ', '.join([left] + [self._emit_expr(a) for a in right.args])
+                func = self._emit_expr(right.function)
+                return f'{func}({args})'
+            if isinstance(right, LambdaNode):
+                body = self._emit_expr(right.body)
+                params = ', '.join(right.params)
+                return f'(lambda {params}: {body})({left})'
+            func = self._emit_expr(right)
+            return f'{func}({left})'
         elif isinstance(node, NullCoalescingNode):
             left = self._emit_expr(node.left)
             right = self._emit_expr(node.right)
@@ -717,7 +791,9 @@ class Transpiler:
 
     def _emit_call(self, node: CallNode) -> str:
         func = self._emit_expr(node.function)
-        args = ', '.join(self._emit_expr(a) for a in node.args)
+        arg_parts = [self._emit_expr(a) for a in node.args]
+        arg_parts.extend(f'{name}={self._emit_expr(val)}' for name, val in node.kwargs)
+        args = ', '.join(arg_parts)
 
         # Map BroLang builtins to Python equivalents
         builtin_map = {
@@ -729,6 +805,7 @@ class Transpiler:
             'benar': 'bool',
             'rentang': 'range',
             'jenis': 'type',
+            'tipe': '_brolang_tipe',
             'cek_tipe': '_brolang_cek_tipe',
             'hentikan_iterasi': '_brolang_hentikan_iterasi',
             'masukkan': 'input',
@@ -763,11 +840,15 @@ class Transpiler:
                 'item': 'items',
                 'dapat': 'get',
                 'panjang': '__len__',
-                'potong': 'strip',
+                'potong': 'split',
                 'atas': 'upper',
                 'bawah': 'lower',
             }
-            if method_name in method_map:
+            # Jangan map kalau objeknya modul hasil impor (mis. teks.potong)
+            # — atribut modul adalah fungsi utuh, bukan method string/list.
+            is_module_attr = (isinstance(node.function.object, IdentifierNode)
+                              and node.function.object.name in self._modules)
+            if method_name in method_map and not is_module_attr:
                 py_method = method_map[method_name]
                 return f'{obj}.{py_method}({args})'
 

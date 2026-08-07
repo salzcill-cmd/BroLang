@@ -406,6 +406,84 @@ tulis(c.get())
         assert interp == vm
 
 
+class TestTranspilerRegresi:
+    """Regresi transpiler: fitur yang dulu bikin `bro run` jatuh ke interpreter
+    (output dobel). Semua harus konsisten interpreter vs transpiler."""
+
+    def test_tipe_builtin(self):
+        """tipe(nilai) harus jalan di kedua mesin dengan nama tipe BroLang."""
+        code = '''
+buat a = 42
+buat b = 3.14
+buat c = "halo"
+tulis(tipe(a))
+tulis(tipe(b))
+tulis(tipe(c))
+'''
+        interp = run_interpreter(code)
+        trans = run_transpiler(code)
+        assert interp == trans
+        assert interp == ["angka", "desimal", "teks"]
+
+    def test_stdlib_import(self):
+        """impor matematika harus jalan di transpiler (fallback stdlib)."""
+        code = '''
+impor matematika
+tulis(matematika.akar(25))
+'''
+        interp = run_interpreter(code)
+        trans = run_transpiler(code)
+        assert interp == trans
+
+    def test_stdlib_module_function(self):
+        """teks.potong(...) = fungsi modul (split), bukan method string strip."""
+        code = '''
+impor teks
+buat pesan = "Halo Dunia"
+tulis(teks.potong(pesan, " "))
+'''
+        interp = run_interpreter(code)
+        trans = run_transpiler(code)
+        assert interp == trans
+        assert trans == ["['Halo', 'Dunia']"]
+
+    def test_comprehension_filter(self):
+        """[x lalu x dalam data jika kondisi] konsisten di kedua mesin."""
+        code = '''
+buat data = [1, 2, 3, 4, 5, 6]
+buat genap = [x lalu x dalam data jika x % 2 == 0]
+tulis(genap)
+'''
+        interp = run_interpreter(code)
+        trans = run_transpiler(code)
+        assert interp == trans
+
+    def test_try_catch(self):
+        """coba/tangkap (MultiExceptNode) konsisten di kedua mesin."""
+        code = '''
+coba
+    buat x = 10 / 0
+tangkap error
+    tulis("error ditangkap")
+selesai
+tulis("lanjut")
+'''
+        interp = run_interpreter(code)
+        trans = run_transpiler(code)
+        assert interp == trans
+        assert trans == ["error ditangkap", "lanjut"]
+
+    def test_string_method_potong_tetap_bekerja(self):
+        """Method string .potong(...) = split tetap jalan di transpiler."""
+        code = '''
+buat pesan = "satu-dua-tiga"
+tulis(pesan.potong("-"))
+'''
+        interp = run_interpreter(code)
+        trans = run_transpiler(code)
+        assert interp == trans
+
+
 class TestEdgeCases:
     """Test edge cases yang sering bikin bug."""
 
