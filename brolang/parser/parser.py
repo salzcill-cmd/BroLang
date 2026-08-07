@@ -81,8 +81,12 @@ from brolang.ast.nodes import (
     ForEachNode, ChainedComparisonNode,
     # V5.2 Nodes
     PipelineNode, DestructuringAssignmentNode,
+    # V6.0 Nodes
+    ObjectPatternNode, BindingPatternNode,
+    KelasErrorNode,
 )
 from brolang.exceptions import ParserError
+from brolang.suggestions import saran_keyword
 
 
 class Parser:
@@ -101,7 +105,14 @@ class Parser:
         self.current_token: Token = self.tokens[0] if tokens else Token(TokenType.TOKEN_EOF)
 
     def _error(self, message: str, solution: str = "", example: str = "") -> ParserError:
-        """Membuat ParserError dengan informasi token saat ini."""
+        """Membuat ParserError dengan informasi token saat ini.
+
+        Ramah pemula: kalau token yang bermasalah mirip keyword bahasa
+        Inggris (print, if, def, ...), pesan diberi saran padanan BroLang.
+        """
+        saran = saran_keyword(self.current_token.value)
+        if saran:
+            message += saran
         return ParserError(
             message=message,
             line=self.current_token.line,
@@ -210,6 +221,8 @@ class Parser:
             return self._parse_function()
         elif token_type == TokenType.TOKEN_KELAS:
             return self._parse_class()
+        elif token_type == TokenType.TOKEN_KELAS_ERROR:
+            return self._parse_kelas_error()
         elif token_type == TokenType.TOKEN_ASYNKRON:
             return self._parse_async_function()
         elif token_type == TokenType.TOKEN_IMPOR:
@@ -304,7 +317,14 @@ class Parser:
                                           line=expr.line, column=expr.column)
                 return expr
             else:
-                return self._parse_expression()
+                expr = self._parse_expression()
+                if self._check(TokenType.TOKEN_ASSIGN):
+                    # Assignment ke index/ekspresi: d[1] = 99 (target IndexNode)
+                    self._advance()  # =
+                    value = self._parse_expression()
+                    return AssignmentNode(target=expr, value=value, is_declaration=False,
+                                          line=expr.line, column=expr.column)
+                return expr
         else:
             return self._parse_expression()
 
@@ -341,6 +361,11 @@ class Parser:
                 column=id_token.column,
             )
 
+        # Type annotation v6.0: buat x: Angka = 5
+        type_annotation = None
+        if self._match(TokenType.TOKEN_COLON):
+            type_annotation = self._parse_type_name()
+
         value = None
         if self._match(TokenType.TOKEN_ASSIGN):
             value = self._parse_expression()
@@ -351,6 +376,7 @@ class Parser:
             target=target,
             value=value,
             is_declaration=True,
+            type_annotation=type_annotation,
             line=token.line,
             column=token.column,
         )
@@ -513,6 +539,14 @@ class Parser:
         token = self._advance()  # jika
         condition = self._parse_expression()
 
+        # Pemula sering menulis `jika x = 5 maka` (satu '=') untuk membandingkan
+        if self._check(TokenType.TOKEN_ASSIGN):
+            raise self._error(
+                message="Kelihatannya kamu memakai '=' untuk membandingkan di dalam kondisi.",
+                solution="Untuk membandingkan gunakan '==' (dua tanda sama), bukan '='.",
+                example="jika x == 5 maka\n    tulis \"lima\"\nselesai",
+            )
+
         self._expect(
             TokenType.TOKEN_MAKA,
             message="Setelah kondisi 'jika', harus ada 'maka'.",
@@ -565,6 +599,14 @@ class Parser:
         """selama expression lakukan block (lainnya block)? selesai"""
         token = self._advance()  # selama
         condition = self._parse_expression()
+
+        # Pemula sering menulis `selama x = 5 lakukan` (satu '=') untuk membandingkan
+        if self._check(TokenType.TOKEN_ASSIGN):
+            raise self._error(
+                message="Kelihatannya kamu memakai '=' untuk membandingkan di dalam kondisi.",
+                solution="Untuk membandingkan gunakan '==' (dua tanda sama), bukan '='.",
+                example="selama x == 5 lakukan\n    tulis x\nselesai",
+            )
 
         self._expect(
             TokenType.TOKEN_LAKUKAN,
@@ -647,12 +689,21 @@ class Parser:
     def _parse_function(self) -> FunctionNode:
         """fungsi identifier(params) block selesai"""
         token = self._advance()  # fungsi
-        id_token = self._expect(
-            TokenType.TOKEN_IDENTIFIER,
-            message="Setelah 'fungsi', harus ada nama fungsi.",
-            solution="Tulis nama fungsi setelah 'fungsi'.",
-            example='fungsi sapa(nama)\n    kembali "Halo " + nama\nselesai',
+        # Nama fungsi bisa berupa keyword bahasa (mis. `fungsi cetak`, `fungsi tulis`)
+        # Pengecualian: token yang jelas bukan nama (string, angka, kurung, dst.)
+        _kata = (
+            TokenType.TOKEN_IDENTIFIER, TokenType.TOKEN_CETAK,
+            TokenType.TOKEN_TULIS, TokenType.TOKEN_INPUT,
+            TokenType.TOKEN_BUAT, TokenType.TOKEN_TIPE,
+            TokenType.TOKEN_KELAS, TokenType.TOKEN_FUNGSI,
         )
+        if not self._check(*_kata):
+            raise self._error(
+                message="Setelah 'fungsi', harus ada nama fungsi.",
+                solution="Tulis nama fungsi setelah 'fungsi'.",
+                example='fungsi sapa(nama)\n    kembali "Halo " + nama\nselesai',
+            )
+        id_token = self._advance()
         name = id_token.value
 
         self._expect(
@@ -660,12 +711,18 @@ class Parser:
             message="Setelah nama fungsi, harus ada '('.",
         )
 
-        params, defaults = self._parse_parameter_list()
+        params, defaults, param_types = self._parse_parameter_list()
 
         self._expect(
             TokenType.TOKEN_RPAREN,
             message="Setelah parameter, harus ada ')'.",
         )
+
+        # Return type v6.0: fungsi f() -> Angka
+        return_type = None
+        if self._check(TokenType.TOKEN_ARROW):
+            self._advance()  # ->
+            return_type = self._parse_type_name()
 
         body = self._parse_block()
 
@@ -679,22 +736,30 @@ class Parser:
             name=name,
             params=params,
             defaults=defaults,
+            param_types=param_types,
+            return_type=return_type,
             body=body,
             line=token.line,
             column=token.column,
         )
 
     def _parse_parameter_list(self) -> tuple:
-        """Mem-parse daftar parameter dengan default values.
+        """Mem-parse daftar parameter dengan default values & tipe (v6.0).
 
         Returns:
-            Tuple of (params: List[str], defaults: List[Optional[ASTNode]])
+            Tuple of (params, defaults, param_types)
         """
         params = []
         defaults = []
+        param_types = []
         if self._check(TokenType.TOKEN_IDENTIFIER):
             token = self._advance()
             params.append(token.value)
+            param_type = None
+            if self._check(TokenType.TOKEN_COLON):
+                self._advance()
+                param_type = self._parse_type_name()
+            param_types.append(param_type)
             default_val = None
             if self._match(TokenType.TOKEN_ASSIGN):
                 default_val = self._parse_expression()
@@ -706,11 +771,48 @@ class Parser:
                     message="Setelah koma, harus ada nama parameter.",
                 )
                 params.append(token.value)
+                param_type = None
+                if self._check(TokenType.TOKEN_COLON):
+                    self._advance()
+                    param_type = self._parse_type_name()
+                param_types.append(param_type)
                 default_val = None
                 if self._match(TokenType.TOKEN_ASSIGN):
                     default_val = self._parse_expression()
                 defaults.append(default_val)
-        return params, defaults
+        return params, defaults, param_types
+
+    def _parse_type_name(self) -> str:
+        """Parse nama tipe v6.0: Angka | Daftar<Angka> | Angka | Teks | alias.
+
+        Mengembalikan string representasi tipe, mis. 'Daftar<Angka>' atau
+        'Angka | Teks' (union).
+        """
+        parts = []
+        tok = self._expect(
+            TokenType.TOKEN_IDENTIFIER,
+            message="Setelah ':' harus ada nama tipe.",
+            solution="Gunakan tipe bawaan: Angka, Desimal, Teks, Boolean, Daftar, Objek",
+            example="buat umur: Angka = 25",
+        )
+        parts.append(tok.value)
+
+        # Generics: Daftar<Angka>
+        if self._match(TokenType.TOKEN_LT):
+            inner = self._parse_type_name()
+            while self._match(TokenType.TOKEN_COMMA):
+                inner += ", " + self._parse_type_name()
+            self._expect(TokenType.TOKEN_GT,
+                         message="Generik harus ditutup dengan '>'.",
+                         example="Daftar<Angka>")
+            parts.append(f"<{inner}>")
+
+        # Union: Angka | Teks
+        while self._match(TokenType.TOKEN_PIPE):
+            parts.append("|")
+            parts.append(self._parse_type_name())
+
+        return "".join(parts)
 
     # ============= Class =============
 
@@ -764,6 +866,64 @@ class Parser:
         )
 
         return ClassNode(
+            name=name,
+            parent=parent,
+            methods=methods,
+            body=body,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_kelas_error(self) -> KelasErrorNode:
+        """kelas_error Nama (extends Induk)? block selesai"""
+        token = self._advance()  # kelas_error
+        id_token = self._expect(
+            TokenType.TOKEN_IDENTIFIER,
+            message="Setelah 'kelas_error', harus ada nama kelas error.",
+            solution="Tulis nama kelas error setelah 'kelas_error'.",
+            example='kelas_error SaldoTidakCukup\n    ...\nselesai',
+        )
+        name = id_token.value
+
+        parent = None
+        # extends Induk (opsional; default Kesalahan)
+        if self._check(TokenType.TOKEN_IDENTIFIER) and self.current_token.value in ("extends", "warisan"):
+            self._advance()
+            parent_token = self._expect(
+                TokenType.TOKEN_IDENTIFIER,
+                message="Setelah 'extends', harus ada nama kelas induk.",
+            )
+            parent = parent_token.value
+        elif self._match(TokenType.TOKEN_COLON):
+            parent_token = self._expect(
+                TokenType.TOKEN_IDENTIFIER,
+                message="Setelah ':', harus ada nama kelas induk.",
+            )
+            parent = parent_token.value
+
+        body = self._parse_block()
+
+        methods = []
+        for stmt in body:
+            if isinstance(stmt, FunctionNode):
+                methods.append(
+                    MethodNode(
+                        name=stmt.name,
+                        params=stmt.params,
+                        body=stmt.body,
+                        is_static=stmt.is_static,
+                        line=stmt.line,
+                        column=stmt.column,
+                    )
+                )
+
+        self._expect(
+            TokenType.TOKEN_SELESAI,
+            message="Kelas error harus ditutup dengan 'selesai'.",
+            solution="Tambahkan 'selesai' di akhir kelas error.",
+        )
+
+        return KelasErrorNode(
             name=name,
             parent=parent,
             methods=methods,
@@ -908,6 +1068,7 @@ class Parser:
         self._match(TokenType.TOKEN_INDENT)
 
         cases = []
+        guards = []
         default_case = None
 
         while not self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
@@ -917,7 +1078,7 @@ class Parser:
             if self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
                 break
 
-            # Parse pattern
+            # Parse pattern (v6.0: list/objek/binding/literal + guard)
             if self._check(TokenType.TOKEN_IDENTIFIER) and self.current_token.value == "_":
                 self._advance()  # consume _
                 pattern = WildcardNode(line=self.current_token.line, column=self.current_token.column)
@@ -925,17 +1086,85 @@ class Parser:
                 body = self._parse_match_case_body()
                 default_case = body
             else:
-                pattern = self._parse_expression()
+                pattern = self._parse_pattern()
+                guard = None
+                if self._match(TokenType.TOKEN_JIKA):
+                    guard = self._parse_expression()
                 self._expect(TokenType.TOKEN_COLON, message="Setelah pattern, harus ada ':'.")
                 body = self._parse_match_case_body()
                 cases.append((pattern, body))
+                guards.append(guard)
 
         # Consume DEDENT if present
         self._match(TokenType.TOKEN_DEDENT)
         self._expect(TokenType.TOKEN_RBRACE, message="Match harus ditutup dengan '}'.")
 
-        return MatchNode(value=value, cases=cases, default_case=default_case,
+        return MatchNode(value=value, cases=cases, guards=guards,
+                         default_case=default_case,
                          line=token.line, column=token.column)
+
+    def _parse_pattern(self) -> ASTNode:
+        """Parse pola match v6.0.
+
+        - `[a, b, c]`        : pola list (destructure elemen)
+        - `{nama, umur}`     : pola objek (destructure nilai)
+        - `{"x": a, "y": b}` : pola objek dengan rename kunci
+        - `nama` (identifier): binding — tangkap seluruh nilai
+        - literal/ekspresi   : cocokkan nilai (perilaku lama)
+        """
+        if self._check(TokenType.TOKEN_LBRACKET):
+            return self._parse_destructuring_pattern()
+        if self._check(TokenType.TOKEN_LBRACE):
+            return self._parse_object_pattern()
+        if self._check(TokenType.TOKEN_IDENTIFIER):
+            tok = self._advance()
+            return BindingPatternNode(name=tok.value,
+                                      line=tok.line, column=tok.column)
+        return self._parse_expression()
+
+    def _parse_object_pattern(self) -> ASTNode:
+        """Parse pola objek: {nama, umur} atau {"x": a, "y": b}."""
+        token = self._advance()  # {
+
+        # Rename: {"kunci": variabel} atau literal: {"kunci": "nilai"}
+        if self._check(TokenType.TOKEN_STRING) and self._peek(1) == TokenType.TOKEN_COLON:
+            entries = {}
+            key_token = self._advance()
+            self._expect(TokenType.TOKEN_COLON)
+            if self._check(TokenType.TOKEN_STRING):
+                val_token = self._advance()
+                entries[key_token.value] = ("lit", val_token.value)
+            else:
+                var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                entries[key_token.value] = ("var", var_token.value)
+            while self._match(TokenType.TOKEN_COMMA):
+                key_token = self._expect(TokenType.TOKEN_STRING)
+                self._expect(TokenType.TOKEN_COLON)
+                if self._check(TokenType.TOKEN_STRING):
+                    val_token = self._advance()
+                    entries[key_token.value] = ("lit", val_token.value)
+                else:
+                    var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                    entries[key_token.value] = ("var", var_token.value)
+            self._expect(TokenType.TOKEN_RBRACE,
+                         message="Pola objek harus ditutup dengan '}'.")
+            return ObjectPatternNode(entries=entries,
+                                     line=token.line, column=token.column)
+
+        # Destructure: {nama, umur} — kunci = nama variabel
+        variables = []
+        var_token = self._expect(TokenType.TOKEN_IDENTIFIER,
+                                 message="Setelah '{' pola objek, harus ada nama variabel.")
+        variables.append(var_token.value)
+        while self._match(TokenType.TOKEN_COMMA):
+            if self._check(TokenType.TOKEN_RBRACE):
+                break
+            var_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+            variables.append(var_token.value)
+        self._expect(TokenType.TOKEN_RBRACE,
+                     message="Pola objek harus ditutup dengan '}'.")
+        return DestructuringPatternNode(variables=variables, is_array=False,
+                                        line=token.line, column=token.column)
 
     def _parse_match_case_body(self) -> List[ASTNode]:
         """Parse body of a match case (single statement or block)."""
@@ -1024,7 +1253,7 @@ class Parser:
         """lalu(params) expr"""
         token = self._advance()  # lalu
         self._expect(TokenType.TOKEN_LPAREN, message="Setelah 'lalu', harus ada '('.")
-        params, _ = self._parse_parameter_list()
+        params, _, _ = self._parse_parameter_list()
         self._expect(TokenType.TOKEN_RPAREN, message="Parameter lambda tidak ditutup.")
 
         # Single expression body (no block)
@@ -1328,6 +1557,11 @@ class Parser:
                 node = IdentifierNode(name="input", line=token.line, column=token.column)
             else:
                 node = self._parse_input()
+        elif self._check(TokenType.TOKEN_CETAK):
+            # 'cetak' adalah keyword reserved, tapi tetap bisa dipakai sebagai
+            # nama fungsi/variabel (mis. `fungsi cetak(...)` lalu `cetak(...)`).
+            token = self._advance()
+            node = IdentifierNode(name=token.value, line=token.line, column=token.column)
         elif self._check(TokenType.TOKEN_TIPE):
             # 'tipe' sebagai fungsi: tipe(nilai). (Sebagai statement,
             # 'tipe Nama = ...' tetap jadi type alias di _parse_statement.)
@@ -1432,10 +1666,23 @@ class Parser:
             elif self._check(TokenType.TOKEN_DOT):
                 # Attribute/method access
                 self._advance()  # .
-                id_token = self._expect(
-                    TokenType.TOKEN_IDENTIFIER,
-                    message="Setelah '.', harus ada nama atribut atau method.",
+                # Nama method bisa berupa keyword bahasa (mis. `csv.tulis`, `file.baca`)
+                _method_tokens = (
+                    TokenType.TOKEN_IDENTIFIER, TokenType.TOKEN_TULIS,
+                    TokenType.TOKEN_BUAT, TokenType.TOKEN_MAKA,
+                    TokenType.TOKEN_SELESAI, TokenType.TOKEN_DALAM,
+                    TokenType.TOKEN_JIKA, TokenType.TOKEN_LAINNYA,
+                    TokenType.TOKEN_FUNGSI, TokenType.TOKEN_KEMBALI,
+                    TokenType.TOKEN_KELAS, TokenType.TOKEN_IMPOR,
+                    TokenType.TOKEN_TIPE, TokenType.TOKEN_COBA,
+                    TokenType.TOKEN_TANGKAP, TokenType.TOKEN_KECUALI,
                 )
+                if not self._check(*_method_tokens):
+                    raise self._error(
+                        message="Setelah '.', harus ada nama atribut atau method.",
+                        solution="Periksa nama method setelah titik.",
+                    )
+                id_token = self._advance()
                 attr_name = id_token.value
 
                 if self._check(TokenType.TOKEN_LPAREN):
@@ -1706,7 +1953,7 @@ class Parser:
         name = id_token.value
 
         self._expect(TokenType.TOKEN_LPAREN)
-        params, defaults = self._parse_parameter_list()
+        params, defaults, _ = self._parse_parameter_list()
         self._expect(TokenType.TOKEN_RPAREN)
 
         body = self._parse_block()
@@ -1802,6 +2049,10 @@ class Parser:
                     # kecuali lainnya (catch-all bare except)
                     self._advance()
                     exc_type = "semua"
+                    if self._match(TokenType.TOKEN_SEBAGAI):
+                        var_token = self._expect(TokenType.TOKEN_IDENTIFIER,
+                                                 message="Setelah 'sebagai', harus ada nama variabel error.")
+                        var_name = var_token.value
 
                 clause_body = self._parse_block()
                 except_clauses.append(TypedExceptNode(
@@ -1871,7 +2122,7 @@ class Parser:
         name = id_token.value
 
         self._expect(TokenType.TOKEN_LPAREN)
-        params, defaults = self._parse_parameter_list()
+        params, defaults, _ = self._parse_parameter_list()
         self._expect(TokenType.TOKEN_RPAREN)
 
         body = self._parse_block()

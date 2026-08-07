@@ -47,12 +47,36 @@ def _brolang_stdlib_get(name):
     from brolang.stdlib import get_stdlib_module as _g
     return _g(name)
 
+_brolang_nomatch = object()  # sentinel pola objek (v6.0)
+
 _tulis = _brolang_tulis
+
+# V6.0: kelas dasar error kustom
+class Kesalahan(Exception):
+    def __init__(self, pesan=''):
+        self.pesan = str(pesan)
+        super().__init__(str(pesan))
 '''
 
 
 class Transpiler:
     """Transpile AST BroLang → Python source code."""
+
+    # Operator overloading (v5.5): method BroLang `_tambah_` dst ditranspile
+    # menjadi dunder Python `__add__` dst, sehingga hasilnya konsisten dengan
+    # interpreter dan berjalan di CPython secara native.
+    _OVERLOAD_METHOD_MAP = {
+        '_tambah_': '__add__', '_kurang_': '__sub__', '_kali_': '__mul__',
+        '_bagi_': '__truediv__', '_modulo_': '__mod__', '_pangkat_': '__pow__',
+        '_negasi_': '__neg__', '_positif_': '__pos__',
+        '_sama_': '__eq__', '_tidak_sama_': '__ne__',
+        '_kurang_dari_': '__lt__', '_lebih_dari_': '__gt__',
+        '_kurang_sama_': '__le__', '_lebih_sama_': '__ge__',
+        '_teks_': '__str__', '_panjang_': '__len__',
+        '_index_': '__getitem__', '_index_set_': '__setitem__',
+        '_panggil_': '__call__', '_dalam_': '__contains__',
+        '_iter_': '__iter__', '_iter_next_': '__next__',
+    }
 
     def __init__(self):
         self._indent = 0
@@ -88,6 +112,8 @@ class Transpiler:
             self._emit_function(node)
         elif isinstance(node, ClassNode):
             self._emit_class(node)
+        elif isinstance(node, KelasErrorNode):
+            self._emit_kelas_error(node)
         elif isinstance(node, IfNode):
             self._emit_if(node)
         elif isinstance(node, WhileNode):
@@ -225,6 +251,42 @@ class Transpiler:
                     self._emit_stmt(stmt)
                 elif not isinstance(stmt, FunctionNode):
                     self._emit_stmt(stmt)
+            # Python menonaktifkan hashing saat __eq__ didefinisikan; pulihkan
+            # agar kelas dengan `_sama_` tetap bisa masuk set/dict.
+            py_names = [self._OVERLOAD_METHOD_MAP.get(m.name, m.name)
+                        for m in node.methods]
+            if '__eq__' in py_names and '__hash__' not in py_names:
+                self._line('__hash__ = object.__hash__')
+            # Reflected dunder (konsisten dengan interpreter yang mendukung
+            # refleksi): `b + a` juga memanggil `a._tambah_` kalau b tidak punya.
+            reflected = {
+                '__add__': '__radd__', '__sub__': '__rsub__',
+                '__mul__': '__rmul__', '__truediv__': '__rtruediv__',
+                '__mod__': '__rmod__', '__pow__': '__rpow__',
+            }
+            for dunder, rdunder in reflected.items():
+                if dunder in py_names and rdunder not in py_names:
+                    self._line(f'{rdunder} = {dunder}')
+        self._in_class = False
+        self._indent -= 1
+        self._blank()
+
+    def _emit_kelas_error(self, node: KelasErrorNode):
+        """kelas_error Nama extends Induk ... selesai -> class Nama(Induk): ..."""
+        parent = node.parent or 'Kesalahan'
+        self._line(f'class {node.name}({parent}):')
+        self._indent += 1
+        self._in_class = True
+        if not node.methods and not node.body:
+            self._line('pass')
+        else:
+            for method in node.methods:
+                self._emit_method(method)
+            for stmt in node.body:
+                if isinstance(stmt, AccessModifierNode):
+                    self._emit_stmt(stmt)
+                elif not isinstance(stmt, FunctionNode):
+                    self._emit_stmt(stmt)
         self._in_class = False
         self._indent -= 1
         self._blank()
@@ -238,7 +300,9 @@ class Transpiler:
                 params = ', '.join(node.params)
             else:
                 params = ', '.join(['self'] + node.params) if node.params else 'self'
-        self._line(f'def {node.name}({params}):')
+        # Operator overloading: _tambah_ -> __add__, dst.
+        py_name = self._OVERLOAD_METHOD_MAP.get(node.name, node.name)
+        self._line(f'def {py_name}({params}):')
         self._indent += 1
         if not node.body:
             self._line('pass')
@@ -340,7 +404,10 @@ class Transpiler:
 
     def _emit_raise(self, node: RaiseNode):
         val = self._emit_expr(node.value)
-        self._line(f'raise RuntimeError({val})')
+        # v6.0: error kustom (instance kelas_error) langsung di-raise;
+        # nilai primitif dibungkus RuntimeError agar tidak TypeError.
+        self._line(f'_brolang_err = {val}')
+        self._line('raise _brolang_err if isinstance(_brolang_err, BaseException) else RuntimeError(_brolang_err)')
 
     def _emit_assert(self, node: AssertNode):
         cond = self._emit_expr(node.condition)
@@ -437,15 +504,21 @@ class Transpiler:
         self._line(f'{target} {node.operator} {value}')
 
     def _emit_match(self, node):
+        # V6.0: dukung pola modern (list/objek/binding + guard).
         val = self._emit_expr(node.value)
+        guards = getattr(node, 'guards', None) or [None] * len(node.cases)
         first = True
-        for pattern, body in node.cases:
+        for idx, (pattern, body) in enumerate(node.cases):
             if isinstance(pattern, WildcardNode):
-                self._line('else:' if first else 'else:')
+                self._line('else:')
             else:
                 kw = 'if' if first else 'elif'
-                pat = self._emit_expr(pattern)
-                self._line(f'{kw} {val} == {pat}:')
+                cond = self._emit_pattern_condition(pattern, val)
+                guard = guards[idx] if idx < len(guards) else None
+                if guard is not None:
+                    g = self._emit_expr(guard)
+                    cond = f'{cond} and ({g})'
+                self._line(f'{kw} {cond}:')
                 first = False
             self._indent += 1
             if not body:
@@ -460,6 +533,46 @@ class Transpiler:
             for stmt in node.default_case:
                 self._emit_stmt(stmt)
             self._indent -= 1
+
+    def _emit_pattern_condition(self, pattern, val: str) -> str:
+        """Buat kondisi Python untuk pola match (v6.0).
+
+        - DestructuringPatternNode [a, b]  : type check + panjang + binding
+        - ObjectPatternNode {"x": a}       : dict + kunci + binding
+        - BindingPatternNode nama          : selalu cocok, bind nilai
+        - lainnya                          : perbandingan nilai (perilaku lama)
+        """
+        bindings = getattr(self, '_match_bindings', None)
+        if isinstance(pattern, DestructuringPatternNode):
+            if pattern.is_array:
+                conds = [
+                    f'isinstance({val}, (list, tuple))',
+                    f'len({val}) == {len(pattern.variables)}',
+                ]
+                for i, var in enumerate(pattern.variables):
+                    # Kurung luar penting: tanpa kurung, precedence Python
+                    # (`and` > `or`) membuat `or True` men-short-circuit
+                    # binding berikutnya di dalam satu kondisi gabungan.
+                    conds.append(f'(({var} := {val}[{i}]) is not None or True)')
+                return ' and '.join(conds)
+            conds = [f'isinstance({val}, dict)']
+            for var in pattern.variables:
+                conds.append(f'(({var} := {val}.get({var!r}, _brolang_nomatch)) != _brolang_nomatch)')
+            return ' and '.join(conds)
+        if isinstance(pattern, ObjectPatternNode):
+            conds = [f'isinstance({val}, dict)']
+            for key, entry in pattern.entries.items():
+                if isinstance(entry, tuple) and entry[0] == 'lit':
+                    conds.append(f'{val}.get({key!r}) == {entry[1]!r}')
+                elif isinstance(entry, tuple) and entry[0] == 'var':
+                    conds.append(f'(({entry[1]} := {val}.get({key!r})) is not None or True)')
+                else:
+                    conds.append(f'(({entry} := {val}.get({key!r})) is not None or True)')
+            return ' and '.join(conds)
+        if isinstance(pattern, BindingPatternNode):
+            return f'(({pattern.name} := {val}) is not None) or True'
+        pat = self._emit_expr(pattern)
+        return f'{val} == {pat}'
 
     def _emit_enum(self, node: EnumNode):
         self._line(f'class {node.name}:')

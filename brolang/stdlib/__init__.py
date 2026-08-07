@@ -153,3 +153,25 @@ def _load_module(name: str) -> None:
     elif name == "visualisasi":
         from brolang.stdlib.visualisasi import module as vis_module
         register_module("visualisasi", vis_module)
+    elif name == "sejajar":
+        from brolang.stdlib.sejajar import module as sejajar_module
+        register_module("sejajar", sejajar_module)
+    # v6.0 modules
+    elif name == "tanggal":
+        from brolang.stdlib.tanggal import module as tanggal_module
+        register_module("tanggal", tanggal_module)
+    elif name == "catat":
+        from brolang.stdlib.catat import module as catat_module
+        register_module("catat", catat_module)
+    elif name == "lingkungan":
+        from brolang.stdlib.lingkungan import module as lingkungan_module
+        register_module("lingkungan", lingkungan_module)
+    elif name == "proses":
+        from brolang.stdlib.proses import module as proses_module
+        register_module("proses", proses_module)
+    elif name == "csv":
+        from brolang.stdlib.csv import module as csv_module
+        register_module("csv", csv_module)
+    elif name == "registri":
+        from brolang.stdlib.registri import module as registri_module
+        register_module("registri", registri_module)

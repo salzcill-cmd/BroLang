@@ -10,8 +10,17 @@ from typing import Any, List, Dict
 
 def builtin_len(obj: Any) -> int:
     """len(obj) - Mengembalikan panjang objek."""
-    if isinstance(obj, (list, str, dict, tuple, set)):
+    if isinstance(obj, (list, str, dict, tuple, set, bytes)):
         return len(obj)
+    # Objek kelas BroLang dengan overload `_panjang_` (v5.5)
+    getter = getattr(obj, "get", None)
+    if callable(getter):
+        try:
+            method = getter("_panjang_")
+            if callable(method) and not isinstance(method, type(obj)):
+                return int(method(obj))
+        except Exception:
+            pass
     raise TypeError(f"Tipe {type(obj).__name__} tidak memiliki panjang.")
 
 
@@ -26,7 +35,15 @@ def builtin_desimal(val: Any) -> float:
 
 
 def builtin_teks(val: Any) -> str:
-    """teks(val) - Konversi ke string."""
+    """teks(val) - Konversi ke string (hormati overload `_teks_`)."""
+    getter = getattr(val, "get", None)
+    if callable(getter):
+        try:
+            method = getter("_teks_")
+            if callable(method) and not isinstance(method, type(val)):
+                return str(method(val))
+        except Exception:
+            pass
     return str(val)
 
 

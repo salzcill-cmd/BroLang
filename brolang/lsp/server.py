@@ -184,58 +184,186 @@ class BroLangLSP:
 
         return diagnostics
 
-    def _handle_completion(self, params: Dict[str, Any]) -> Dict[str, Any]:
-        """Menangani auto-completion."""
-        # Complete keywords and built-in functions
-        completions = []
+    # ============ Symbol table (dari dokumen) ============
 
-        for keyword in sorted(KEYWORDS.keys()):
-            completions.append({
-                "label": keyword,
-                "kind": 14,  # Keyword
-                "detail": "Keyword BroLang",
-                "insertText": keyword,
+    _DECL_KEYWORDS = {
+        "buat": "Variable",
+        "fungsi": "Function",
+        "kelas": "Class",
+        "konstanta": "Constant",
+        "struktur": "Struct",
+        "enum": "Enum",
+        "ruang": "Namespace",
+        "impor": "Module",
+        "muat": "Module",
+    }
+
+    _STDLIB_NAMES = [
+        "matematika", "teks", "waktu", "file", "json", "jaringan", "acak",
+        "vektor", "grafis", "audio", "input", "game", "pencocok", "antrian",
+        "tumpukan", "serialisasi", "dasar", "sprite", "animasi", "tilemap",
+        "kamera", "partikel", "ui", "fisika", "debugger", "profil", "tes",
+        "visualisasi", "sejajar",
+    ]
+
+    def _build_symbols(self, text: str) -> Dict[str, Dict[str, Any]]:
+        """Kumpulkan simbol (variabel/fungsi/kelas/modul) + posisi definisinya."""
+        symbols: Dict[str, Dict[str, Any]] = {}
+        try:
+            tokens = Lexer(text).tokenize()
+        except Exception:
+            return symbols
+        for i, tok in enumerate(tokens):
+            if tok.value in self._DECL_KEYWORDS and i + 1 < len(tokens):
+                nxt = tokens[i + 1]
+                # Hanya identifier asli (bukan string literal / operator / keyword)
+                if nxt.type == TokenType.TOKEN_IDENTIFIER:
+                    symbols[nxt.value] = {
+                        "kind": self._DECL_KEYWORDS[tok.value],
+                        "line": max(0, (nxt.line or 1) - 1),
+                        "character": max(0, (nxt.column or 1) - 1),
+                    }
+        return symbols
+
+    def _kind_for(self, kind: str) -> int:
+        """Nama kind -> LSP CompletionItemKind."""
+        return {
+            "Variable": 6, "Function": 3, "Class": 7, "Constant": 21,
+            "Struct": 22, "Enum": 13, "Namespace": 9, "Module": 9,
+        }.get(kind, 6)
+
+    def _builtin_names(self) -> List[str]:
+        try:
+            from brolang.interpreter.builtins import BUILTINS
+            return sorted(BUILTINS.keys())
+        except Exception:
+            return []
+
+    def _handle_completion(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Menangani auto-completion (keyword, builtin, simbol, member modul)."""
+        uri = params["textDocument"]["uri"]
+        position = params.get("position", {})
+        text = self.documents.get(uri, "")
+        lines = text.split("\n")
+        line = lines[position.get("line", 0)] if position.get("line", 0) < len(lines) else ""
+        char = position.get("character", 0)
+        prefix = line[:char]
+
+        # Member completion: sesuatu.member
+        if "." in prefix:
+            obj_name = prefix.rsplit(".", 1)[0].strip().split()[-1] or ""
+            member_prefix = prefix.rsplit(".", 1)[1]
+            return {"isIncomplete": False,
+                    "items": self._member_completions(obj_name, member_prefix)}
+
+        token = self._get_word_at(line, char) or ""
+        items = []
+        seen = set()
+
+        def _add(label, kind, detail):
+            if label in seen or (token and not label.startswith(token)):
+                return
+            seen.add(label)
+            items.append({
+                "label": label, "kind": kind,
+                "detail": detail, "insertText": label,
             })
 
-        builtins = [
-            ("input", "Function", "input(prompt) -> str"),
-            ("len", "Function", "len(obj) -> int"),
-            ("angka", "Function", "angka(val) -> int"),
-            ("desimal", "Function", "desimal(val) -> float"),
-            ("teks", "Function", "teks(val) -> str"),
-            ("range", "Function", "range(start, stop, step)"),
-        ]
+        for kw in sorted(KEYWORDS.keys()):
+            _add(kw, 14, "Keyword BroLang")
+        for name in self._builtin_names():
+            _add(name, 3, "Builtin BroLang")
+        for mod in self._STDLIB_NAMES:
+            _add(mod, 9, "Modul stdlib BroLang")
+        for name, info in self._build_symbols(text).items():
+            _add(name, self._kind_for(info["kind"]), f"{info['kind']} (dokumen ini)")
 
-        for name, kind, detail in builtins:
-            completions.append({
+        return {"isIncomplete": False, "items": items}
+
+    def _member_completions(self, obj_name: str, member_prefix: str) -> List[Dict[str, Any]]:
+        """Completion untuk member objek/modul (setelah tanda titik)."""
+        items = []
+        members = set()
+
+        # Modul stdlib: tampilkan fungsi asli dari modulnya
+        if obj_name in self._STDLIB_NAMES:
+            try:
+                from brolang.stdlib import get_stdlib_module
+                mod = get_stdlib_module(obj_name)
+                members.update(n for n in dir(mod) if not n.startswith("_"))
+            except Exception:
+                pass
+        else:
+            # Member umum untuk objek game/UI
+            members.update({
+                "gambar", "update", "set_teks", "set_nilai", "tambah", "kurang",
+                "set_posisi", "get", "set", "aktif", "terlihat", "x", "y",
+            })
+
+        for name in sorted(members):
+            if member_prefix and not name.startswith(member_prefix):
+                continue
+            items.append({
                 "label": name,
-                "kind": 3,  # Function
-                "detail": detail,
+                "kind": 4,  # Method/Property
+                "detail": f"Member dari {obj_name}",
                 "insertText": name,
             })
-
-        return {"isIncomplete": False, "items": completions}
+        return items
 
     def _handle_hover(self, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Menangani hover request."""
+        """Menangani hover request (keyword/simbol/builtin)."""
         uri = params["textDocument"]["uri"]
         position = params["position"]
         text = self.documents.get(uri, "")
         lines = text.split("\n")
+        line = lines[position["line"]] if position["line"] < len(lines) else ""
+        word = self._get_word_at(line, position["character"])
+        if not word:
+            return None
 
-        if position["line"] < len(lines):
-            line = lines[position["line"]]
-            word = self._get_word_at(line, position["character"])
-            if word:
-                if word in KEYWORDS:
-                    return {"contents": f"**{word}** - Keyword BroLang"}
-                return {"contents": f"**{word}** - Identifier"}
+        if word in KEYWORDS:
+            return {"contents": {"kind": "markdown",
+                                 "value": f"**{word}** — Keyword BroLang"}}
 
-        return None
+        symbols = self._build_symbols(text)
+        if word in symbols:
+            info = symbols[word]
+            return {"contents": {"kind": "markdown",
+                                 "value": f"**{word}** — {info['kind']} BroLang "
+                                          f"(deklarasi baris {info['line'] + 1})"}}
+
+        if word in self._STDLIB_NAMES:
+            return {"contents": {"kind": "markdown",
+                                 "value": f"**{word}** — Modul stdlib BroLang"}}
+
+        if word in self._builtin_names():
+            return {"contents": {"kind": "markdown",
+                                 "value": f"**{word}** — Builtin BroLang"}}
+
+        return {"contents": {"kind": "markdown",
+                             "value": f"**{word}** — Identifier"}}
 
     def _handle_definition(self, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Menangani go-to-definition."""
-        # Basic implementation - would need symbol table for proper support
+        """Menangani go-to-definition (pindah ke deklarasi simbol)."""
+        uri = params["textDocument"]["uri"]
+        position = params["position"]
+        text = self.documents.get(uri, "")
+        lines = text.split("\n")
+        line = lines[position["line"]] if position["line"] < len(lines) else ""
+        word = self._get_word_at(line, position["character"])
+        if not word:
+            return None
+
+        symbols = self._build_symbols(text)
+        if word in symbols:
+            info = symbols[word]
+            start = {"line": info["line"], "character": info["character"]}
+            return {"uri": uri, "range": {
+                "start": start,
+                "end": {"line": info["line"],
+                        "character": info["character"] + len(word)},
+            }}
         return None
 
     def _handle_diagnostic(self, params: Dict[str, Any]) -> Dict[str, Any]:

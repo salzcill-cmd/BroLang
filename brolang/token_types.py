@@ -220,6 +220,9 @@ class TokenType(Enum):
     TOKEN_STATIS = auto()      # statis (static method)
     TOKEN_KELASMETHOD = auto() # kelas_method (class method)
 
+    # v6.0 Keywords — Custom Error Classes
+    TOKEN_KELAS_ERROR = auto() # kelas_error (custom error class)
+
     # Special
     TOKEN_EOF = auto()
 
@@ -311,6 +314,8 @@ KEYWORDS: dict[str, TokenType] = {
     # v5.0 keywords — Static/Class Methods
     "statis": TokenType.TOKEN_STATIS,
     "kelas_method": TokenType.TOKEN_KELASMETHOD,
+    # v6.0 keywords — Custom Error Classes
+    "kelas_error": TokenType.TOKEN_KELAS_ERROR,
 }
 
 

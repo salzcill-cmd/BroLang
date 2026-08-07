@@ -4,6 +4,96 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [6.1.0] - 2026-08-07
+
+### Added
+- **Mode Belajar `bro belajar`** 🎓 — tutorial interaktif untuk pemula & pelajar Indonesia:
+  - 8 bab bertingkat: Halo Dunia → Variabel → Matematika → Percabangan → Perulangan → List → Fungsi → Proyek Mini Kalkulator
+  - Materi singkat per bab + latihan soal yang **dicek otomatis** (dijalankan di interpreter, output dibandingkan)
+  - Nilai akhir + pesan motivasi, perintah `petunjuk` / `jawaban` / `lewati` / `bantuan` / `keluar`
+  - Perintah diproses langsung tanpa perlu baris kosong
+- **Pesan error ramah pemula**:
+  - Saran keyword Inggris → Indonesia: `print` → "mungkin maksudmu 'tulis'?", `null` → 'kosong', `def` → 'fungsi', `if` → 'jika', dll. (module `brolang/suggestions.py`, dipakai lexer/parser/analyzer/interpreter)
+  - Hint `jika x = 5 maka` → "pakai '==' untuk membandingkan" (juga di `selama`)
+  - Hint titik koma: "BroLang tidak memakai titik koma ';'"
+- **REPL ditingkatkan** (ramah pemula):
+  - Blok multi-baris (`jika ... maka`, `fungsi ...`) kini berfungsi benar — kedalaman blok dilacak dan dieksekusi otomatis saat `selesai`; blok kurung kurawal (`cocokkan ... {`, `enum`, `struktur`, literal objek multi-baris) ditutup otomatis oleh `}`
+  - Deteksi blok presisi (token pertama/terakhir): variabel seperti `fungsiku = 5` tidak lagi memicu mode multi-baris, `selesai # komentar` tetap dihitung menutup blok
+  - Ketik `keluar`/`batal` di tengah blok multi-baris = batalkan blok (tidak lagi menelan perintah)
+  - Hasil ekspresi ditampilkan: `2 + 3` → `=> 5` (state variabel bertahan antar input)
+  - Perintah `bantuan` (daftar fungsi + contoh), `tips`, `contoh`, `riwayat`, `bersih`
+  - Pesan sambutan berisi contoh yang bisa dicoba + tip acak tiap 5 input
+- **Anti-hang di mode belajar**: jawaban yang berjalan terlalu lama (mis. `selama true lakukan ... selesai` atau `waktu.tidur(30)`) dihentikan otomatis setelah 5 detik dengan pesan ramah — sesi belajar tidak bisa menggantung.
+
+### Changed
+- Versi di-bump dari `6.0.0` ke `6.1.0`.
+- REPL kini memakai interpreter sebagai sumber state tunggal (sebelumnya campur transpiler/interpreter sehingga state tidak konsisten dan ekspresi tidak menampilkan hasil).
+- 39 test baru (mode belajar, saran keyword, hint pemula, REPL) — total **575 test passing**.
+
+## [6.0.0] - 2026-08-07
+
+### Added
+- **Type System lengkap** — anotasi tipe di variabel, parameter, dan return value:
+  - `buat umur: Angka = 25`, `fungsi kali2(a: Angka) -> Angka`
+  - Union type: `Angka | Teks` · Generik: `Daftar<Angka>` · Alias: `tipe ID = Angka`
+  - Kelas user bisa dipakai sebagai tipe parameter (`fungsi info(m: Mobil)`)
+  - Tipe bawaan: `Angka`, `Desimal`, `Teks`, `Boolean`, `Daftar`, `Objek`, `Tupel`, `Set`, `Kosong`, `ApaSaja`
+  - **Enforcement dua lapis**: interpreter menolak mismatch saat runtime **dan** SemanticAnalyzer menolak mismatch statis (sehingga `bro run` ikut menolak `buat umur: Angka = "salah"`).
+- **Pattern Matching Modern** — `cocokkan` kini punya pola destructuring:
+  - Pola list: `[a, b]: ...` (bind elemen) · Pola objek: `{"nama": n, "umur": u}: ...`
+  - Binding: `n: ...` (tangkap seluruh nilai) · Guard: `x jika x > 10: ...`
+  - Konsisten di **interpreter** dan **transpiler** (binding via walrus `:=`).
+- **Error Handling Profesional** — custom error class:
+  - `kelas_error SaldoTidakCukup extends Kesalahan ... selesai` — kelas error dengan field sendiri
+  - Hierarki error: `kecuali Induk sebagai e` menangkap turunannya
+  - `kecuali lainnya sebagai e` sebagai fallback · `Kesalahan` tersedia sebagai kelas dasar bawaan
+  - Konsisten di **interpreter** dan **transpiler** (`class Nama(Kesalahan)`)
+  - **CLI error display profesional**: `bro run` menampilkan file/baris/kolom, baris sumber dengan penanda `^`, pesan + solusi, dan stack trace (v6.0).
+- **Ekosistem Stdlib** — 6 modul baru:
+  - `tanggal`: parse/format tanggal Indonesia, `selisih_hari`, `tambah_hari`, `komponen`, `parse`
+  - `catat`: logging ber-level (`info`/`error`/...), `atur_level`, `atur_file`
+  - `lingkungan`: env vars — `get`/`set`/`ada`/`hapus`
+  - `proses`: jalankan subprocess — `jalankan(cmd)` → objek `hasil` (`keluaran`, `kode`)
+  - `csv`: baca/tulis CSV — `baca(path)` → list objek, `tulis(path, data)`
+  - `registri`: **package registry online** — server HTTP (`jalankan_async`) + publish/install/cari via `PackageManager`
+- **SemanticAnalyzer v6.0**: dukungan `KelasErrorNode`, binding pattern match, dan cek anotasi tipe statis — semua fitur v6.0 jalan di pipeline penuh `bro run` (analyzer → optimizer → transpiler).
+
+### Fixed
+- **Parser**: fungsi yang dinamai keyword reserved (`fungsi cetak(...)` lalu `cetak(...)`) kini bisa dipanggil di statement level (sebelumnya "Token tidak terduga: 'cetak'").
+- **Transpiler match pattern list**: binding `[a, b]` menghasilkan `NameError: b` karena precedence `and`/`or` Python men-short-circuit binding kedua — setiap kondisi binding kini dibungkus tanda kurung.
+- **SemanticAnalyzer indexing**: `objek["kunci"]` (dict string-key) kini diterima — sebelumnya `bro run` menolak dengan "Indeks harus berupa angka" padahal interpreter mengizinkannya; index pada tipe tak dikenal juga tidak lagi false-positive.
+- **SemanticAnalyzer type alias**: `tipe ID = Angka` tidak lagi salah lapor "Variabel 'Angka' belum didefinisikan" — nama tipe di definisi alias bukan variabel runtime.
+- **Dokumentasi**: `docs/FITUR_V60.md` baru — panduan lengkap type system, pattern matching modern, kelas_error, stdlib baru, dan package registry online (semua contoh tervalidasi lewat `bro run`).
+
+### Changed
+- Versi di-bump dari `5.5.0` ke `6.0.0`.
+- **Breaking**: pola identifier di `cocokkan` kini menjadi **binding** (`n: ...` menangkap nilai, selalu cocok) — di v5.x pola identifier dibandingkan sebagai nilai (`nilai == n`). Program lama yang memakai identifier sebagai pola perbandingan perlu diganti dengan literal/ekspresi.
+- 45 test baru (type system, pattern matching modern, error handling, stdlib, package registry, pipeline CLI) — total **536 test passing**.
+
+## [5.5.0] - 2026-08-07
+
+### Added
+- **Operator Overloading** — kelas BroLang kini bisa mendefinisikan perilaku operator sendiri:
+  - Aritmatika: `_tambah_` (+), `_kurang_` (-), `_kali_` (*), `_bagi_` (/), `_modulo_` (%), `_pangkat_` (**)
+  - Perbandingan: `_sama_` (==), `_tidak_sama_` (!=), `_kurang_dari_` (<), `_lebih_dari_` (>), `_kurang_sama_` (<=), `_lebih_sama_` (>=)
+  - Unary: `_negasi_` (-), `_positif_` (+), `_bukan_` (bukan)
+  - Lainnya: `_dalam_` (dalam), `_teks_` (konversi string/print), `_panjang_` (panjang()), `_index_`/`_index_set_` ([] / [] =)
+  - Konsisten di **interpreter** dan **transpiler** (`_tambah_` → `__add__` Python), fallback `!=` = negasi `_sama_`.
+- **Modul `sejajar` (baru) — Threading/Parallel**: jalankan fungsi di background thread supaya game loop/program tetap responsif.
+  - `sejajar.jalankan(fungsi, *args)` → objek `Tugas` (`selesai()`, `hasil()`, `batal()`)
+  - `sejajar.tunggu(tugas)` / `sejajar.tunggu_semua([...])` / `sejajar.peta_sejajar(fungsi, iterable)`
+  - `sejajar.atur_thread(n)` / `sejajar.jumlah_thread()`
+  - Aman: fungsi BroLang di-serialisasi otomatis (interpreter tidak thread-safe); callable Python murni jalan benar-benar paralel.
+- **LSP upgrade** — auto-completion jauh lebih pintar:
+  - Completion keyword + **semua builtin** + **simbol dokumen** (variabel/fungsi/kelas/modul impor) + **member setelah titik** (fungsi modul stdlib asli)
+  - **Go-to-definition** beneran: lompat ke baris deklarasi variabel/fungsi/kelas
+  - **Hover**: keyword/simbol/builtin/modul dengan info tipe & baris deklarasi
+- **Parser**: assignment ke index `d[1] = 99` sekarang didukung (sebelumnya "Token tidak terduga '='") — dibutuhkan oleh `_index_set_`.
+
+### Changed
+- Versi di-bump dari `5.4.0` ke `5.5.0`.
+- 16 test baru (operator overloading, sejajar, LSP) — total **491 test passing**.
+
 ## [5.4.0] - 2026-08-07
 
 ### Added

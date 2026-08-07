@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-5.4-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-6.1-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v5.4</h1>
+<h1 align="center">BroLang v6.1</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/473-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/575-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/110+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/130+Token%20Types-purple?style=flat-square" alt="tokens"/>
-  <img src="https://img.shields.io/badge/28+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
+  <img src="https://img.shields.io/badge/34+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
 </p>
 
 ---
@@ -45,10 +45,187 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 5.4.0
+bro --version    # BroLang 6.1.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Belajar BroLang 🎓 (untuk pemula)
+
+**Mau belajar coding dari nol, pakai Bahasa Indonesia?** Jalankan:
+
+```bash
+bro belajar
+```
+
+Tutorial interaktif di terminal — 8 bab bertingkat:
+
+1. 🖨️ Halo Dunia
+2. 📦 Variabel
+3. ➕ Operasi Matematika
+4. 🌿 Percabangan
+5. 🔁 Perulangan
+6. 📋 List
+7. 🧩 Fungsi
+8. 🎮 Proyek Mini: Kalkulator
+
+Setiap bab ada materi singkat + latihan soal yang **dicek otomatis** (dijalankan langsung, lalu dibandingkan output-nya). Ada nilai akhir, petunjuk saat kesulitan, dan solusi kalau mentok. Tanpa install apa-apa, langsung dari terminal.
+
+**Ramah pemula di semua sisi:**
+- Pesan error memberi saran keyword: `print` → *"mungkin maksudmu 'tulis'?"*, `null` → *"mungkin maksudmu 'kosong'?"*
+- Hint kesalahan umum: `jika x = 5 maka` → *"pakai '==' untuk membandingkan"*, titik koma `;` → *"tidak perlu dipakai"*
+- REPL makin pintar: blok `jika`/`fungsi` multi-baris berfungsi, hasil ekspresi muncul (`2 + 3` → `=> 5`), perintah `bantuan`/`tips`/`contoh`
+
+---
+
+## Apa yang Baru di v6.0?
+
+### Type System Lengkap 🏷️
+Anotasi tipe di variabel, parameter, dan return value — diverifikasi otomatis (ditolak kalau salah).
+
+```bro
+buat umur: Angka = 25          # anotasi variabel
+buat nama: Teks = "Budi"
+
+fungsi kali2(a: Angka) -> Angka   # anotasi parameter & return
+    kembali a * 2
+selesai
+
+tulis kali2(21)                # 42
+
+# Union, generik, dan alias
+buat nilai: Angka | Teks = "lima"     # union type
+buat angka2: Daftar<Angka> = [1, 2, 3]  # generic
+
+tipe ID = Angka                        # type alias
+buat kode: ID = 12345
+```
+
+```bro
+buat umur: Angka = "salah"   # Error: Tipe tidak cocok untuk 'umur'
+```
+Mismatch tipe ditolak di **dua lapis**: analyzer statis (sebelum jalan) dan interpreter (saat runtime). Kelas user juga bisa dipakai sebagai tipe parameter (`fungsi info(m: Mobil)`).
+
+### Pattern Matching Modern 🎯
+`cocokkan` kini bisa membongkar list/objek langsung di polanya.
+
+```bro
+buat data = [1, 2]
+cocokkan data {
+    [a, b]: tulis a + b              # pola list → bind elemen → 3
+    _: tulis "lain"
+}
+
+buat orang = {"nama": "Ani", "umur": 20}
+cocokkan orang {
+    {"nama": n, "umur": u}: tulis "Nama: " + n + ", Umur: " + teks(u)
+    _: tulis "siapa?"
+}
+
+buat skor = 15
+cocokkan skor {
+    x jika x > 10: tulis "tinggi"     # guard condition
+    _: tulis "rendah"
+}
+```
+Pola: list `[a, b]`, objek `{"nama": n}`, binding `n:`, literal, wildcard `_`, plus guard `jika`. Bekerja sama di interpreter **dan** transpiler.
+
+### Error Handling Profesional 🚨
+Custom error class — `kelas_error` dengan field sendiri + hierarki + fallback.
+
+```bro
+kelas_error SaldoTidakCukup extends Kesalahan
+    fungsi __init__(pesan, saldo)
+        self.pesan = pesan
+        self.saldo = saldo
+    selesai
+selesai
+
+coba
+    lempar SaldoTidakCukup("Saldo tidak cukup", 5000)
+kecuali SaldoTidakCukup sebagai e
+    tulis "Tertangkap: " + e.pesan + ", saldo=" + teks(e.saldo)
+selesai
+```
+
+Hierarki error didukung: `kecuali Induk sebagai e` menangkap semua turunannya, dan `kecuali lainnya sebagai e` jadi fallback. Konsisten di interpreter & transpiler. Error CLI juga makin profesional — `bro run` menampilkan baris/kolom, baris sumber dengan penanda `^`, solusi, dan stack trace.
+
+### Ekosistem Stdlib + Package Registry 🌐
+Enam modul baru siap pakai:
+
+```bro
+impor tanggal
+impor catat
+impor lingkungan
+impor proses
+impor csv
+impor registri
+
+tulis tanggal.selisih_hari("2026-08-07", "2026-08-01")   # 6
+
+buat hasil = proses.jalankan("echo halo")
+tulis hasil.keluaran                                  # halo
+
+impor csv
+buat data = [{"nama": "Budi", "umur": 20}]
+csv.tulis("data.csv", data)
+tulis csv.baca("data.csv")[0]["nama"]                 # Budi
+```
+
+**Package Registry Online**: `registri.jalankan_async(port)` menjalankan registry HTTP lokal — `bro pkg publish` / `bro pkg install` / `cari_remote` sekarang bisa lewat jaringan.
+
+---
+
+## Apa yang Baru di v5.5?
+
+### Operator Overloading 🧮
+Kelas BroLang sekarang bisa mendefinisikan perilaku operator sendiri — nggak perlu fungsi bantu manual.
+
+```bro
+kelas Titik
+    fungsi __init__(x, y)
+        self.x = x
+        self.y = y
+    selesai
+    fungsi _tambah_(lain)
+        kembali Titik(self.x + lain.x, self.y + lain.y)
+    selesai
+    fungsi _sama_(lain)
+        kembali self.x == lain.x dan self.y == lain.y
+    selesai
+    fungsi _teks_()
+        kembali "(" + teks(self.x) + ", " + teks(self.y) + ")"
+    selesai
+selesai
+
+buat a = Titik(1, 2)
+buat b = Titik(3, 4)
+tulis a + b              # (4, 6)
+tulis a == Titik(1, 2)   # True
+```
+Method yang bisa di-overload: `_tambah_` (+), `_kurang_` (-), `_kali_` (*), `_bagi_` (/), `_modulo_` (%), `_pangkat_` (**), `_sama_` (==), `_tidak_sama_` (!=), `_kurang_dari_` (<), `_lebih_dari_` (>), `_kurang_sama_` (<=), `_lebih_sama_` (>=), `_negasi_` (-), `_positif_` (+), `_dalam_` (dalam), `_teks_` (print/konversi), `_panjang_` (panjang()), `_index_`/`_index_set_` (`[]`). Bekerja konsisten di interpreter **dan** transpiler.
+
+### Threading (`sejajar`) 🧵
+Jalankan fungsi di background thread supaya game loop / program utama tetap responsif.
+
+```bro
+impor sejajar
+
+fungsi hitung(x)
+    kembali x * 2
+selesai
+
+buat t = sejajar.jalankan(hitung, 21)      # background thread
+buat hasil = t.hasil()                      # 42 (blokir sampai selesai)
+
+tulis sejajar.peta_sejajar(hitung, [1, 2, 3, 4])   # [2, 4, 6, 8]
+```
+API: `jalankan`, `tunggu`, `tunggu_semua`, `peta_sejajar`, `atur_thread`/`jumlah_thread`, objek `Tugas` (`selesai()`/`hasil()`/`batal()`). Fungsi BroLang otomatis di-serialisasi biar aman; callable Python murni jalan paralel penuh.
+
+### LSP & Tooling ⚡
+Language server makin pintar: auto-completion mencakup **keyword + semua builtin + simbol di dokumen + member modul** (setelah titik), **go-to-definition** lompat ke baris deklarasi, dan **hover** menampilkan info tipe simbol. Cocok dipasang di VS Code / editor yang mendukung LSP.
 
 ---
 
@@ -403,7 +580,20 @@ pastikan(42 == 42, "Harus sama!")  # assert
 
 ---
 
-## Semua Fitur (v4.0 + v5.0 + v5.2 + v5.3 + v5.4)
+## Semua Fitur (v4.0 + v5.0 + v5.2 + v5.3 + v5.4 + v5.5 + v6.0)
+
+### v6.0
+- Type system lengkap: `buat x: Angka = 5`, `fungsi f(a: Angka) -> Teks`, union `Angka | Teks`, generik `Daftar<Angka>`, alias tipe
+- Pattern matching modern: pola list `[a, b]`, pola objek `{"nama": n}`, binding, guard `x jika x > 10`
+- Error handling profesional: `kelas_error` custom error class + hierarki + `kecuali lainnya`
+- Modul baru: `tanggal`, `catat`, `lingkungan`, `proses`, `csv`, `registri` (package registry online)
+- CLI error display profesional: baris/kolom, penanda `^`, solusi, stack trace
+- Analyzer: dukungan kelas_error & pattern binding + cek tipe statis (mismatch ditolak di `bro run`)
+
+### v5.5
+- Operator overloading: `_tambah_`, `_kurang_`, `_sama_`, `_teks_`, `_panjang_`, `_index_`, dll.
+- Modul `sejajar`: threading/parallel — `jalankan`, `tunggu`, `peta_sejajar`, objek `Tugas`
+- LSP: completion pintar, go-to-definition, hover
 
 ### v5.4
 - **Full upgrade library game** (14 modul): sprite ditulis ulang, `partikel` 🆕, `ui` 🆕, input event fix, tilemap fix, fisika radius configurable, kamera rotasi, 26 easing animasi, Timer/Stopwatch/FPS
@@ -591,6 +781,13 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | `serialisasi` | JSON, base64, CSV |
 | `dasar` | Base encoding utilities |
 | `visualisasi` | Chart & grafik data (ASCII, SVG, HTML, GUI Pygame) |
+| `sejajar` | Threading & parallel (jalankan background task, peta_sejajar) |
+| `tanggal` | Tanggal Indonesia: parse, format, selisih hari, komponen |
+| `catat` | Logging ber-level (info/error/warning) ke terminal & file |
+| `lingkungan` | Environment variables (get/set/ada/hapus) |
+| `proses` | Jalankan subprocess (keluaran, kode exit) |
+| `csv` | Baca/tulis CSV → list objek |
+| `registri` | Package registry online: server HTTP + publish/install |
 
 ---
 
@@ -603,6 +800,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | [Dasar Bahasa](docs/DASAR.md) | Tipe data, variabel, operator |
 | [Fungsi](docs/FUNGSI.md) | Fungsi, lambda, closures |
 | [Class & OOP](docs/OOP.md) | OOP & inheritance |
+| [Fitur v6.0](docs/FITUR_V60.md) | Type system, pattern matching modern, kelas_error, stdlib baru, package registry online |
 | [Fitur v5.0](docs/FITUR.md) | Semua fitur lengkap |
 | [Game Development](docs/GAME.md) | Bikin game pake BroLang |
 | [Standard Library](docs/STDLIB.md) | 25+ module built-in |
@@ -625,6 +823,7 @@ bro doc [topik]        # Dokumentasi
 bro new-game <nama>    # Bikin proyek game baru
 bro run-game <file>    # Jalankan game
 bro benchmark <file>   # Benchmark interpreter vs transpiler vs VM
+bro belajar            # Belajar coding interaktif untuk pemula 🎓
 bro pkg <cmd>          # Package manager (init/install/publish/dll)
 ```
 
@@ -687,7 +886,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**473 test cases, semua passing!** (termasuk 61 test library game v5.4, output-consistency tests, suite v5.x, dan test visualisasi: ASCII, SVG, GUI)
+**575 test cases, semua passing!** (termasuk 61 test library game v5.4, output-consistency tests, suite v5.x, test visualisasi: ASCII, SVG, GUI, 45 test v6.0, dan 39 test ramah pemula: mode belajar, saran keyword, hint pemula, REPL)
 
 ---
 
@@ -711,7 +910,7 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v5.4** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v6.1** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>

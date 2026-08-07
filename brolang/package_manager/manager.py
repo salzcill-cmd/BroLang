@@ -61,6 +61,8 @@ class PackageManager:
             or os.environ.get("BROLANG_REGISTRY_DIR")
             or os.path.expanduser("~/.brolang/registry")
         )
+        # Registry remote tambahan (URL HTTP) — ditambah via CLI --registry
+        self._remote_registries: List[str] = []
         self._ensure_directories()
 
     def _ensure_directories(self) -> None:
@@ -167,20 +169,161 @@ class PackageManager:
 
     # ============= Install =============
 
-    def install(self, target: str) -> bool:
+    def install(self, target: str, registry_url: str = "") -> bool:
         """Menginstal paket.
 
         Mendukung:
         - Nama paket dari registry lokal (sudah dipublish)
         - Path folder lokal berisi brolang.json
         - URL git (https://...git, git@..., atau path ke repo git)
+        - Registry online: --registry http://host:port
         """
+        if registry_url:
+            if registry_url not in self._remote_registries:
+                self._remote_registries.append(registry_url)
+            return self._install_from_remote(target, registry_url)
         # Jika target adalah path lokal
         if os.path.isdir(target):
             return self._install_from_dir(target)
         if target.startswith(("https://", "http://", "git@", "git://", "ssh://")):
             return self._install_from_git(target)
         return self._install_from_registry(target)
+
+    # ============= V6.0: Registry Online (HTTP) =============
+
+    @staticmethod
+    def _http_get_json(url: str, timeout: int = 15) -> Optional[Dict[str, Any]]:
+        """GET JSON dari URL."""
+        import urllib.request
+        import json as _json
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                return _json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None
+
+    @staticmethod
+    def _http_get_bytes(url: str, timeout: int = 30) -> Optional[bytes]:
+        """GET bytes dari URL."""
+        import urllib.request
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                return resp.read()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _http_post_json(url: str, payload: Dict[str, Any], timeout: int = 30) -> Optional[Dict[str, Any]]:
+        """POST JSON ke URL."""
+        import urllib.request
+        import json as _json
+        body = _json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(url, data=body, method="POST")
+        req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return _json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None
+
+    def cari_remote(self, keyword: str = "", registry_url: str = "") -> List[Dict[str, str]]:
+        """Cari paket di registry remote (HTTP).
+
+        Args:
+            keyword: Kata kunci pencarian (kosong = semua)
+            registry_url: URL registry spesifik (opsional)
+        """
+        hasil = []
+        targets = ([registry_url] if registry_url else self._remote_registries)
+        for reg in targets:
+            base = reg.rstrip("/")
+            data = self._http_get_json(f"{base}/api/paket")
+            if not data:
+                continue
+            for nama, info in (data.get("paket") or {}).items():
+                if (not keyword
+                        or keyword.lower() in nama.lower()
+                        or keyword.lower() in (info.get("deskripsi") or "").lower()):
+                    hasil.append({
+                        "name": nama,
+                        "version": info.get("versi", "?"),
+                        "description": info.get("deskripsi", ""),
+                        "registry": reg,
+                    })
+        return hasil
+
+    def _install_from_remote(self, package_name: str, registry_url: str) -> bool:
+        """Install paket dari registry online (HTTP)."""
+        import io as _io
+        import tarfile as _tarfile
+
+        base = registry_url.rstrip("/")
+        data = self._http_get_json(f"{base}/api/paket/{package_name}")
+        if not data or "paket" not in data:
+            print(f"Paket '{package_name}' tidak ditemukan di {registry_url}.")
+            return False
+        info = data["paket"]
+        versi = info.get("versi", "?")
+        print(f"Mengunduh '{package_name}' ({versi}) dari {registry_url} ...")
+
+        tar_bytes = self._http_get_bytes(f"{base}/api/download/{package_name}")
+        if not tar_bytes:
+            print(f"Gagal mengunduh arsip '{package_name}' dari {registry_url}.")
+            return False
+
+        tmp_dir = os.path.join(self.packages_dir, f".tmp_{package_name}")
+        if os.path.exists(tmp_dir):
+            shutil.rmtree(tmp_dir)
+        os.makedirs(tmp_dir, exist_ok=True)
+        try:
+            with _tarfile.open(fileobj=_io.BytesIO(tar_bytes), mode="r:gz") as tar:
+                tar.extractall(tmp_dir)
+        except Exception as e:
+            print(f"Arsip '{package_name}' rusak: {e}")
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return False
+
+        ok = self._install_from_dir(tmp_dir)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        if ok:
+            print(f"Paket '{package_name}' ({versi}) terinstall dari {registry_url}.")
+        return ok
+
+    def publish_remote(self, registry_url: str) -> bool:
+        """Publish paket dari folder saat ini ke registry online (HTTP)."""
+        import io as _io
+        import tarfile as _tarfile
+
+        manifest = self.read_manifest()
+        if manifest is None:
+            print(f"Error: tidak ada {MANIFEST_NAME} di folder ini.")
+            print("Jalankan 'bro pkg init' dulu.")
+            return False
+
+        name = manifest.get("nama", os.path.basename(os.getcwd()))
+        version = manifest.get("versi", "1.0.0")
+
+        # Kumpulkan file .bro + manifest sebagai dict
+        files = {}
+        for root, _, filenames in os.walk(os.getcwd()):
+            for file in filenames:
+                if file.endswith(".bro") or file == MANIFEST_NAME:
+                    src = os.path.join(root, file)
+                    rel = os.path.relpath(src, os.getcwd())
+                    with open(src, "r", encoding="utf-8") as f:
+                        files[rel] = f.read()
+
+        payload = {"manifest": manifest, "files": files}
+        base = registry_url.rstrip("/")
+        resp = self._http_post_json(f"{base}/api/publish", payload)
+        if not resp or not resp.get("sukses"):
+            msg = (resp or {}).get("error", "Gagal terhubung ke registry.")
+            print(f"Publish gagal: {msg}")
+            return False
+
+        print(f"Paket '{name}' ({version}) berhasil dipublish ke {registry_url}.")
+        print(f"Install di project lain: bro pkg install {name} --registry {registry_url}")
+        return True
 
     def _install_from_dir(self, source_dir: str) -> bool:
         """Install paket dari folder lokal yang punya brolang.json."""
@@ -332,8 +475,15 @@ class PackageManager:
 
     # ============= Publish =============
 
-    def publish(self) -> bool:
-        """Mempublish paket dari folder saat ini ke registry lokal."""
+    def publish(self, registry_url: str = "") -> bool:
+        """Mempublish paket dari folder saat ini.
+
+        Tanpa argumen: publish ke registry lokal.
+        Dengan registry_url (http...): publish ke registry online.
+        """
+        if registry_url:
+            return self.publish_remote(registry_url)
+
         manifest = self.read_manifest()
         if manifest is None:
             print(f"Error: tidak ada {MANIFEST_NAME} di folder ini.")
@@ -478,23 +628,43 @@ def main(args: Optional[List[str]] = None) -> int:
         print("  search <kata>      : Cari paket di registry")
         print("  publish            : Publish paket dari folder saat ini")
         print("  info <paket>       : Info paket")
+        print("  server [port]      : Jalankan registry online (v6.0)")
+        print()
+        print("Registry online (v6.0):")
+        print("  bro pkg publish --registry http://host:port")
+        print("  bro pkg install <paket> --registry http://host:port")
+        print("  bro pkg search <kata> --registry http://host:port")
         return 0
 
     manager = PackageManager()
     command = args[0]
     cmd_args = args[1:]
 
+    # Ekstrak flag --registry <url>
+    registry_url = ""
+    if "--registry" in cmd_args:
+        idx = cmd_args.index("--registry")
+        if idx + 1 < len(cmd_args):
+            registry_url = cmd_args[idx + 1]
+            cmd_args = cmd_args[:idx] + cmd_args[idx + 2:]
+        else:
+            print("Gunakan: --registry <url>")
+            return 1
+    if registry_url and registry_url not in manager._remote_registries:
+        manager._remote_registries.append(registry_url)
+
     if command == "init":
         return 0 if manager.init_project(cmd_args[0] if cmd_args else None) else 1
 
     elif command == "install":
         if not cmd_args:
-            print("Gunakan: bro pkg install <paket>")
+            print("Gunakan: bro pkg install <paket> [--registry <url>]")
             print("Contoh:  bro pkg install matematika-ku")
             print("         bro pkg install /path/ke/folder")
             print("         bro pkg install https://github.com/user/repo.git")
+            print("         bro pkg install nama-paket --registry http://host:8000")
             return 1
-        return 0 if manager.install(cmd_args[0]) else 1
+        return 0 if manager.install(cmd_args[0], registry_url=registry_url) else 1
 
     elif command == "remove":
         if not cmd_args:
@@ -521,25 +691,39 @@ def main(args: Optional[List[str]] = None) -> int:
 
     elif command == "search":
         if not cmd_args:
-            print("Gunakan: bro pkg search <kata_kunci>")
+            print("Gunakan: bro pkg search <kata_kunci> [--registry <url>]")
             return 1
         results = manager.search(cmd_args[0])
+        if registry_url:
+            remote = manager.cari_remote(cmd_args[0])
+            # Gabungkan tanpa duplikasi
+            seen = {r["name"] for r in results}
+            for r in remote:
+                if r["name"] not in seen:
+                    results.append(r)
         if not results:
             print(f"Tidak ada paket ditemukan untuk '{cmd_args[0]}'.")
         else:
             print(f"Hasil pencarian untuk '{cmd_args[0]}':")
             for r in results:
-                print(f"  {r['name']} ({r['version']}) - {r['description']}")
+                lokasi = f" (di {r['registry']})" if r.get("registry") else ""
+                print(f"  {r['name']} ({r['version']}) - {r['description']}{lokasi}")
         return 0
 
     elif command == "publish":
-        return 0 if manager.publish() else 1
+        return 0 if manager.publish(registry_url=registry_url) else 1
 
     elif command == "info":
         if not cmd_args:
             print("Gunakan: bro pkg info <paket>")
             return 1
         return 0 if manager.info(cmd_args[0]) is not None else 1
+
+    elif command == "server":
+        from brolang.stdlib.registri import jalankan as jalankan_registry
+        port = int(cmd_args[0]) if cmd_args else 8000
+        jalankan_registry(port)
+        return 0
 
     else:
         print(f"Perintah tidak dikenal: {command}")

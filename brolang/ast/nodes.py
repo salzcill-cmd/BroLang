@@ -123,10 +123,11 @@ class IdentifierNode(ASTNode):
 
 @dataclass
 class AssignmentNode(ASTNode):
-    """Node untuk assignment: buat x = nilai"""
+    """Node untuk assignment: buat x = nilai (v6.0: buat x: Tipe = nilai)"""
     target: ASTNode = field(default_factory=lambda: IdentifierNode(""))
     value: ASTNode = field(default_factory=lambda: NumberNode())
     is_declaration: bool = True
+    type_annotation: Optional[str] = None  # v6.0: 'buat x: Angka = 5'
 
     def get_children(self) -> List[Any]:
         return [self.target, self.value]
@@ -313,6 +314,8 @@ class FunctionNode(ASTNode):
     defaults: List[Optional[ASTNode]] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
     is_static: bool = False
+    param_types: List[Optional[str]] = field(default_factory=list)  # v6.0
+    return_type: Optional[str] = None  # v6.0: 'fungsi f() -> Angka'
 
     def get_children(self) -> List[Any]:
         return self.body
@@ -451,6 +454,27 @@ class TryNode(ASTNode):
 class CatchNode(ASTNode):
     """Node untuk catch dalam try."""
     variable: str = "error"
+    body: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.body
+
+
+@dataclass
+class KelasErrorNode(ASTNode):
+    """Node untuk custom error class (v6.0): kelas_error Nama extends Induk ... selesai
+
+    Error kustom memudahkan penanganan error profesional:
+        kelas_error SaldoTidakCukup extends Kesalahan
+            fungsi __init__(pesan, saldo)
+                self.pesan = pesan
+                self.saldo = saldo
+            selesai
+        selesai
+    """
+    name: str = ""
+    parent: Optional[str] = None  # default: 'Kesalahan'
+    methods: List["MethodNode"] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
 
     def get_children(self) -> List[Any]:
@@ -628,6 +652,7 @@ class MatchNode(ASTNode):
     """Node untuk match/case: cocokkan expr { ... }"""
     value: ASTNode = field(default_factory=lambda: NumberNode(0))
     cases: List[tuple] = field(default_factory=list)  # [(pattern_node, body_nodes)]
+    guards: List[Optional[ASTNode]] = field(default_factory=list)  # v6.0 per-case
     default_case: Optional[List[ASTNode]] = None  # _ case
 
     def get_children(self) -> List[Any]:
@@ -1041,6 +1066,24 @@ class GuardPatternNode(ASTNode):
         children = [self.condition]
         children.extend(self.body)
         return children
+
+
+@dataclass
+class ObjectPatternNode(ASTNode):
+    """Pola objek dengan rename: {"x": a, "y": b} — bind nilai kunci ke variabel."""
+    entries: Dict[str, str] = field(default_factory=dict)  # {kunci: variabel}
+
+    def get_children(self) -> List[Any]:
+        return []
+
+
+@dataclass
+class BindingPatternNode(ASTNode):
+    """Pola binding: identifier menangkap seluruh nilai."""
+    name: str = ""
+
+    def get_children(self) -> List[Any]:
+        return []
 
 
 # ============= V5.0: Higher-Order Functions =============

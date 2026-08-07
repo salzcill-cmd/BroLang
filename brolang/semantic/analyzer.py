@@ -38,8 +38,12 @@ from brolang.ast.nodes import (
     PassNode, DelNode, AssertNode,
     TupleNode, SetNode, DictComprehensionNode,
     PipelineNode, DestructuringAssignmentNode,
+    # V6.0 Nodes
+    KelasErrorNode, ObjectPatternNode, BindingPatternNode,
+    DestructuringPatternNode, TypeAliasNode,
 )
 from brolang.exceptions import SemanticError
+from brolang.suggestions import saran_keyword
 
 
 @dataclass
@@ -130,6 +134,7 @@ class SemanticAnalyzer(ASTVisitor):
         self.current_class: Optional[str] = None
         self._has_errors: bool = False
         self._loop_depth: int = 0
+        self._current_return_type: Optional[str] = None  # v6.0: `fungsi f() -> Tipe`
 
     def analyze(self, node: ASTNode) -> bool:
         """Menjalankan analisis semantik pada AST.
@@ -141,12 +146,84 @@ class SemanticAnalyzer(ASTVisitor):
             bool: True jika tidak ada error
         """
         self._has_errors = False
+        # Scope global di-reset tiap panggilan supaya analyze() re-entrant
+        # (bisa dipanggil berkali-kali pada instance yang sama).
+        self.current_scope = SymbolTable(scope_name="global")
+        # v6.0: `Kesalahan` adalah kelas dasar error kustom bawaan
+        # (didefinisikan di interpreter & transpiler) — daftarkan sebagai
+        # simbol kelas global supaya `lempar Kesalahan(...)` valid.
+        self.current_scope.define(
+            name="Kesalahan", kind="class", line=0, column=0, is_initialized=True,
+        )
         try:
             self.visit(node)
         except SemanticError as e:
             self.errors.append(e)
             self._has_errors = True
         return not self._has_errors
+
+    # ============= V6.0: Type System =============
+
+    _TIPE_PEMETAAN = {
+        "Angka": ("angka", "desimal"),
+        "Desimal": ("desimal",),
+        "Teks": ("teks",),
+        "String": ("teks",),
+        "Boolean": ("boolean",),
+        "Daftar": ("list",),
+        "List": ("list",),
+        "Array": ("list",),
+        "Objek": ("objek",),
+        "Dict": ("objek",),
+        "Map": ("objek",),
+        "Tupel": ("tuple",),
+        "Tuple": ("tuple",),
+        "Set": ("set",),
+        "Kosong": ("kosong",),
+        "Null": ("kosong",),
+    }
+
+    def _tipe_dari_anotasi(self, anotasi: Optional[str]) -> Optional[str]:
+        """Konversi anotasi tipe v6.0 → nama tipe analyzer (atau None jika tak dikenal)."""
+        if not anotasi:
+            return None
+        anotasi = anotasi.strip()
+        if anotasi in ("ApaSaja", "Any"):
+            return None
+        if "|" in anotasi:
+            return None  # union — tipe dinamis, tidak bisa dipastikan statis
+        if "<" in anotasi:  # generik: Daftar<Angka>
+            anotasi = anotasi[:anotasi.index("<")].strip()
+        if anotasi in self._TIPE_PEMETAAN:
+            return self._TIPE_PEMETAAN[anotasi][0]
+        return None  # kelas user / alias — tidak diketahui statis
+
+    def _anotasi_cocok(self, nilai_tipe: Optional[str], anotasi: Optional[str]) -> bool:
+        """Cek statis apakah tipe nilai cocok dengan anotasi v6.0.
+
+        Mengembalikan True bila tipe tidak bisa dipastikan (None) supaya
+        tidak ada false-positive; penegakan runtime tetap di interpreter.
+        """
+        if not anotasi or nilai_tipe is None:
+            return True
+        # `kosong` (null) cocok dengan anotasi apa pun — pola "tidak
+        # ditemukan → kembali kosong" sangat umum; interpreter tidak
+        # menegakkan tipe return sama sekali.
+        if nilai_tipe == "kosong":
+            return True
+        anotasi = anotasi.strip()
+        if anotasi in ("ApaSaja", "Any"):
+            return True
+        if "|" in anotasi:  # union: Angka | Teks
+            return any(
+                self._anotasi_cocok(nilai_tipe, bagian.strip())
+                for bagian in anotasi.split("|")
+            )
+        if "<" in anotasi:  # generik: Daftar<Angka> — cek tipe dasar
+            anotasi = anotasi[:anotasi.index("<")].strip()
+        if anotasi in self._TIPE_PEMETAAN:
+            return nilai_tipe in self._TIPE_PEMETAAN[anotasi]
+        return True  # alias / kelas user — serahkan ke runtime
 
     def _error(self, message: str, line: int = 0, column: int = 0,
                solution: str = "", example: str = "") -> SemanticError:
@@ -200,8 +277,10 @@ class SemanticAnalyzer(ASTVisitor):
             # Check if it's a built-in function
             if node.name in ("input", "len", "angka", "teks", "desimal"):
                 return None
+            message = f"Variabel '{node.name}' belum didefinisikan."
+            message += saran_keyword(node.name)
             raise self._error(
-                message=f"Variabel '{node.name}' belum didefinisikan.",
+                message=message,
                 line=node.line,
                 column=node.column,
                 solution=f"Tambahkan 'buat {node.name} = ...' sebelum menggunakan '{node.name}'.",
@@ -222,6 +301,15 @@ class SemanticAnalyzer(ASTVisitor):
             if node.is_declaration:
                 # Define new variable
                 value_type = self.visit(node.value) if node.value else None
+                # v6.0: `buat x: Angka = 5` — cek statis kalau tipe nilai diketahui
+                if not self._anotasi_cocok(value_type, node.type_annotation):
+                    raise self._error(
+                        message=f"Tipe tidak cocok untuk '{name}': diharapkan "
+                                f"{node.type_annotation}, tapi mendapat {value_type or 'tak dikenal'}.",
+                        line=node.line,
+                        column=node.column,
+                        solution=f"Ubah nilai menjadi {node.type_annotation} atau ubah anotasi tipe.",
+                    )
                 self.current_scope.define(
                     name=name,
                     kind="variable",
@@ -457,11 +545,21 @@ class SemanticAnalyzer(ASTVisitor):
         self.current_function = node.name
         self._enter_scope(f"function:{node.name}")
 
-        # Define parameters
+        # Define parameters (v6.0: hormati anotasi tipe `a: Angka`)
+        param_types = getattr(node, 'param_types', None) or []
         for i, param in enumerate(node.params):
-            type_hint = "angka"
+            anotasi = param_types[i] if i < len(param_types) else None
+            type_hint = self._tipe_dari_anotasi(anotasi) or "angka"
             if i < len(node.defaults) and node.defaults[i] is not None:
-                self.visit(node.defaults[i])
+                default_type = self.visit(node.defaults[i])
+                if not self._anotasi_cocok(default_type, anotasi):
+                    raise self._error(
+                        message=f"Nilai default parameter '{param}' tidak cocok "
+                                f"dengan tipe {anotasi}.",
+                        line=node.line,
+                        column=node.column,
+                        solution=f"Ubah nilai default menjadi {anotasi}.",
+                    )
             self.current_scope.define(
                 name=param,
                 kind="parameter",
@@ -470,6 +568,10 @@ class SemanticAnalyzer(ASTVisitor):
                 is_initialized=True,
                 type_hint=type_hint,
             )
+
+        # v6.0: return type `fungsi f() -> Angka` — cek di visit_ReturnNode
+        old_return_type = self._current_return_type
+        self._current_return_type = getattr(node, 'return_type', None)
 
         # Validasi: default parameter tidak boleh mendahului parameter non-default
         seen_default = False
@@ -492,9 +594,10 @@ class SemanticAnalyzer(ASTVisitor):
 
         self._exit_scope()
         self.current_function = old_function
+        self._current_return_type = old_return_type
 
     def visit_ReturnNode(self, node: ReturnNode) -> None:
-        """Memeriksa return statement."""
+        """Memeriksa return statement (v6.0: cek cocok dengan `-> Tipe`)."""
         if self.current_function is None and self.current_class is None:
             raise self._error(
                 message="'kembali' harus digunakan di dalam fungsi.",
@@ -503,7 +606,15 @@ class SemanticAnalyzer(ASTVisitor):
                 solution="Gunakan 'kembali' hanya di dalam blok 'fungsi'.",
             )
         if node.value:
-            self.visit(node.value)
+            nilai_type = self.visit(node.value)
+            if not self._anotasi_cocok(nilai_type, self._current_return_type):
+                raise self._error(
+                    message=f"Nilai kembali tidak cocok dengan tipe return "
+                            f"{self._current_return_type} (mendapat {nilai_type or 'tak dikenal'}).",
+                    line=node.line,
+                    column=node.column,
+                    solution=f"Ubah nilai kembali menjadi {self._current_return_type}.",
+                )
 
     def visit_CallNode(self, node: CallNode) -> Optional[str]:
         """Memeriksa pemanggilan fungsi."""
@@ -516,8 +627,10 @@ class SemanticAnalyzer(ASTVisitor):
             func_name = node.function.name
             info = self.current_scope.lookup(func_name)
             if info is None and func_name not in ("input", "len", "angka", "teks", "desimal", "tulis", "range", "tipe", "jumlah", "peta", "saring", "cek_tipe", "pastikan", "zip", "enumerate", "min", "max", "urutkan", "terbalik", "ada", "semua", "isinstance", "punya", "id", "hash", "abs", "round", "panjang", "boolean", "angka_desimal", "hentikan_iterasi"):
+                message = f"Fungsi '{func_name}' belum didefinisikan."
+                message += saran_keyword(func_name)
                 raise self._error(
-                    message=f"Fungsi '{func_name}' belum didefinisikan.",
+                    message=message,
                     line=node.line,
                     column=node.column,
                     solution=f"Buat fungsi '{func_name}' terlebih dahulu atau impor dari modul.",
@@ -550,6 +663,55 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_ClassNode(self, node: ClassNode) -> None:
         """Memeriksa deklarasi kelas."""
+        self.current_scope.define(
+            name=node.name,
+            kind="class",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+
+        old_class = self.current_class
+        self.current_class = node.name
+        self._enter_scope(f"class:{node.name}")
+
+        # Define `self` parameter implicitly
+        self.current_scope.define(
+            name="self",
+            kind="parameter",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+
+        # Parse methods
+        for stmt in node.body:
+            if isinstance(stmt, FunctionNode):
+                self.visit(stmt)
+            else:
+                self.visit(stmt)
+
+        self._exit_scope()
+        self.current_class = old_class
+
+    def visit_TypeAliasNode(self, node: TypeAliasNode) -> None:
+        """Type alias: `tipe ID = Angka` — daftarkan nama tipe.
+
+        Definition berisi nama tipe (Angka, Teks, Daftar<Angka>, ...) yang
+        bukan variabel runtime — jadi tidak di-visit sebagai lookup variabel
+        (kalau di-visit, analyzer salah melaporkan 'Variabel Angka belum
+        didefinisikan').
+        """
+        self.current_scope.define(
+            name=node.name,
+            kind="type",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+
+    def visit_KelasErrorNode(self, node: KelasErrorNode) -> None:
+        """v6.0: `kelas_error Nama extends Induk` — daftarkan kelas error."""
         self.current_scope.define(
             name=node.name,
             kind="class",
@@ -701,20 +863,32 @@ class SemanticAnalyzer(ASTVisitor):
         return "list"
 
     def visit_IndexNode(self, node: IndexNode) -> str:
-        """Memeriksa indexing."""
+        """Memeriksa indexing (v6.0: objek di-index dengan kunci teks)."""
         target_type = self.visit(node.target)
         index_type = self.visit(node.index)
 
-        if target_type not in ("list", "teks", "tuple", None):
-            # Cek apakah target adalah nama kelas yang mungkin punya __getitem__
-            if not (isinstance(node.target, IdentifierNode) and
-                    node.target.name in self._current_class_names if hasattr(self, '_current_class_names') else False):
+        # Tipe target tak dikenal (mis. hasil pemanggilan fungsi) — serahkan
+        # ke runtime, jangan sampai false-positive.
+        if target_type is None:
+            return None
+
+        # Objek (dict) di-index dengan kunci teks — konsisten dengan interpreter
+        if target_type == "objek":
+            if index_type not in ("teks", "angka", None):
                 raise self._error(
-                    message=f"Tipe {target_type} tidak bisa di-index.",
+                    message="Indeks objek harus berupa kunci teks.",
                     line=node.line,
                     column=node.column,
-                    solution="Indexing hanya untuk list, string, dan tuple.",
                 )
+            return None
+
+        if target_type not in ("list", "teks", "tuple"):
+            raise self._error(
+                message=f"Tipe {target_type} tidak bisa di-index.",
+                line=node.line,
+                column=node.column,
+                solution="Indexing hanya untuk list, string, tuple, dan objek.",
+            )
 
         if index_type not in ("angka", None):
             raise self._error(
@@ -829,12 +1003,17 @@ class SemanticAnalyzer(ASTVisitor):
     # ============= V2: Match/Case =============
 
     def visit_MatchNode(self, node: MatchNode) -> None:
-        """Memeriksa match/case."""
+        """Memeriksa match/case (v6.0: binding pattern + guard)."""
         self.visit(node.value)
-        for pattern, body in node.cases:
+        guards = getattr(node, 'guards', None) or []
+        for idx, (pattern, body) in enumerate(node.cases):
+            self._enter_scope("match_case")
+            # Pola binding (v6.0) mendefinisikan variabel yang dipakai
+            # di body & guard: `[a, b]: ...` atau `x jika x > 10: ...`
             if not isinstance(pattern, WildcardNode):
                 self.visit(pattern)
-            self._enter_scope("match_case")
+            if idx < len(guards) and guards[idx] is not None:
+                self.visit(guards[idx])
             for stmt in body:
                 self.visit(stmt)
             self._exit_scope()
@@ -843,6 +1022,49 @@ class SemanticAnalyzer(ASTVisitor):
             for stmt in node.default_case:
                 self.visit(stmt)
             self._exit_scope()
+
+    # ============= V6.0: Pattern Binding =============
+
+    def visit_BindingPatternNode(self, node: BindingPatternNode) -> None:
+        """Pola binding `n:` — variabel menangkap seluruh nilai."""
+        self.current_scope.define(
+            name=node.name,
+            kind="variable",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+
+    def visit_DestructuringPatternNode(self, node: DestructuringPatternNode) -> None:
+        """Pola destructuring `[a, b]` / `{x, y}` — definisikan semua target."""
+        for name in node.variables:
+            self.current_scope.define(
+                name=name,
+                kind="variable",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
+
+    def visit_ObjectPatternNode(self, node: ObjectPatternNode) -> None:
+        """Pola objek `{"x": a, "y": b}` — definisikan variabel binding."""
+        for entry in node.entries.values():
+            if isinstance(entry, tuple) and entry and entry[0] == "var":
+                self.current_scope.define(
+                    name=entry[1],
+                    kind="variable",
+                    line=node.line,
+                    column=node.column,
+                    is_initialized=True,
+                )
+            elif isinstance(entry, str):
+                self.current_scope.define(
+                    name=entry,
+                    kind="variable",
+                    line=node.line,
+                    column=node.column,
+                    is_initialized=True,
+                )
 
     def visit_WildcardNode(self, node: WildcardNode) -> None:
         """Memeriksa wildcard."""

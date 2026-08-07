@@ -509,9 +509,14 @@ class Lexer:
 
         token_type = operator_map.get(char)
         if token_type is None:
+            # Ramah pemula: titik koma sering dipakai pemula yang baru pindah
+            # dari Python/JavaScript.
+            solusi = f'Hapus karakter \'{char}\' atau ganti dengan yang benar.'
+            if char == ';':
+                solusi = 'BroLang tidak memakai titik koma \' ; \' — hapus saja.'
             raise self._error(
                 message=f'Karakter \'{char}\' tidak dikenal.',
-                solution=f'Hapus karakter \'{char}\' atau ganti dengan yang benar.',
+                solution=solusi,
             )
 
         # Lacak kedalaman bracket agar ekspresi multi-baris (di dalam kurung)

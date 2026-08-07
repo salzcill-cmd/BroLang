@@ -50,6 +50,7 @@ def main(args: Optional[List[str]] = None) -> int:
         "pkg": _cmd_pkg,
         "benchmark": _cmd_benchmark,
         "bench": _cmd_benchmark,
+        "belajar": _cmd_belajar,
         "version": _cmd_version,
         "--version": _cmd_version,
         "-v": _cmd_version,
@@ -126,8 +127,74 @@ def _cmd_run(args: List[str]) -> int:
         return 0
 
     except Exception as e:
-        print(str(e))
-        return 1
+        return _print_error(e, file_path, source)
+
+
+
+def _print_error(e: Exception, file_path: str = "", source: str = "") -> int:
+    """Tampilkan error BroLang dengan stack trace profesional (v6.0).
+
+    Menampilkan:
+    - Lokasi error (file, baris, kolom) + baris sumber dengan penanda ^
+    - Pesan error + solusi
+    - Rantai panggilan (call stack) dari error
+    """
+    from brolang.exceptions import BroLangError
+
+    detail = getattr(e, 'detail', None)
+    line = getattr(e, 'line', 0) or (detail.line if detail else 0)
+    column = getattr(e, 'column', 0) or (detail.column if detail else 0)
+
+    print()
+    print("=" * 50)
+    print("  Error BroLang")
+    print("=" * 50)
+    if file_path:
+        print(f"  File      : {file_path}")
+    if line > 0:
+        print(f"  Baris     : {line}" + (f" (kolom {column})" if column > 0 else ""))
+
+    # Tampilkan baris sumber + penanda posisi
+    if line > 0 and source:
+        lines = source.splitlines()
+        if 0 < line <= len(lines):
+            src_line = lines[line - 1].rstrip()
+            print(f"  Sumber    : {src_line}")
+            if column > 0:
+                print(f"              {' ' * max(0, column - 1)}^")
+
+    if isinstance(e, BroLangError):
+        print(f"  Pesan     : {detail.message if detail else e}")
+        if detail and detail.solution:
+            print(f"  Solusi    : {detail.solution}")
+        if detail and detail.example:
+            print(f"  Contoh    : {detail.example}")
+    else:
+        print(f"  Pesan     : {e}")
+
+    # Stack trace (chain panggilan)
+    tb = e.__traceback__
+    frames = []
+    while tb is not None:
+        frames.append(tb)
+        tb = tb.tb_next
+    if len(frames) > 1:
+        print()
+        print("  Stack trace (fungsi dipanggil dari):")
+        # Frames terakhir = lokasi error. Lewati frame pipeline bro.
+        shown = 0
+        for frame in reversed(frames):
+            if frame.tb_frame.f_code.co_filename.startswith("brolang/"):
+                continue
+            if shown >= 6:
+                break
+            fn = frame.tb_frame.f_code.co_name
+            fl = frame.tb_frame.f_lineno
+            print(f"    -> {fn}() di baris {fl}")
+            shown += 1
+
+    print("=" * 50)
+    return 1
 
 
 def _cmd_build(args: List[str]) -> int:
@@ -439,6 +506,7 @@ Perintah:
   bro run <file>         : Menjalankan file BroLang
   bro build <file>       : Mengompilasi ke Python
   bro repl               : REPL interaktif
+  bro belajar            : Belajar coding interaktif untuk pemula 🎓
   bro test [file]        : Menjalankan tes
   bro profile <file>     : Profil eksekusi
   bro lint <file>        : Analisis kode
@@ -853,6 +921,23 @@ selesai
 """)
 
 
+def _cmd_belajar(args: List[str]) -> int:
+    """Mode belajar interaktif untuk pemula.
+
+    Penggunaan:
+        bro belajar
+    """
+    try:
+        from brolang.belajar import mulai_belajar
+        return mulai_belajar()
+    except KeyboardInterrupt:
+        print("\nSampai jumpa! Tetap semangat belajar ya 💪")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
 def _cmd_version(args: List[str]) -> int:
     """Menampilkan versi BroLang."""
     from brolang import __version__
@@ -1141,9 +1226,10 @@ Penggunaan:
     bro doc [topik]        : Dokumentasi
     bro new-game <nama>    : Buat proyek game baru
     bro run-game <file>    : Jalankan file game
-    bro benchmark <file>   : Benchmark interpreter vs transpiler vs VM
-    bro pkg <cmd>          : Package manager (init/install/publish/dll)
-    bro version            : Informasi versi
+  bro benchmark <file>   : Benchmark interpreter vs transpiler vs VM
+  bro belajar            : Belajar coding interaktif (untuk pemula) 🎓
+  bro pkg <cmd>          : Package manager (init/install/publish/dll)
+  bro version            : Informasi versi
 
 Game Development:
     bro new-game mygame    : Buat proyek game di folder mygame/
