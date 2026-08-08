@@ -1,4 +1,4 @@
-'''
+"""
 Implementasi Lexer BroLang
 ===========================
 
@@ -15,7 +15,7 @@ Design:
     Lexer bekerja secara sekuensial, membaca karakter per karakter
     dan menghasilkan token. Menggunakan pendekatan maximal munch
     untuk memastikan token terpanjang dikenali terlebih dahulu.
-'''
+"""
 
 from typing import List, Optional
 from brolang.token_types import Token, TokenType, KEYWORDS
@@ -23,7 +23,7 @@ from brolang.exceptions import LexerError
 
 
 class Lexer:
-    '''Lexer untuk bahasa BroLang.
+    """Lexer untuk bahasa BroLang.
 
     Attributes:
         source: Kode sumber yang akan di-lex
@@ -32,9 +32,9 @@ class Lexer:
         line: Baris saat ini
         column: Kolom saat ini
         indent_stack: Stack untuk tracking indentasi
-    '''
+    """
 
-    def __init__(self, source: str, file_path: str = ''):
+    def __init__(self, source: str, file_path: str = ""):
         self.source: str = source
         self.file_path: str = file_path
         self.tokens: List[Token] = []
@@ -47,23 +47,23 @@ class Lexer:
         self._bracket_depth: int = 0
 
     def _current(self) -> Optional[str]:
-        '''Mengembalikan karakter saat ini, atau None jika EOF.'''
+        """Mengembalikan karakter saat ini, atau None jika EOF."""
         if self.pos >= len(self.source):
             return None
         return self.source[self.pos]
 
     def _peek(self, offset: int = 1) -> Optional[str]:
-        '''Melihat karakter ke depan tanpa maju.'''
+        """Melihat karakter ke depan tanpa maju."""
         idx = self.pos + offset
         if idx >= len(self.source):
             return None
         return self.source[idx]
 
     def _advance(self) -> str:
-        '''Maju satu karakter dan mengembalikannya.'''
+        """Maju satu karakter dan mengembalikannya."""
         char = self.source[self.pos]
         self.pos += 1
-        if char == '\n':
+        if char == "\n":
             self.line += 1
             self.column = 1
             self._at_line_start = True
@@ -71,8 +71,8 @@ class Lexer:
             self.column += 1
         return char
 
-    def _error(self, message: str, solution: str = '', example: str = '') -> LexerError:
-        '''Membuat LexerError dengan informasi lokasi.'''
+    def _error(self, message: str, solution: str = "", example: str = "") -> LexerError:
+        """Membuat LexerError dengan informasi lokasi."""
         return LexerError(
             message=message,
             line=self.line,
@@ -84,64 +84,64 @@ class Lexer:
         )
 
     def _get_source_line(self) -> str:
-        '''Mendapatkan baris sumber saat ini untuk ditampilkan.'''
-        lines = self.source.split('\n')
+        """Mendapatkan baris sumber saat ini untuk ditampilkan."""
+        lines = self.source.split("\n")
         if 1 <= self.line <= len(lines):
             return lines[self.line - 1]
-        return ''
+        return ""
 
     def _skip_whitespace(self) -> None:
-        '''Melewati spasi dan tab (bukan newline).'''
-        while self._current() is not None and self._current() in ' \t\r':
+        """Melewati spasi dan tab (bukan newline)."""
+        while self._current() is not None and self._current() in " \t\r":
             self._advance()
 
     def _skip_comment(self) -> None:
-        '''Melewati komentar.'''
-        if self._current() == '#':
+        """Melewati komentar."""
+        if self._current() == "#":
             # Komentar baris tunggal: # sampai akhir baris
-            while self._current() is not None and self._current() != '\n':
+            while self._current() is not None and self._current() != "\n":
                 self._advance()
-        elif self._current() == '|' and self._peek() == '#':
+        elif self._current() == "|" and self._peek() == "#":
             # Komentar multi-baris: |# ... #|
             self._advance()  # |
             self._advance()  # #
             while self._current() is not None:
-                if self._current() == '#' and self._peek() == '|':
+                if self._current() == "#" and self._peek() == "|":
                     self._advance()  # #
                     self._advance()  # |
                     return
                 self._advance()
             raise self._error(
-                message='Komentar multi-baris tidak ditutup.',
-                solution='Tambahkan #| pada akhir komentar.',
-                example='#| ini adalah komentar #|',
+                message="Komentar multi-baris tidak ditutup.",
+                solution="Tambahkan #| pada akhir komentar.",
+                example="#| ini adalah komentar #|",
             )
 
     def _handle_indent(self) -> None:
-        '''Menangani indentasi dan menghasilkan token INDENT/DEDENT.'''
+        """Menangani indentasi dan menghasilkan token INDENT/DEDENT."""
         self._at_line_start = False
         indent = 0
 
         # Count leading whitespace
-        while self._current() is not None and self._current() in ' \t':
-            if self._current() == ' ':
+        while self._current() is not None and self._current() in " \t":
+            if self._current() == " ":
                 indent += 1
-            elif self._current() == '\t':
+            elif self._current() == "\t":
                 indent += 4
             self._advance()
 
         # Skip blank lines (only whitespace) and comments
-        while self._current() is not None and self._current() in ('#', '\n'):
-            if self._current() == '#':
+        while self._current() is not None and self._current() in ("#", "\n"):
+            if self._current() == "#":
                 self._skip_comment()
-            if self._current() == '\n':
+            if self._current() == "\n":
                 self._advance()
                 indent = 0
                 self._at_line_start = True
-                while self._current() is not None and self._current() in ' \t':
-                    if self._current() == ' ':
+                while self._current() is not None and self._current() in " \t":
+                    if self._current() == " ":
                         indent += 1
-                    elif self._current() == '\t':
+                    elif self._current() == "\t":
                         indent += 4
                     self._advance()
                 self._at_line_start = False
@@ -161,13 +161,13 @@ class Lexer:
                 self.tokens.append(Token(TokenType.TOKEN_DEDENT, None, self.line, self.column))
             if indent != self.indent_stack[-1]:
                 raise self._error(
-                    message='Indentasi tidak konsisten.',
-                    solution='Periksa jumlah spasi/tab agar konsisten.',
+                    message="Indentasi tidak konsisten.",
+                    solution="Periksa jumlah spasi/tab agar konsisten.",
                     example='jika x > 0 maka\n    tulis "positif"\nselesai',
                 )
 
     def _at_chainable_newline(self) -> bool:
-        '''Periksa apakah kita di awal baris baru.'''
+        """Periksa apakah kita di awal baris baru."""
         return self._at_line_start
 
     def _read_string(self, quote: str) -> str:
@@ -189,193 +189,227 @@ class Lexer:
         current_literal = []
         start_line = self.line
         start_col = self.column
-        # Cek apakah ini multi-line string
-        if self._peek() == quote and self._peek(2) == quote:
+        # Cek apakah ini multi-line string.
+        # Catatan: kutip pertama sudah dikonsumsi oleh pemanggil,
+        # jadi posisi sekarang ada di kutip ke-2 — cek `_current()`
+        # (kutip ke-2) dan `_peek()` (kutip ke-3).
+        if self._current() == quote and self._peek() == quote:
             self._advance()  # kutip ke-2
             self._advance()  # kutip ke-3
 
             while self._current() is not None:
-                if self._current() == '\\' and self._peek() is not None:
+                if self._current() == "\\" and self._peek() is not None:
                     result.append(self._read_escape())
                 elif self._current() == quote and self._peek() == quote and self._peek(2) == quote:
+                    # Posisi ada di kutip pertama dari rangkaian penutup —
+                    # konsumsi ketiganya (current, peek, peek(2)).
+                    self._advance()  # kutip ke-1
                     self._advance()  # kutip ke-2
                     self._advance()  # kutip ke-3
                     break
-                elif self._current() == '\n':
+                elif self._current() == "\n":
                     result.append(self._advance())
                 else:
                     result.append(self._advance())
             else:
                 raise self._error(
-                    message=f'String multi-baris tidak ditutup.',
-                    solution=f'Tambahkan {quote*3} pada akhir string.',
-                    example=f'{quote*3}teks{quote*3}',
+                    message=f"String multi-baris tidak ditutup.",
+                    solution=f"Tambahkan {quote*3} pada akhir string.",
+                    example=f"{quote*3}teks{quote*3}",
                 )
         else:
             while self._current() is not None:
-                if self._current() == '\\' and self._peek() is not None:
+                if self._current() == "\\" and self._peek() is not None:
                     current_literal.append(self._read_escape())
-                elif self._current() == '$' and self._peek() is not None:
+                elif self._current() == "$" and self._peek() is not None:
                     # $variable interpolation — convert to f-string
                     has_interpolation = True
                     if current_literal:
-                        parts.append(("literal", ''.join(current_literal)))
+                        parts.append(("literal", "".join(current_literal)))
                         current_literal = []
                     self._advance()  # consume $
-                    if self._current() == '{':
+                    if self._current() == "{":
                         # ${expr} — expression interpolation
                         self._advance()  # consume {
                         expr_chars = []
                         depth = 1
                         while self._current() is not None and depth > 0:
-                            if self._current() == '{':
+                            if self._current() == "{":
                                 depth += 1
-                            elif self._current() == '}':
+                            elif self._current() == "}":
                                 depth -= 1
                                 if depth == 0:
                                     break
                             expr_chars.append(self._advance())
                         self._advance()  # consume }
-                        parts.append(("expr", ''.join(expr_chars).strip()))
-                    elif self._current() is not None and (self._current().isalpha() or self._current() == '_'):
+                        parts.append(("expr", "".join(expr_chars).strip()))
+                    elif self._current() is not None and (
+                        self._current().isalpha() or self._current() == "_"
+                    ):
                         # $variable — simple variable interpolation
                         var_chars = []
-                        while self._current() is not None and (self._current().isalnum() or self._current() == '_'):
+                        while self._current() is not None and (
+                            self._current().isalnum() or self._current() == "_"
+                        ):
                             var_chars.append(self._advance())
-                        parts.append(("expr", ''.join(var_chars)))
+                        parts.append(("expr", "".join(var_chars)))
                     else:
-                        current_literal.append('$')
+                        current_literal.append("$")
                 elif self._current() == quote:
                     self._advance()  # consume closing quote
                     break
-                elif self._current() == '\n':
+                elif self._current() == "\n":
                     raise self._error(
-                        message='String tidak boleh mengandung baris baru tanpa kutip multi-baris.',
-                        solution=f'Gunakan {quote*3} untuk string multi-baris.',
-                        example=f'{quote*3}teks panjang{quote*3}',
+                        message="String tidak boleh mengandung baris baru tanpa kutip multi-baris.",
+                        solution=f"Gunakan {quote*3} untuk string multi-baris.",
+                        example=f"{quote*3}teks panjang{quote*3}",
                     )
                 else:
                     current_literal.append(self._advance())
             else:
                 raise self._error(
-                    message=f'String tidak ditutup.',
-                    solution=f'Tambahkan {quote} pada akhir teks.',
-                    example=f'{quote}Halo{quote}',
+                    message=f"String tidak ditutup.",
+                    solution=f"Tambahkan {quote} pada akhir teks.",
+                    example=f"{quote}Halo{quote}",
                 )
 
         if has_interpolation:
             if current_literal:
-                parts.append(("literal", ''.join(current_literal)))
+                parts.append(("literal", "".join(current_literal)))
             return Token(TokenType.TOKEN_FSTRING, parts, start_line, start_col)
 
-        return Token(TokenType.TOKEN_STRING, ''.join(current_literal), start_line, start_col)
+        # String multi-baris mengisi `result`; string single-line mengisi
+        # `current_literal` (untuk interpolasi $var). Gabungkan keduanya
+        # agar hasil selalu benar.
+        if result:
+            return Token(TokenType.TOKEN_STRING, "".join(result), start_line, start_col)
+        return Token(TokenType.TOKEN_STRING, "".join(current_literal), start_line, start_col)
 
     def _read_escape(self) -> str:
-        '''Membaca escape character.'''
+        """Membaca escape character."""
         self._advance()  # backslash
         if self._current() is None:
             raise self._error(
-                message='Escape sequence tidak lengkap.',
-                solution='Tambahkan karakter setelah backslash.',
+                message="Escape sequence tidak lengkap.",
+                solution="Tambahkan karakter setelah backslash.",
                 example='tulis "Halo\\nDunia"',
             )
         char = self._advance()
         escape_map = {
-            'n': '\n',
-            't': '\t',
-            'r': '\r',
+            "n": "\n",
+            "t": "\t",
+            "r": "\r",
             '"': '"',
             "'": "'",
-            '\\': '\\',
-            '0': '\0',
+            "\\": "\\",
+            "0": "\0",
         }
         return escape_map.get(char, char)
 
     def _read_fstring(self, quote: str) -> Token:
-        '''Membaca f-string: f"...{expr}..."
-        
+        """Membaca f-string: f"...{expr}..."
+
         F-strings mendukung interpolasi variabel dan ekspresi.
         Hasilnya adalah token TOKEN_FSTRING dengan value berisi
         list of (type, value) tuples:
         - ("literal", "teks")
         - ("expr", ASTNode)
-        '''
+        """
         start_line = self.line
         start_col = self.column - 2  # -2 for 'f' and quote
         parts = []
         current_literal = []
 
+        # Deteksi f-string multi-baris (f"""...""" / f'''...''').
+        # Kutip pertama sudah dikonsumsi oleh pemanggil — posisi sekarang
+        # ada di kutip ke-2, jadi cek _current() (kutip ke-2) dan _peek() (ke-3).
+        is_multiline = self._current() == quote and self._peek() == quote
+        if is_multiline:
+            self._advance()  # kutip ke-2
+            self._advance()  # kutip ke-3
+
         while self._current() is not None:
-            if self._current() == '\\' and self._peek() is not None:
+            if self._current() == "\\" and self._peek() is not None:
                 current_literal.append(self._read_escape())
-            elif self._current() == '{' and self._peek() != '{':
+            elif self._current() == "{" and self._peek() != "{":
                 # Save literal so far
                 if current_literal:
-                    parts.append(("literal", ''.join(current_literal)))
+                    parts.append(("literal", "".join(current_literal)))
                     current_literal = []
                 # Read expression inside {}
                 self._advance()  # consume {
                 expr_chars = []
                 depth = 1
                 while self._current() is not None and depth > 0:
-                    if self._current() == '{':
+                    if self._current() == "{":
                         depth += 1
-                    elif self._current() == '}':
+                    elif self._current() == "}":
                         depth -= 1
                         if depth == 0:
                             break
-                    if self._current() == '\n':
+                    if self._current() == "\n":
                         raise self._error(
-                            message='Ekspresi dalam f-string tidak boleh multi-baris.',
-                            solution='Gunakan variabel atau ekspresi sederhana dalam {}.',
+                            message="Ekspresi dalam f-string tidak boleh multi-baris.",
+                            solution="Gunakan variabel atau ekspresi sederhana dalam {}.",
                         )
                     expr_chars.append(self._advance())
                 if depth != 0:
                     raise self._error(
-                        message='Kurung kurawal f-string tidak ditutup.',
-                        solution='Tambahkan } setelah ekspresi.',
+                        message="Kurung kurawal f-string tidak ditutup.",
+                        solution="Tambahkan } setelah ekspresi.",
                     )
                 self._advance()  # consume }
-                expr_str = ''.join(expr_chars).strip()
+                expr_str = "".join(expr_chars).strip()
                 parts.append(("expr", expr_str))
             elif self._current() == quote:
-                self._advance()  # consume closing quote
-                break
-            elif self._current() == '\n':
+                if not is_multiline:
+                    self._advance()  # consume closing quote
+                    break
+                # Multi-line: cek 3 kutip beruntun penutup
+                if self._peek() == quote and self._peek(2) == quote:
+                    self._advance()  # kutip ke-1
+                    self._advance()  # kutip ke-2
+                    self._advance()  # kutip ke-3
+                    break
+                # Kutip tunggal di dalam string multi-baris — literal biasa
+                current_literal.append(self._advance())
+            elif self._current() == "\n" and not is_multiline:
                 raise self._error(
-                    message='F-string tidak boleh multi-baris tanpa kutip tiga.',
+                    message="F-string tidak boleh multi-baris tanpa kutip tiga.",
                     solution='Gunakan """...""" untuk f-string multi-baris.',
                 )
             else:
                 current_literal.append(self._advance())
 
         if current_literal:
-            parts.append(("literal", ''.join(current_literal)))
+            parts.append(("literal", "".join(current_literal)))
 
         return Token(TokenType.TOKEN_FSTRING, parts, start_line, start_col)
 
     def _read_number(self) -> Token:
-        '''Membaca number literal (angka dan desimal).'''
+        """Membaca number literal (angka dan desimal)."""
         result = []
         is_decimal = False
         start_line, start_col = self.line, self.column
 
-        while self._current() is not None and (self._current().isdigit() or self._current() == '_'):
-            if self._current() == '_':
+        while self._current() is not None and (self._current().isdigit() or self._current() == "_"):
+            if self._current() == "_":
                 self._advance()
                 continue
             result.append(self._advance())
 
-        if self._current() == '.' and self._peek() is not None and self._peek().isdigit():
+        if self._current() == "." and self._peek() is not None and self._peek().isdigit():
             is_decimal = True
             result.append(self._advance())
-            while self._current() is not None and (self._current().isdigit() or self._current() == '_'):
-                if self._current() == '_':
+            while self._current() is not None and (
+                self._current().isdigit() or self._current() == "_"
+            ):
+                if self._current() == "_":
                     self._advance()
                     continue
                 result.append(self._advance())
 
-        value_str = ''.join(result)
+        value_str = "".join(result)
         if is_decimal:
             return Token(
                 TokenType.TOKEN_DECIMAL,
@@ -391,21 +425,19 @@ class Lexer:
         )
 
     def _read_identifier(self) -> Token:
-        '''Membaca identifier atau keyword.'''
+        """Membaca identifier atau keyword."""
         result = []
         start_line, start_col = self.line, self.column
 
-        while self._current() is not None and (
-            self._current().isalnum() or self._current() == '_'
-        ):
+        while self._current() is not None and (self._current().isalnum() or self._current() == "_"):
             result.append(self._advance())
 
-        word = ''.join(result)
+        word = "".join(result)
 
         if word in KEYWORDS:
             token_type = KEYWORDS[word]
             if token_type in (TokenType.TOKEN_BENAR, TokenType.TOKEN_SALAH):
-                value = word == 'benar'
+                value = word == "benar"
                 return Token(TokenType.TOKEN_BOOLEAN, value, start_line, start_col)
             if token_type == TokenType.TOKEN_KOSONG_KW:
                 return Token(TokenType.TOKEN_KOSONG, None, start_line, start_col)
@@ -414,131 +446,133 @@ class Lexer:
         return Token(TokenType.TOKEN_IDENTIFIER, word, start_line, start_col)
 
     def _read_operator(self) -> Token:
-        '''Membaca operator dan delimiter.'''
+        """Membaca operator dan delimiter."""
         char = self._advance()
         start_line, start_col = self.line, self.column
 
-        if char == '+' and self._current() == '=':
+        if char == "+" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_PLUS_ASSIGN, '+=', start_line, start_col)
-        if char == '-' and self._current() == '>':
+            return Token(TokenType.TOKEN_PLUS_ASSIGN, "+=", start_line, start_col)
+        if char == "-" and self._current() == ">":
             self._advance()
-            return Token(TokenType.TOKEN_ARROW, '->', start_line, start_col)
-        if char == '-' and self._current() == '=':
+            return Token(TokenType.TOKEN_ARROW, "->", start_line, start_col)
+        if char == "-" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_MINUS_ASSIGN, '-=', start_line, start_col)
-        if char == '*' and self._current() == '*':
+            return Token(TokenType.TOKEN_MINUS_ASSIGN, "-=", start_line, start_col)
+        if char == "*" and self._current() == "*":
             self._advance()
-            if self._current() == '=':
+            if self._current() == "=":
                 self._advance()
-                return Token(TokenType.TOKEN_POWER_ASSIGN, '**=', start_line, start_col)
-            return Token(TokenType.TOKEN_POW, '**', start_line, start_col)
-        if char == '*' and self._current() == '=':
+                return Token(TokenType.TOKEN_POWER_ASSIGN, "**=", start_line, start_col)
+            return Token(TokenType.TOKEN_POW, "**", start_line, start_col)
+        if char == "*" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_MULTIPLY_ASSIGN, '*=', start_line, start_col)
-        if char == '/' and self._current() == '=':
+            return Token(TokenType.TOKEN_MULTIPLY_ASSIGN, "*=", start_line, start_col)
+        if char == "/" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_DIVIDE_ASSIGN, '/=', start_line, start_col)
-        if char == '%' and self._current() == '=':
+            return Token(TokenType.TOKEN_DIVIDE_ASSIGN, "/=", start_line, start_col)
+        if char == "%" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_MODULO_ASSIGN, '%=', start_line, start_col)
-        if char == '!' and self._current() == '=':
+            return Token(TokenType.TOKEN_MODULO_ASSIGN, "%=", start_line, start_col)
+        if char == "!" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_NEQ, '!=', start_line, start_col)
-        if char == '=' and self._current() == '>':
+            return Token(TokenType.TOKEN_NEQ, "!=", start_line, start_col)
+        if char == "=" and self._current() == ">":
             self._advance()
-            return Token(TokenType.TOKEN_ARROW_FAT, '=>', start_line, start_col)
-        if char == '=' and self._current() == '=':
+            return Token(TokenType.TOKEN_ARROW_FAT, "=>", start_line, start_col)
+        if char == "=" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_EQ, '==', start_line, start_col)
-        if char == '>' and self._current() == '=':
+            return Token(TokenType.TOKEN_EQ, "==", start_line, start_col)
+        if char == ">" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_GTE, '>=', start_line, start_col)
-        if char == '<' and self._current() == '=':
+            return Token(TokenType.TOKEN_GTE, ">=", start_line, start_col)
+        if char == "<" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_LTE, '<=', start_line, start_col)
-        if char == '<' and self._current() == '<':
+            return Token(TokenType.TOKEN_LTE, "<=", start_line, start_col)
+        if char == "<" and self._current() == "<":
             self._advance()
-            return Token(TokenType.TOKEN_LSHIFT, '<<', start_line, start_col)
-        if char == '>' and self._current() == '>':
+            return Token(TokenType.TOKEN_LSHIFT, "<<", start_line, start_col)
+        if char == ">" and self._current() == ">":
             self._advance()
-            return Token(TokenType.TOKEN_RSHIFT, '>>', start_line, start_col)
-        if char == '|' and self._current() == '|':
+            return Token(TokenType.TOKEN_RSHIFT, ">>", start_line, start_col)
+        if char == "|" and self._current() == "|":
             self._advance()
-            return Token(TokenType.TOKEN_ATAU, '||', start_line, start_col)
-        if char == '|' and self._current() == '>':
+            return Token(TokenType.TOKEN_ATAU, "||", start_line, start_col)
+        if char == "|" and self._current() == ">":
             self._advance()
-            return Token(TokenType.TOKEN_PIPE_GREATER, '|>', start_line, start_col)
-        if char == ':' and self._current() == '=':
+            return Token(TokenType.TOKEN_PIPE_GREATER, "|>", start_line, start_col)
+        if char == ":" and self._current() == "=":
             self._advance()
-            return Token(TokenType.TOKEN_WALRUS, ':=', start_line, start_col)
-        if char == '?' and self._current() == '.':
+            return Token(TokenType.TOKEN_WALRUS, ":=", start_line, start_col)
+        if char == "?" and self._current() == ".":
             self._advance()
-            return Token(TokenType.TOKEN_QUESTION_DOT, '?.', start_line, start_col)
-        if char == '?' and self._current() == '?':
+            return Token(TokenType.TOKEN_QUESTION_DOT, "?.", start_line, start_col)
+        if char == "?" and self._current() == "?":
             self._advance()
-            return Token(TokenType.TOKEN_QUESTION, '??', start_line, start_col)
-        if char == '?':
-            return Token(TokenType.TOKEN_QUESTION, '?', start_line, start_col)
-        if char == '@':
-            return Token(TokenType.TOKEN_AT, '@', start_line, start_col)
+            return Token(TokenType.TOKEN_QUESTION, "??", start_line, start_col)
+        if char == "?":
+            return Token(TokenType.TOKEN_QUESTION, "?", start_line, start_col)
+        if char == "@":
+            return Token(TokenType.TOKEN_AT, "@", start_line, start_col)
 
         operator_map = {
-            '+': TokenType.TOKEN_PLUS,
-            '-': TokenType.TOKEN_MINUS,
-            '*': TokenType.TOKEN_MULTIPLY,
-            '/': TokenType.TOKEN_DIVIDE,
-            '%': TokenType.TOKEN_MODULO,
-            '=': TokenType.TOKEN_ASSIGN,
-            '>': TokenType.TOKEN_GT,
-            '<': TokenType.TOKEN_LT,
-            '(': TokenType.TOKEN_LPAREN,
-            ')': TokenType.TOKEN_RPAREN,
-            '[': TokenType.TOKEN_LBRACKET,
-            ']': TokenType.TOKEN_RBRACKET,
-            '{': TokenType.TOKEN_LBRACE,
-            '}': TokenType.TOKEN_RBRACE,
-            ',': TokenType.TOKEN_COMMA,
-            '.': TokenType.TOKEN_DOT,
-            ':': TokenType.TOKEN_COLON,
-            '|': TokenType.TOKEN_PIPE,
-            '&': TokenType.TOKEN_AMPERSAND,
-            '^': TokenType.TOKEN_CARET,
-            '~': TokenType.TOKEN_TILDE,
+            "+": TokenType.TOKEN_PLUS,
+            "-": TokenType.TOKEN_MINUS,
+            "*": TokenType.TOKEN_MULTIPLY,
+            "/": TokenType.TOKEN_DIVIDE,
+            "%": TokenType.TOKEN_MODULO,
+            "=": TokenType.TOKEN_ASSIGN,
+            ">": TokenType.TOKEN_GT,
+            "<": TokenType.TOKEN_LT,
+            "(": TokenType.TOKEN_LPAREN,
+            ")": TokenType.TOKEN_RPAREN,
+            "[": TokenType.TOKEN_LBRACKET,
+            "]": TokenType.TOKEN_RBRACKET,
+            "{": TokenType.TOKEN_LBRACE,
+            "}": TokenType.TOKEN_RBRACE,
+            ",": TokenType.TOKEN_COMMA,
+            ".": TokenType.TOKEN_DOT,
+            ":": TokenType.TOKEN_COLON,
+            "|": TokenType.TOKEN_PIPE,
+            "&": TokenType.TOKEN_AMPERSAND,
+            "^": TokenType.TOKEN_CARET,
+            "~": TokenType.TOKEN_TILDE,
         }
 
         token_type = operator_map.get(char)
         if token_type is None:
             # Ramah pemula: titik koma sering dipakai pemula yang baru pindah
             # dari Python/JavaScript.
-            solusi = f'Hapus karakter \'{char}\' atau ganti dengan yang benar.'
-            if char == ';':
-                solusi = 'BroLang tidak memakai titik koma \' ; \' — hapus saja.'
+            solusi = f"Hapus karakter '{char}' atau ganti dengan yang benar."
+            if char == ";":
+                solusi = "BroLang tidak memakai titik koma ' ; ' — hapus saja."
             raise self._error(
-                message=f'Karakter \'{char}\' tidak dikenal.',
+                message=f"Karakter '{char}' tidak dikenal.",
                 solution=solusi,
             )
 
         # Lacak kedalaman bracket agar ekspresi multi-baris (di dalam kurung)
         # tidak dianggap sebagai perubahan indentasi blok.
-        if token_type in (TokenType.TOKEN_LPAREN, TokenType.TOKEN_LBRACKET,
-                          TokenType.TOKEN_LBRACE):
+        if token_type in (TokenType.TOKEN_LPAREN, TokenType.TOKEN_LBRACKET, TokenType.TOKEN_LBRACE):
             self._bracket_depth += 1
-        elif token_type in (TokenType.TOKEN_RPAREN, TokenType.TOKEN_RBRACKET,
-                            TokenType.TOKEN_RBRACE):
+        elif token_type in (
+            TokenType.TOKEN_RPAREN,
+            TokenType.TOKEN_RBRACKET,
+            TokenType.TOKEN_RBRACE,
+        ):
             if self._bracket_depth > 0:
                 self._bracket_depth -= 1
 
         return Token(token_type, char, start_line, start_col)
 
     def tokenize(self) -> List[Token]:
-        '''Proses utama lexing.
+        """Proses utama lexing.
 
         Mengubah kode sumber menjadi daftar token.
 
         Returns:
             List[Token]: Daftar token yang dihasilkan
-        '''
+        """
         self.tokens = []
 
         while self._current() is not None:
@@ -560,23 +594,25 @@ class Lexer:
                 if char is None:
                     break
 
-            if char in ' \t\r':
+            if char in " \t\r":
                 self._skip_whitespace()
                 continue
 
-            if char == '\n':
+            if char == "\n":
                 self._advance()
                 # Di dalam bracket, baris baru hanyalah pemisah visual
                 # (tidak menghasilkan token NEWLINE).
                 if self._bracket_depth == 0:
-                    self.tokens.append(Token(TokenType.TOKEN_NEWLINE, '\n', self.line - 1, self.column))
+                    self.tokens.append(
+                        Token(TokenType.TOKEN_NEWLINE, "\n", self.line - 1, self.column)
+                    )
                 continue
 
-            if char == '#' or (char == '|' and self._peek() == '#'):
+            if char == "#" or (char == "|" and self._peek() == "#"):
                 self._skip_comment()
                 continue
 
-            if char == 'f' and self._peek() in ('"', "'"):
+            if char == "f" and self._peek() in ('"', "'"):
                 # f-string: f"..." or f'...'
                 self._advance()  # consume 'f'
                 quote = self._advance()
@@ -589,14 +625,16 @@ class Lexer:
                 if isinstance(string_value, Token):
                     self.tokens.append(string_value)
                 else:
-                    self.tokens.append(Token(TokenType.TOKEN_STRING, string_value, self.line, self.column))
+                    self.tokens.append(
+                        Token(TokenType.TOKEN_STRING, string_value, self.line, self.column)
+                    )
                 continue
 
             if char.isdigit():
                 self.tokens.append(self._read_number())
                 continue
 
-            if char.isalpha() or char == '_':
+            if char.isalpha() or char == "_":
                 self.tokens.append(self._read_identifier())
                 continue
 

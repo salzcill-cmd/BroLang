@@ -279,6 +279,147 @@ db.tutup()
 
 ---
 
+## `web_server` — Web Framework (v6.3)
+
+Framework web untuk membuat API backend / server HTTP — berbasis stdlib Python
+(`http.server`), tanpa dependency eksternal. Berpasangan dengan modul `web`
+(HTTP client) untuk testing.
+
+```
+impor web_server
+
+fungsi halaman(req)
+    kembali req.kirim_json({"pesan": "Halo Dunia!", "sukses": benar})
+selesai
+
+fungsi detail(req)
+    kembali req.kirim_json({"id": req.parameter["id"], "nama": "Budi"})
+selesai
+
+buat app = web_server.Buat()
+app.rute("GET", "/", halaman)
+app.rute("GET", "/pengguna/{id}", detail)
+app.jalankan(8000)          # blocking; Ctrl+C berhenti
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `Buat()` | Buat instance server baru |
+| `app.rute(metode, jalur, handler)` | Daftarkan route (GET/POST/PUT/DELETE/PATCH) |
+| `app.get/post/put/hapus(jalur, handler)` | Shorthand routing |
+| `app.jalankan(port, host?)` | Jalankan server (blocking) |
+| `app.jalankan_async(port)` | Jalankan di thread (non-blocking, untuk test) |
+| `app.berhenti()` | Hentikan server async |
+| `app.atur_cors(benar)` | Aktifkan CORS untuk semua route |
+
+Objek `req` (dikirim ke handler) berisi:
+- `metode`, `jalur`, `jalur_lengkap` — info request
+- `query` — dict query string (`/cari?kota=x` → `{"kota": "x"}`)
+- `header` — dict header HTTP
+- `body` — body mentah sebagai teks
+- `json` — body JSON yang sudah di-parse (atau `kosong`)
+- `parameter` — nilai route dinamis (`/pengguna/{id}` → `{"id": "5"}`)
+
+Helper response di `req`:
+- `req.kirim_teks(teks, status?)` / `req.kirim_json(data, status?)`
+- `req.kirim_html(html, status?)` / `req.kirim_status(status?)`
+- `req.kirim_file(jalur)` — static file dengan MIME type otomatis
+
+Handler juga bisa `kembali` dict (auto-JSON) atau string (auto-teks).
+Contoh lengkap: `examples/web_api.bro`.
+
+---
+
+## `kripto` — Keamanan & Kriptografi (v6.4)
+
+Hashing, Base64, hashing password dengan salt acak, dan token acak aman
+(crypto-grade) — berbasis `hashlib`, `base64`, dan `secrets` (tanpa dependency
+eksternal).
+
+```
+impor kripto
+
+tulis kripto.sha256("halo")            # 64 karakter hex
+buat hash = kripto.hash_password("rahasia123")
+tulis kripto.cek_password("rahasia123", hash)   # True
+buat api_key = kripto.token(32)
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `md5(teks)` / `sha1(teks)` | Hash hex 32 / 40 karakter |
+| `sha256(teks)` / `sha512(teks)` | Hash hex 64 / 128 karakter |
+| `base64_encode(teks)` | Encode teks → Base64 |
+| `base64_decode(teks)` | Decode Base64 → teks asli |
+| `hash_password(kata_sandi)` | PBKDF2-SHA256 + salt acak (`algo$salt$hash`) |
+| `cek_password(kata_sandi, hash)` | Verifikasi password (constant-time) |
+| `token(panjang=32)` | Token hex acak aman (session / API key) |
+| `bilangan_acak(batas=100)` | Bilangan acak crypto-grade (0..batas-1) |
+
+Contoh lengkap: `examples/kripto.bro`.
+
+---
+
+## `arsip` — ZIP & Kompresi (v6.4)
+
+Membuat/membaca arsip ZIP dan kompresi teks — berbasis `zipfile` dan `zlib`
+(tanpa dependency eksternal).
+
+```
+impor arsip
+
+arsip.buat_zip("backup.zip", ["a.txt", "b.txt"])
+tulis arsip.daftar_zip("backup.zip")
+arsip.ekstrak_zip("backup.zip", "restore/")
+
+buat padat = arsip.kompres("teks panjang ...")   # lebih pendek (Base64+zlib)
+tulis arsip.dekompres(padat)
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `buat_zip(nama, daftar_file)` | Buat arsip ZIP baru → `benar`/`salah` |
+| `tambah_ke_zip(nama, daftar_file)` | Tambah file ke arsip yang sudah ada |
+| `ekstrak_zip(nama, tujuan=".")` | Ekstrak semua isi → list nama file |
+| `daftar_zip(nama)` | List nama file di dalam arsip |
+| `kompres(teks)` | Kompres teks → string Base64 (zlib level 9) |
+| `dekompres(data)` | Kembalikan teks asli dari hasil `kompres` |
+
+Contoh lengkap: `examples/arsip.bro`.
+
+---
+
+## `terminal` — UX Terminal (v6.4)
+
+Warna ANSI, gaya teks, progress bar, prompt interaktif, dan pesan status
+untuk program CLI — murni stdlib Python.
+
+```
+impor terminal
+
+tulis terminal.hijau("sukses")
+terminal.sukses("Deploy berhasil")
+tulis terminal.bilah_progress(7, 10)    # [███████░░░] 70%
+buat nama = terminal.tanya("Nama kamu? ", "anonim")
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `merah/hijau/kuning/biru/magenta/cyan/putih/abu(teks)` | Warna teks ANSI |
+| `warna(teks, nama)` | Warna dengan nama dinamis |
+| `tebal/miring/garis_bawah/terbalik(teks)` | Gaya teks |
+| `bersihkan()` | Escape sequence pembersih layar |
+| `bilah_progress(sekarang, total, lebar=30)` | String progress bar `[███░░] 60%` |
+| `cetak_progress(sekarang, total, lebar=30)` | Cetak progress inline (\r) |
+| `tanya(pesan, default="")` | Prompt input interaktif |
+| `tanya_ya(pesan)` | Prompt ya/tidak → `benar`/`salah` |
+| `sukses/info/peringatan/gagal(pesan)` | Pesan status berwarna + ikon |
+| `banner(teks, lebar=50)` | Banner dekoratif |
+
+Contoh lengkap: `examples/terminal.bro`.
+
+---
+
 ## Module List
 
 | Module | Fungsi |
@@ -288,7 +429,7 @@ db.tutup()
 | `audio` | Sound effects |
 | `grafis` | Graphics rendering |
 | `game` | Game utilities |
-| `web` | HTTP requests |
+| `web` | HTTP requests (client) |
 | `sistem_operasi` | OS operations |
 | `sistem` | System info |
 | `debug` | Debugging tools |
@@ -296,6 +437,10 @@ db.tutup()
 | `waktu` | Waktu & sleep |
 | `crypto` | Encryption |
 | `database` | SQLite wrapper — buka, query, eksekusi_sql, tabel |
+| `web_server` | Web framework — routing, JSON, static files (v6.3) |
+| `kripto` | Keamanan — hash md5/sha1/sha256/sha512, base64, password PBKDF2, token (v6.4) |
+| `arsip` | ZIP — buat/tambah/ekstrak/daftar, kompresi teks zlib+base64 (v6.4) |
+| `terminal` | UX CLI — warna ANSI, gaya teks, progress bar, prompt, pesan status (v6.4) |
 | `regex` | Regular expressions |
 | `json` | JSON parsing |
 | `csv` | CSV parsing |

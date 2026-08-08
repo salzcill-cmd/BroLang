@@ -5,24 +5,224 @@ Bytecode Compiler untuk BroLang
 Mengkonversi AST BroLang menjadi bytecode yang bisa dijalankan oleh VM.
 """
 
-from typing import Optional, List, Any
 from brolang.ast.nodes import (
-    ASTNode, ProgramNode, NumberNode, DecimalNode, StringNode,
-    BooleanNode, KosongNode, IdentifierNode, VariableNode, AssignmentNode,
-    BinaryOpNode, UnaryOpNode, IfNode, WhileNode, ForNode,
-    BreakNode, ContinueNode, FunctionNode, ReturnNode, CallNode,
-    ClassNode, MethodNode, ListNode, TupleNode, SetNode,
-    ObjectNode, ObjectAccessNode, IndexNode, PrintNode,
-    FStringNode, LambdaNode, PassNode, DelNode, AssertNode,
-    RaiseNode, TryNode, AugmentedAssignmentNode, TernaryNode,
-    NullCoalescingNode, OptionalChainingNode,
-    EnumNode, StructNode, StructInstanceNode,
-    MatchNode, WildcardNode, ComprehensionNode,
-    DictComprehensionNode, ImportNode, FromImportNode,
-    GlobalNode, NonlocalNode, InputNode,
-    PipelineNode, DestructuringAssignmentNode,
+    AssertNode,
+    AssignmentNode,
+    ASTNode,
+    AugmentedAssignmentNode,
+    BinaryOpNode,
+    BooleanNode,
+    BreakNode,
+    CallNode,
+    ClassNode,
+    ComprehensionNode,
+    ContinueNode,
+    DecimalNode,
+    DelNode,
+    DestructuringAssignmentNode,
+    DictComprehensionNode,
+    EnumNode,
+    ForNode,
+    FromImportNode,
+    FStringNode,
+    FunctionNode,
+    GlobalNode,
+    IdentifierNode,
+    IfNode,
+    ImportNode,
+    IndexNode,
+    InputNode,
+    KosongNode,
+    LambdaNode,
+    ListNode,
+    MatchNode,
+    NonlocalNode,
+    NullCoalescingNode,
+    NumberNode,
+    ObjectAccessNode,
+    ObjectNode,
+    OptionalChainingNode,
+    PassNode,
+    PipelineNode,
+    PrintNode,
+    ProgramNode,
+    RaiseNode,
+    ReturnNode,
+    SetNode,
+    StringNode,
+    StructInstanceNode,
+    StructNode,
+    TernaryNode,
+    TryNode,
+    TupleNode,
+    UnaryOpNode,
+    VariableNode,
+    WhileNode,
+    WildcardNode,
 )
-from brolang.vm.opcodes import Op, Bytecode
+from brolang.vm.opcodes import Bytecode, Instruction, Op
+
+# ============= Peephole Optimizer =============
+
+# Operasi biner yang aman untuk constant folding (menghasilkan nilai deterministik,
+# tidak punya efek samping, dan tidak bergantung pada state runtime).
+_FOLDABLE_BINARY = {
+    Op.ADD,
+    Op.SUB,
+    Op.MUL,
+    Op.DIV,
+    Op.MOD,
+    Op.POW,
+    Op.EQ,
+    Op.NEQ,
+    Op.GT,
+    Op.GTE,
+    Op.LT,
+    Op.LTE,
+}
+
+_JUMP_OPS = {
+    Op.JUMP,
+    Op.JUMP_IF_FALSE,
+    Op.JUMP_IF_TRUE,
+    Op.POP_JUMP_IF_FALSE,
+    Op.FOR_ITER,
+    Op.TRY_PUSH,
+}
+
+
+def _coba_fold(a, b, op):
+    """Coba hitung hasil fold konstanta (a OP b).
+
+    Returns:
+        (True, hasil) bila berhasil, (False, None) bila tidak aman/foldable.
+    """
+    if op in (Op.EQ, Op.NEQ, Op.GT, Op.GTE, Op.LT, Op.LTE):
+        try:
+            if op == Op.EQ:
+                return (True, a == b)
+            if op == Op.NEQ:
+                return (True, a != b)
+            if op == Op.GT:
+                return (True, a > b)
+            if op == Op.GTE:
+                return (True, a >= b)
+            if op == Op.LT:
+                return (True, a < b)
+            if op == Op.LTE:
+                return (True, a <= b)
+        except Exception:
+            return (False, None)
+    # Aritmatika: hanya untuk angka; string concat khusus ADD
+    if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
+        if op == Op.ADD and isinstance(a, str) and isinstance(b, str):
+            return (True, a + b)
+        return (False, None)
+    try:
+        if op == Op.ADD:
+            r = a + b
+        elif op == Op.SUB:
+            r = a - b
+        elif op == Op.MUL:
+            r = a * b
+        elif op == Op.DIV:
+            r = a / b
+        elif op == Op.MOD:
+            r = a % b
+        elif op == Op.POW:
+            # Guard eksponen besar: folding eager `2 ** 1000000` bisa
+            # menghabiskan CPU/memori saat kompilasi — biarkan runtime
+            # bila eksponen di luar batas aman.
+            if isinstance(b, (int, float)) and abs(b) > 64:
+                return (False, None)
+            r = a**b
+        else:
+            return (False, None)
+    except Exception:
+        return (False, None)
+    return (True, r)
+
+
+def apply_peephole(bytecode: Bytecode) -> None:
+    """Peephole optimization untuk bytecode.
+
+    1. Constant folding: `PUSH_CONST a; PUSH_CONST b; ADD` -> `PUSH_CONST (a+b)`
+       (juga NEG/NOT pada konstanta).
+    2. Hapus instruksi NOP.
+    3. Remap semua target jump karena index instruksi berubah.
+
+    Amannya: hanya melipat konstanta murni (tidak mengeksekusi kode user),
+    dan target jump yang hilang dipertahankan via mapping.get(arg, arg).
+    """
+    instrs = bytecode.instructions
+    if not instrs:
+        return
+
+    mapping = {}  # index lama -> index baru
+    kept = []
+    i = 0
+    n = len(instrs)
+
+    while i < n:
+        ins = instrs[i]
+
+        # Pola: PUSH_CONST a; PUSH_CONST b; OP -> PUSH_CONST (a OP b)
+        if (
+            i + 2 < n
+            and ins.op == Op.PUSH_CONST
+            and instrs[i + 1].op == Op.PUSH_CONST
+            and instrs[i + 2].op in _FOLDABLE_BINARY
+        ):
+            a = bytecode.constants[ins.arg]
+            b = bytecode.constants[instrs[i + 1].arg]
+            ok, result = _coba_fold(a, b, instrs[i + 2].op)
+            if ok:
+                new_ins = Instruction(
+                    Op.PUSH_CONST, bytecode.add_const(result), line=ins.line, column=ins.column
+                )
+                mapping[i] = len(kept)
+                kept.append(new_ins)
+                i += 3
+                continue
+
+        # Pola: PUSH_CONST x; NEG -> PUSH_CONST (-x)
+        if i + 1 < n and ins.op == Op.PUSH_CONST and instrs[i + 1].op == Op.NEG:
+            v = bytecode.constants[ins.arg]
+            if isinstance(v, (int, float)):
+                new_ins = Instruction(
+                    Op.PUSH_CONST, bytecode.add_const(-v), line=ins.line, column=ins.column
+                )
+                mapping[i] = len(kept)
+                kept.append(new_ins)
+                i += 2
+                continue
+
+        # Pola: PUSH_TRUE/PUSH_FALSE; NOT_OP -> PUSH_FALSE/PUSH_TRUE
+        if i + 1 < n and ins.op in (Op.PUSH_TRUE, Op.PUSH_FALSE) and instrs[i + 1].op == Op.NOT_OP:
+            new_ins = Instruction(
+                Op.PUSH_FALSE if ins.op == Op.PUSH_TRUE else Op.PUSH_TRUE,
+                line=ins.line,
+                column=ins.column,
+            )
+            mapping[i] = len(kept)
+            kept.append(new_ins)
+            i += 2
+            continue
+
+        if ins.op == Op.NOP:
+            i += 1
+            continue
+
+        mapping[i] = len(kept)
+        kept.append(ins)
+        i += 1
+
+    # Remap target jump
+    for ins in kept:
+        if ins.op in _JUMP_OPS and isinstance(ins.arg, int):
+            ins.arg = mapping.get(ins.arg, ins.arg)
+
+    bytecode.instructions = kept
 
 
 class Compiler:
@@ -31,8 +231,8 @@ class Compiler:
     def __init__(self):
         self.bytecode = Bytecode()
         self.scope_depth = 0
-        self.locals = []        # [(name, scope_depth), ...]
-        self.free_vars = []     # Closure variable names
+        self.locals = []  # [(name, scope_depth), ...]
+        self.free_vars = []  # Closure variable names
         self.breakpoints = []
 
     def compile(self, node: ASTNode) -> Bytecode:
@@ -44,6 +244,7 @@ class Compiler:
         else:
             self._emit_stmt(node)
             self.bytecode.add(Op.HALT)
+        apply_peephole(self.bytecode)
         self.bytecode.finalize()
         return self.bytecode
 
@@ -72,9 +273,9 @@ class Compiler:
         elif isinstance(node, PrintNode):
             self._emit_print(node)
         elif isinstance(node, BreakNode):
-            self.bytecode.add(Op.JUMP, ('BREAK',), node.line, node.column)
+            self.bytecode.add(Op.JUMP, ("BREAK",), node.line, node.column)
         elif isinstance(node, ContinueNode):
-            self.bytecode.add(Op.JUMP, ('CONTINUE',), node.line, node.column)
+            self.bytecode.add(Op.JUMP, ("CONTINUE",), node.line, node.column)
         elif isinstance(node, PassNode):
             self.bytecode.add(Op.NOP, line=node.line, column=node.column)
         elif isinstance(node, DelNode):
@@ -102,11 +303,12 @@ class Compiler:
         elif isinstance(node, DestructuringAssignmentNode):
             raise NotImplementedError(
                 f"Destructuring assignment belum didukung di bytecode VM (baris {node.line}). "
-                "Gunakan 'bro run' (transpiler) atau interpreter untuk fitur ini.")
+                "Gunakan 'bro run' (transpiler) atau interpreter untuk fitur ini."
+            )
         else:
             # Expression statement — evaluate and pop
             self._emit_expr(node)
-            self.bytecode.add(Op.POP_TOP, line=getattr(node, 'line', 0))
+            self.bytecode.add(Op.POP_TOP, line=getattr(node, "line", 0))
 
     # ============= Assignment =============
 
@@ -122,10 +324,10 @@ class Compiler:
                 self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
         else:
             loc = self._resolve_name(name)
-            if loc == 'local':
+            if loc == "local":
                 idx = self._get_local_idx(name)
                 self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
-            elif loc == 'free':
+            elif loc == "free":
                 idx = self.bytecode.add_free_var(name)
                 self.bytecode.add(Op.STORE_DEREF, idx, node.line, node.column)
             else:
@@ -147,7 +349,7 @@ class Compiler:
             self._emit_expr(node.value)
             self.bytecode.add(Op.INDEX_SET, line=node.line, column=node.column)
             return None
-        return ''
+        return ""
 
     # ============= Function =============
 
@@ -180,6 +382,7 @@ class Compiler:
         captured_free = list(self.free_vars)
 
         func_bytecode = self.bytecode
+        apply_peephole(func_bytecode)
         func_bytecode.finalize()
 
         # Restore state
@@ -194,8 +397,9 @@ class Compiler:
         has_defaults = len(node.defaults) > 0 and any(d is not None for d in node.defaults)
 
         # Create closure instruction
-        self.bytecode.add(Op.CLOSURE, (const_idx, param_count, has_defaults),
-                         node.line, node.column)
+        self.bytecode.add(
+            Op.CLOSURE, (const_idx, param_count, has_defaults), node.line, node.column
+        )
 
         # Push default values if any
         if has_defaults:
@@ -216,20 +420,13 @@ class Compiler:
             idx = self._add_local(func_name)
             self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
 
-    # ============= Class =============
+    def _compile_methods(self, method_list) -> dict:
+        """Kompilasi daftar method menjadi dict {nama: (bc, is_static, params)}.
 
-    def _emit_class(self, node: ClassNode):
-        """Emit class declaration."""
-        # Emit parent class if any
-        if node.parent:
-            idx = self.bytecode.add_name(node.parent)
-            self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
-        else:
-            self.bytecode.add(Op.PUSH_NONE)
-
-        # Collect method bytecodes
+        Setiap body method di-peephole optimize sebelum di-finalize.
+        """
         methods = {}
-        for method in node.methods:
+        for method in method_list:
             saved = self.bytecode
             saved_locals = self.locals
             saved_free = self.free_vars
@@ -242,9 +439,9 @@ class Compiler:
 
             # Add self as first param if not static
             if not method.is_static:
-                self._add_local('self')
+                self._add_local("self")
             for param in method.params:
-                if param == 'self' and not method.is_static:
+                if param == "self" and not method.is_static:
                     continue
                 self._add_local(param)
 
@@ -254,14 +451,33 @@ class Compiler:
             self.bytecode.add(Op.RETURN)
 
             method_bc = self.bytecode
+            apply_peephole(method_bc)
             method_bc.finalize()
             self.bytecode = saved
             self.locals = saved_locals
             self.free_vars = saved_free
             self.scope_depth = saved_depth
 
-            total_params = len(method.params)
+            # Non-static method: slot 0 diisi `self`, jadi param_count
+            # harus menghitung self agar binding parameter di VM pas
+            # (lihat VM._call_function yang mengikat range(param_count)).
+            total_params = len(method.params) + (0 if method.is_static else 1)
             methods[method.name] = (method_bc, method.is_static, total_params)
+        return methods
+
+    # ============= Class =============
+
+    def _emit_class(self, node: ClassNode):
+        """Emit class declaration."""
+        # Emit parent class if any
+        if node.parent:
+            idx = self.bytecode.add_name(node.parent)
+            self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
+        else:
+            self.bytecode.add(Op.PUSH_NONE)
+
+        # Collect method bytecodes
+        methods = self._compile_methods(node.methods)
 
         idx = self.bytecode.add_const((node.name, methods))
         self.bytecode.add(Op.MAKE_CLASS, idx, node.line, node.column)
@@ -321,14 +537,15 @@ class Compiler:
             # Check for break/continue markers
             last = self.bytecode.instructions[-1]
             if last.op == Op.JUMP and isinstance(last.arg, tuple):
-                if last.arg[0] == 'BREAK':
+                if last.arg[0] == "BREAK":
                     self.bytecode.instructions[-1] = Instruction(
-                        Op.JUMP, len(self.bytecode.instructions) + 1,
-                        last.line, last.column)
+                        Op.JUMP, len(self.bytecode.instructions) + 1, last.line, last.column
+                    )
                     break
-                elif last.arg[0] == 'CONTINUE':
+                elif last.arg[0] == "CONTINUE":
                     self.bytecode.instructions[-1] = Instruction(
-                        Op.JUMP, loop_start, last.line, last.column)
+                        Op.JUMP, loop_start, last.line, last.column
+                    )
 
         self.bytecode.add(Op.JUMP, loop_start, node.line, node.column)
         self.bytecode.instructions[exit_jump_idx].arg = len(self.bytecode.instructions)
@@ -353,14 +570,15 @@ class Compiler:
             self._emit_stmt(stmt)
             last = self.bytecode.instructions[-1]
             if last.op == Op.JUMP and isinstance(last.arg, tuple):
-                if last.arg[0] == 'BREAK':
+                if last.arg[0] == "BREAK":
                     self.bytecode.instructions[-1] = Instruction(
-                        Op.JUMP, len(self.bytecode.instructions) + 1,
-                        last.line, last.column)
+                        Op.JUMP, len(self.bytecode.instructions) + 1, last.line, last.column
+                    )
                     break
-                elif last.arg[0] == 'CONTINUE':
+                elif last.arg[0] == "CONTINUE":
                     self.bytecode.instructions[-1] = Instruction(
-                        Op.JUMP, loop_start, last.line, last.column)
+                        Op.JUMP, loop_start, last.line, last.column
+                    )
 
         self.bytecode.add(Op.JUMP, loop_start, node.line, node.column)
         self.bytecode.instructions[body_jump_idx].arg = len(self.bytecode.instructions)
@@ -419,10 +637,10 @@ class Compiler:
         elif isinstance(node, (IdentifierNode, VariableNode)):
             name = node.name
             loc = self._resolve_name(name)
-            if loc == 'local':
+            if loc == "local":
                 idx = self._get_local_idx(name)
                 self.bytecode.add(Op.LOAD_LOCAL, idx, node.line, node.column)
-            elif loc == 'free':
+            elif loc == "free":
                 idx = self.bytecode.add_free_var(name)
                 self.bytecode.add(Op.LOAD_DEREF, idx, node.line, node.column)
             else:
@@ -434,9 +652,9 @@ class Compiler:
 
         elif isinstance(node, UnaryOpNode):
             self._emit_expr(node.operand)
-            if node.operator == '-':
+            if node.operator == "-":
                 self.bytecode.add(Op.NEG, line=node.line, column=node.column)
-            elif node.operator == 'bukan':
+            elif node.operator == "bukan":
                 self.bytecode.add(Op.NOT_OP, line=node.line, column=node.column)
 
         elif isinstance(node, CallNode):
@@ -517,22 +735,23 @@ class Compiler:
         elif isinstance(node, PipelineNode):
             raise NotImplementedError(
                 f"Pipeline operator (|>) belum didukung di bytecode VM (baris {node.line}). "
-                "Gunakan 'bro run' (transpiler) atau interpreter untuk fitur ini.")
+                "Gunakan 'bro run' (transpiler) atau interpreter untuk fitur ini."
+            )
 
         else:
             # Fallback: push None for unknown nodes
-            self.bytecode.add(Op.PUSH_NONE, line=getattr(node, 'line', 0))
+            self.bytecode.add(Op.PUSH_NONE, line=getattr(node, "line", 0))
 
     def _emit_binary_op(self, node: BinaryOpNode):
         # Short-circuit for 'dan' / 'atau'
-        if node.operator == 'dan':
+        if node.operator == "dan":
             self._emit_expr(node.left)
             self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0, node.line, node.column)
             self.bytecode.add(Op.POP_TOP)
             self._emit_expr(node.right)
             self.bytecode.instructions[-3].arg = len(self.bytecode.instructions)
             return
-        if node.operator == 'atau':
+        if node.operator == "atau":
             self._emit_expr(node.left)
             jump_right = len(self.bytecode.instructions)
             self.bytecode.add(Op.JUMP_IF_TRUE, 0, node.line, node.column)
@@ -545,11 +764,21 @@ class Compiler:
         self._emit_expr(node.right)
 
         op_map = {
-            '+': Op.ADD, '-': Op.SUB, '*': Op.MUL, '/': Op.DIV,
-            '%': Op.MOD, '**': Op.POW,
-            '==': Op.EQ, '!=': Op.NEQ, '>': Op.GT, '>=': Op.GTE,
-            '<': Op.LT, '<=': Op.LTE, 'is': Op.IS_OP,
-            'dan': Op.AND, 'atau': Op.OR,
+            "+": Op.ADD,
+            "-": Op.SUB,
+            "*": Op.MUL,
+            "/": Op.DIV,
+            "%": Op.MOD,
+            "**": Op.POW,
+            "==": Op.EQ,
+            "!=": Op.NEQ,
+            ">": Op.GT,
+            ">=": Op.GTE,
+            "<": Op.LT,
+            "<=": Op.LTE,
+            "is": Op.IS_OP,
+            "dan": Op.AND,
+            "atau": Op.OR,
         }
         op = op_map.get(node.operator)
         if op:
@@ -572,40 +801,46 @@ class Compiler:
             name = node.function.name
             # Check if builtin
             from brolang.interpreter.builtins import BUILTINS
+
             if name in BUILTINS and not has_kwargs:
                 for arg in node.args:
                     self._emit_expr(arg)
-                self.bytecode.add(Op.CALL_BUILTIN, (name, len(node.args)),
-                               node.line, node.column)
+                self.bytecode.add(Op.CALL_BUILTIN, (name, len(node.args)), node.line, node.column)
                 return
 
             _emit_args()
             loc = self._resolve_name(name)
-            if loc == 'local':
+            if loc == "local":
                 idx = self._get_local_idx(name)
                 self.bytecode.add(Op.LOAD_LOCAL, idx, node.line, node.column)
-            elif loc == 'free':
+            elif loc == "free":
                 idx = self.bytecode.add_free_var(name)
                 self.bytecode.add(Op.LOAD_DEREF, idx, node.line, node.column)
             else:
                 idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
-            self.bytecode.add(Op.CALL, len(node.args) + (1 if has_kwargs else 0),
-                           node.line, node.column)
+            self.bytecode.add(
+                Op.CALL, len(node.args) + (1 if has_kwargs else 0), node.line, node.column
+            )
 
         elif isinstance(node.function, ObjectAccessNode):
             self._emit_expr(node.function.object)
             prop_idx = self.bytecode.add_name(node.function.property)
             self.bytecode.add(Op.LOAD_METHOD, prop_idx, node.line, node.column)
             _emit_args()
-            self.bytecode.add(Op.CALL_METHOD, (prop_idx, len(node.args) + (1 if has_kwargs else 0)),
-                           node.line, node.column)
+            self.bytecode.add(
+                Op.CALL_METHOD,
+                (prop_idx, len(node.args) + (1 if has_kwargs else 0)),
+                node.line,
+                node.column,
+            )
         else:
             # Generic call
             self._emit_expr(node.function)
             _emit_args()
-            self.bytecode.add(Op.CALL, len(node.args) + (1 if has_kwargs else 0),
-                           node.line, node.column)
+            self.bytecode.add(
+                Op.CALL, len(node.args) + (1 if has_kwargs else 0), node.line, node.column
+            )
 
     # ============= Helpers =============
 
@@ -626,12 +861,12 @@ class Compiler:
     def _emit_del(self, node: DelNode):
         if isinstance(node.target, IdentifierNode):
             loc = self._resolve_name(node.target.name)
-            if loc == 'local':
+            if loc == "local":
                 idx = self._get_local_idx(node.target.name)
-                self.bytecode.add(Op.DEL_VAR, ('local', idx), node.line, node.column)
+                self.bytecode.add(Op.DEL_VAR, ("local", idx), node.line, node.column)
             else:
                 idx = self.bytecode.add_name(node.target.name)
-                self.bytecode.add(Op.DEL_VAR, ('global', idx), node.line, node.column)
+                self.bytecode.add(Op.DEL_VAR, ("global", idx), node.line, node.column)
 
     def _emit_assert(self, node: AssertNode):
         self._emit_expr(node.condition)
@@ -649,14 +884,14 @@ class Compiler:
 
     def _emit_import(self, node):
         if isinstance(node, ImportNode):
-            parts = '.'.join(node.parts)
+            parts = ".".join(node.parts)
             idx = self.bytecode.add_const(parts)
             self.bytecode.add(Op.IMPORT, (parts, None), node.line, node.column)
             name = node.parts[-1]
             name_idx = self.bytecode.add_name(name)
             self.bytecode.add(Op.DEFINE_GLOBAL, name_idx, node.line, node.column)
         elif isinstance(node, FromImportNode):
-            parts = '.'.join(node.parts)
+            parts = ".".join(node.parts)
             for name in node.names:
                 self.bytecode.add(Op.IMPORT, (parts, name), node.line, node.column)
                 name_idx = self.bytecode.add_name(name)
@@ -675,39 +910,7 @@ class Compiler:
     def _emit_struct(self, node: StructNode):
         """Emit struct as class-like construct."""
         # Simplified: treat struct as a class with automatic __init__
-        methods = {}
-        for method in node.methods:
-            saved = self.bytecode
-            saved_locals = self.locals
-            saved_free = self.free_vars
-            saved_depth = self.scope_depth
-
-            self.bytecode = Bytecode()
-            self.scope_depth += 1
-            self.locals = []
-            self.free_vars = []
-
-            if not method.is_static:
-                self._add_local('self')
-            for param in method.params:
-                if param == 'self' and not method.is_static:
-                    continue
-                self._add_local(param)
-
-            for stmt in method.body:
-                self._emit_stmt(stmt)
-            self.bytecode.add(Op.PUSH_NONE)
-            self.bytecode.add(Op.RETURN)
-
-            method_bc = self.bytecode
-            method_bc.finalize()
-            self.bytecode = saved
-            self.locals = saved_locals
-            self.free_vars = saved_free
-            self.scope_depth = saved_depth
-
-            total_params = len(method.params)
-            methods[method.name] = (method_bc, method.is_static, total_params)
+        methods = self._compile_methods(node.methods)
 
         struct_data = (node.name, methods)
         idx = self.bytecode.add_const(struct_data)
@@ -716,18 +919,20 @@ class Compiler:
         self.bytecode.add(Op.DEFINE_GLOBAL, name_idx, node.line, node.column)
 
     def _emit_augmented_assignment(self, node: AugmentedAssignmentNode):
-        name = node.target.name if isinstance(node.target, IdentifierNode) else ''
+        name = node.target.name if isinstance(node.target, IdentifierNode) else ""
         self._emit_expr(node.target)
         self._emit_expr(node.value)
         op_map = {
-            '+=': Op.AUG_ADD, '-=': Op.AUG_SUB,
-            '*=': Op.AUG_MUL, '/=': Op.AUG_DIV,
+            "+=": Op.AUG_ADD,
+            "-=": Op.AUG_SUB,
+            "*=": Op.AUG_MUL,
+            "/=": Op.AUG_DIV,
         }
         op = op_map.get(node.operator)
         if op:
             self.bytecode.add(op, line=node.line, column=node.column)
         loc = self._resolve_name(name)
-        if loc == 'local':
+        if loc == "local":
             idx = self._get_local_idx(name)
             self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
         else:
@@ -764,13 +969,13 @@ class Compiler:
         """Emit f-string as string concatenation."""
         parts = []
         for ptype, pval in node.parts:
-            if ptype == 'literal':
+            if ptype == "literal":
                 idx = self.bytecode.add_const(pval)
                 self.bytecode.add(Op.PUSH_CONST, idx, node.line, node.column)
-                parts.append(('const', None))
-            elif ptype == 'expr':
+                parts.append(("const", None))
+            elif ptype == "expr":
                 self._emit_expr(pval)
-                parts.append(('expr', None))
+                parts.append(("expr", None))
 
         # Concatenate all parts
         if len(parts) > 1:
@@ -796,6 +1001,8 @@ class Compiler:
         self.bytecode.add(Op.RETURN)
 
         func_bc = self.bytecode
+        apply_peephole(func_bc)
+        func_bc.finalize()
         self.bytecode = saved
         self.locals = saved_locals
         self.free_vars = saved_free
@@ -803,8 +1010,7 @@ class Compiler:
 
         const_idx = self.bytecode.add_const(func_bc)
         param_count = len(node.params)
-        self.bytecode.add(Op.CLOSURE, (const_idx, param_count, False),
-                         node.line, node.column)
+        self.bytecode.add(Op.CLOSURE, (const_idx, param_count, False), node.line, node.column)
 
     # ============= Scope Management =============
 
@@ -823,11 +1029,11 @@ class Compiler:
         # Check locals (most recent first)
         for i in range(len(self.locals) - 1, -1, -1):
             if self.locals[i][0] == name:
-                return 'local'
+                return "local"
         # Check free vars
         if name in self.free_vars:
-            return 'free'
-        return 'global'
+            return "free"
+        return "global"
 
     def _ensure_local(self, name: str):
         """Ensure a local exists, create if needed."""
@@ -839,5 +1045,3 @@ class Compiler:
         for _ in range(count):
             if self.locals:
                 self.locals.pop()
-
-

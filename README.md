@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-6.2-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-6.4-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v6.2</h1>
+<h1 align="center">BroLang v6.4</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/654-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/704-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/110+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/130+Token%20Types-purple?style=flat-square" alt="tokens"/>
-  <img src="https://img.shields.io/badge/39+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
+  <img src="https://img.shields.io/badge/43+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
 </p>
 
 ---
@@ -45,10 +45,108 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 6.2.0
+bro --version    # BroLang 6.3.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v6.3?
+
+### Performance Boost ⚡
+Tiga lapis optimasi bikin BroLang makin kencang:
+
+- **Peephole optimizer** di bytecode VM — constant folding (`2 + 3 * 4` jadi satu konstanta), removal NOP, remap jump otomatis
+- **Method cache** — pemanggilan method di inheritance chain di-cache (invalidasi otomatis saat monkey-patch)
+- **Fast path interpreter** — operator biner pada angka/teks tidak lagi mengecek operator overloading
+
+```bash
+bro benchmark benchmarks/fibonacci.bro --repeat 3
+# Transpiler 11x-151x lebih cepat dari VM per kasus
+```
+
+Benchmark publik ada di folder `benchmarks/` + docs `docs/PERFORMANCE.md`.
+
+### Tooling Proyek Modern 🛠️
+
+```bash
+bro init myapp          # scaffolding proyek lengkap
+cd myapp
+bro run                 # jalankan entry point dari brolang.json (tanpa argumen)
+bro test                # jalankan test
+```
+
+Struktur yang dibuat: `brolang.json`, `src/main.bro`, `tests/`, `docs/`, `.gitignore`.
+
+### Web Framework 🌐
+Bikin API backend langsung dari BroLang — tanpa dependency eksternal:
+
+```bro
+impor web_server
+
+fungsi halaman(req)
+    kembali req.kirim_json({"pesan": "Halo Dunia!"})
+selesai
+
+buat app = web_server.Buat()
+app.get("/", halaman)
+app.get("/pengguna/{id}", detail)   # parameter dinamis
+app.jalankan(8000)                   # http://127.0.0.1:8000
+```
+
+Routing GET/POST/PUT/DELETE, query string, body JSON, static files, CORS.
+Contoh lengkap: `examples/web_api.bro`.
+
+---
+
+## Apa yang Baru di v6.4?
+
+### Keamanan, Arsip & Terminal UX 🔐
+Tiga modul stdlib baru — semuanya murni stdlib Python, tanpa dependency eksternal:
+
+**`kripto`** — Keamanan & kriptografi:
+```bro
+impor kripto
+
+tulis kripto.sha256("halo dunia")       # 64 karakter hex
+tulis kripto.base64_encode("BroLang")   # QnJvTGFuZw==
+
+buat hash = kripto.hash_password("rahasia123")   # PBKDF2 + salt acak
+tulis kripto.cek_password("rahasia123", hash)    # True
+buat api_key = kripto.token(32)                  # token crypto-grade
+```
+
+**`arsip`** — ZIP & kompresi:
+```bro
+impor arsip
+
+arsip.buat_zip("backup.zip", ["a.txt", "b.txt"])
+tulis arsip.daftar_zip("backup.zip")
+arsip.ekstrak_zip("backup.zip", "restore/")
+buat padat = arsip.kompres("teks panjang ...")   # lebih pendek (zlib)
+```
+
+**`terminal`** — UX terminal untuk program CLI:
+```bro
+impor terminal
+
+tulis terminal.hijau("sukses")
+terminal.sukses("Deploy berhasil")
+tulis terminal.bilah_progress(7, 10)             # [███████░░░] 70%
+buat nama = terminal.tanya("Nama kamu? ", "anonim")
+```
+
+### Tooling: `bro test` lebih pintar 🧪
+- `bro test --nama <filter>` — hanya jalankan file tes yang namanya mengandung filter
+- `bro test --detail` — tampilkan status ✓/✗ + durasi tiap file
+- Ringkasan total dengan waktu eksekusi
+
+### Perintah baru `bro upgrade` 🔄
+`bro upgrade` — update BroLang ke versi terbaru langsung dari GitHub
+(git pull + install ulang otomatis).
+
+Contoh lengkap: `examples/kripto.bro`, `examples/arsip.bro`, `examples/terminal.bro`.
 
 ---
 
@@ -814,7 +912,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 
 ---
 
-## Standard Library (39+ modules)
+## Standard Library (43+ modules)
 
 | Module | Fungsi |
 |--------|--------|
@@ -860,6 +958,9 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | `sistem_operasi` | Operasi OS: list_dir, buat/hapus/pindah file & folder, jalur |
 | `web` | HTTP client: get/post/put/delete → objek respon (teks, status, json) |
 | `database` | SQLite: buka, query, eksekusi_sql, tabel, kolom |
+| `kripto` | Keamanan: md5/sha1/sha256/sha512, base64, password PBKDF2+salt, token (v6.4) |
+| `arsip` | Arsip: buat/tambah/ekstrak/daftar ZIP, kompresi teks (v6.4) |
+| `terminal` | UX CLI: warna ANSI, gaya teks, progress bar, prompt, pesan status (v6.4) |
 
 ---
 
@@ -875,7 +976,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | [Fitur v6.0](docs/FITUR_V60.md) | Type system, pattern matching modern, kelas_error, stdlib baru, package registry online |
 | [Fitur v5.0](docs/FITUR.md) | Semua fitur lengkap |
 | [Game Development](docs/GAME.md) | Bikin game pake BroLang |
-| [Standard Library](docs/STDLIB.md) | 39+ module built-in |
+| [Standard Library](docs/STDLIB.md) | 43+ module built-in |
 | [CLI Tools](docs/CLI.md) | Compiler, formatter, profiler |
 | [Arsitektur](docs/ARSITEKTUR.md) | Pipeline eksekusi |
 
@@ -884,17 +985,19 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 ## CLI Commands
 
 ```bash
-bro run <file>         # Jalankan file .bro
+bro run <file>         # Jalankan file .bro (tanpa argumen: dari brolang.json)
+bro init <nama>        # Bikin proyek baru (src/, tests/, docs/, brolang.json)
 bro build <file>       # Compile ke Python
 bro repl               # REPL interaktif
-bro test [file]        # Jalankan tes
+bro test [file]        # Jalankan tes (--nama <filter>, --detail)
 bro profile <file>     # Profil eksekusi
 bro lint <file>        # Analisis kode statis
 bro fmt <file>         # Format kode
-bro doc [topik]        # Dokumentasi
+bro doc [topik]        # Dokumentasi (kripto, arsip, terminal, web, ...)
 bro new-game <nama>    # Bikin proyek game baru
 bro run-game <file>    # Jalankan game
 bro benchmark <file>   # Benchmark interpreter vs transpiler vs VM
+bro upgrade            # Update BroLang ke versi terbaru dari GitHub (v6.4)
 bro belajar            # Belajar coding interaktif untuk pemula 🎓
 bro pkg <cmd>          # Package manager (init/install/publish/dll)
 ```

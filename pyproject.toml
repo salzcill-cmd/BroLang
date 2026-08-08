@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brolang"
-version = "6.2.0"
+version = "6.4.0"
 description = "Bahasa pemrograman profesional berbasis Bahasa Indonesia untuk game development"
 readme = "README.md"
 license = {text = "MIT"}

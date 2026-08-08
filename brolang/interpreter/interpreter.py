@@ -18,49 +18,117 @@ from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass, field
 import os
 from brolang.ast.nodes import (
-    ASTNode, ASTVisitor,
-    ProgramNode, NumberNode, DecimalNode, StringNode,
-    BooleanNode, KosongNode, IdentifierNode, VariableNode,
-    AssignmentNode, BinaryOpNode, UnaryOpNode,
-    IfNode, WhileNode, ForNode, BreakNode, ContinueNode,
-    FunctionNode, ReturnNode, CallNode,
-    ClassNode, MethodNode, AttributeNode,
-    ImportNode, FromImportNode,
-    TryNode, CatchNode,
-    ListNode, IndexNode, ObjectNode, ObjectAccessNode,
-    PrintNode, InputNode,
-    LambdaNode, ComprehensionNode, FStringNode,
-    EnumNode, StructNode, StructInstanceNode,
-    MatchNode, WildcardNode,
-    AugmentedAssignmentNode, TernaryNode, RaiseNode,
-    GlobalNode, NonlocalNode,
-    PassNode, DelNode, AssertNode,
-    TupleNode, SetNode, DictComprehensionNode,
-    AsyncFunctionDefNode, AwaitNode,
-    YieldNode, YieldFromNode, GeneratorFunctionNode,
-    DecoratorNode, DecoratedFunctionNode, DecoratedClassNode,
-    WalrusNode, WithNode, TypedExceptNode, MultiExceptNode,
-    StarImportNode, ChainedCallNode, SwitchNode,
+    ASTNode,
+    ASTVisitor,
+    ProgramNode,
+    NumberNode,
+    DecimalNode,
+    StringNode,
+    BooleanNode,
+    KosongNode,
+    IdentifierNode,
+    VariableNode,
+    AssignmentNode,
+    BinaryOpNode,
+    UnaryOpNode,
+    IfNode,
+    WhileNode,
+    ForNode,
+    BreakNode,
+    ContinueNode,
+    FunctionNode,
+    ReturnNode,
+    CallNode,
+    ClassNode,
+    MethodNode,
+    AttributeNode,
+    ImportNode,
+    FromImportNode,
+    TryNode,
+    CatchNode,
+    ListNode,
+    IndexNode,
+    ObjectNode,
+    ObjectAccessNode,
+    PrintNode,
+    InputNode,
+    LambdaNode,
+    ComprehensionNode,
+    FStringNode,
+    EnumNode,
+    StructNode,
+    StructInstanceNode,
+    MatchNode,
+    WildcardNode,
+    AugmentedAssignmentNode,
+    TernaryNode,
+    RaiseNode,
+    GlobalNode,
+    NonlocalNode,
+    PassNode,
+    DelNode,
+    AssertNode,
+    TupleNode,
+    SetNode,
+    DictComprehensionNode,
+    AsyncFunctionDefNode,
+    AwaitNode,
+    YieldNode,
+    YieldFromNode,
+    GeneratorFunctionNode,
+    DecoratorNode,
+    DecoratedFunctionNode,
+    DecoratedClassNode,
+    WalrusNode,
+    WithNode,
+    TypedExceptNode,
+    MultiExceptNode,
+    StarImportNode,
+    ChainedCallNode,
+    SwitchNode,
     # V5.0 Nodes
-    TypeAnnotationNode, TypeAliasNode, UnionTypeNode, GenericTypeNode, FunctionTypeNode,
-    InterfaceNode, MethodSignatureNode, ImplementsNode, AbstractClassNode, AbstractMethodNode,
-    DestructuringPatternNode, GuardPatternNode,
-    ObjectPatternNode, BindingPatternNode,
-    MapNode, FilterNode, ReduceNode,
-    ResultNode, OptionNode,
-    MacroDefNode, MacroCallNode,
-    NamespaceNode, UseNode, AccessModifierNode,
-    NullCoalescingNode, OptionalChainingNode,
-    ForEachNode, ChainedComparisonNode,
+    TypeAnnotationNode,
+    TypeAliasNode,
+    UnionTypeNode,
+    GenericTypeNode,
+    FunctionTypeNode,
+    InterfaceNode,
+    MethodSignatureNode,
+    ImplementsNode,
+    AbstractClassNode,
+    AbstractMethodNode,
+    DestructuringPatternNode,
+    GuardPatternNode,
+    ObjectPatternNode,
+    BindingPatternNode,
+    MapNode,
+    FilterNode,
+    ReduceNode,
+    ResultNode,
+    OptionNode,
+    MacroDefNode,
+    MacroCallNode,
+    NamespaceNode,
+    UseNode,
+    AccessModifierNode,
+    NullCoalescingNode,
+    OptionalChainingNode,
+    ForEachNode,
+    ChainedComparisonNode,
     # V5.2 Nodes
-    PipelineNode, DestructuringAssignmentNode,
+    PipelineNode,
+    DestructuringAssignmentNode,
     # V6.0 Nodes
     KelasErrorNode,
 )
 from brolang.exceptions import (
-    RuntimeError_, TypeError_, NameError_,
-    ZeroDivisionError_, IndexError_,
-    YieldException, StopGenerator,
+    RuntimeError_,
+    TypeError_,
+    NameError_,
+    ZeroDivisionError_,
+    IndexError_,
+    YieldException,
+    StopGenerator,
 )
 from brolang.exceptions import BroLangError as _BroLangErrorBase
 from brolang.stdlib import get_stdlib_module
@@ -94,8 +162,12 @@ class Environment:
             return self.variables[name]
         if self.parent is not None:
             return self.parent.get_variable(name)
-        raise NameError_(message=f"Variabel '{name}' tidak ditemukan.", line=0, column=0,
-                         solution=f"Pastikan '{name}' sudah dideklarasikan dengan 'buat'.")
+        raise NameError_(
+            message=f"Variabel '{name}' tidak ditemukan.",
+            line=0,
+            column=0,
+            solution=f"Pastikan '{name}' sudah dideklarasikan dengan 'buat'.",
+        )
 
     def set_variable(self, name: str, value: Any) -> None:
         if name in self.variables:
@@ -104,8 +176,12 @@ class Environment:
         if self.parent is not None:
             self.parent.set_variable(name, value)
             return
-        raise NameError_(message=f"Variabel '{name}' tidak ditemukan.", line=0, column=0,
-                         solution=f"Pastikan '{name}' sudah dideklarasikan.")
+        raise NameError_(
+            message=f"Variabel '{name}' tidak ditemukan.",
+            line=0,
+            column=0,
+            solution=f"Pastikan '{name}' sudah dideklarasikan.",
+        )
 
     def has_variable(self, name: str) -> bool:
         if name in self.variables:
@@ -117,17 +193,20 @@ class Environment:
 
 class ReturnException(Exception):
     """Exception untuk menangani return value."""
+
     def __init__(self, value: Any):
         self.value = value
 
 
 class BreakException(Exception):
     """Exception untuk break."""
+
     pass
 
 
 class ContinueException(Exception):
     """Exception untuk continue."""
+
     pass
 
 
@@ -145,22 +224,23 @@ def _has_yield_in_body(body):
     for stmt in body:
         if isinstance(stmt, (YieldNode, YieldFromNode)):
             return True
-        if hasattr(stmt, 'body') and _has_yield_in_body(stmt.body):
+        if hasattr(stmt, "body") and _has_yield_in_body(stmt.body):
             return True
-        if hasattr(stmt, 'else_body') and stmt.else_body and _has_yield_in_body(stmt.else_body):
+        if hasattr(stmt, "else_body") and stmt.else_body and _has_yield_in_body(stmt.else_body):
             return True
-        if hasattr(stmt, 'if_branches') and stmt.if_branches:
+        if hasattr(stmt, "if_branches") and stmt.if_branches:
             for cond, block in stmt.if_branches:
                 if _has_yield_in_body(block):
                     return True
-        if hasattr(stmt, 'except_handlers') and stmt.except_handlers:
+        if hasattr(stmt, "except_handlers") and stmt.except_handlers:
             for handler in stmt.except_handlers:
-                if hasattr(handler, 'body') and _has_yield_in_body(handler.body):
+                if hasattr(handler, "body") and _has_yield_in_body(handler.body):
                     return True
     return False
 
 
 # ============= V6.0: Custom Error Classes =============
+
 
 class Kesalahan(_BroLangErrorBase):
     """Kelas dasar untuk error kustom di BroLang (v6.0).
@@ -189,10 +269,16 @@ class Kesalahan(_BroLangErrorBase):
 class BroLangClass:
     """Representasi kelas dalam BroLang runtime."""
 
-    def __init__(self, name: str, methods: Dict[str, Callable], parent: Optional["BroLangClass"] = None,
-                 is_abstract: bool = False, abstract_methods: Optional[List[str]] = None,
-                 required_interfaces: Optional[List[str]] = None,
-                 method_access: Optional[Dict[str, str]] = None):
+    def __init__(
+        self,
+        name: str,
+        methods: Dict[str, Callable],
+        parent: Optional["BroLangClass"] = None,
+        is_abstract: bool = False,
+        abstract_methods: Optional[List[str]] = None,
+        required_interfaces: Optional[List[str]] = None,
+        method_access: Optional[Dict[str, str]] = None,
+    ):
         self.name = name
         self.methods = methods
         self.parent = parent
@@ -236,19 +322,25 @@ class BroLangInstance:
             if access == "privat" and caller_class != self.klass.name:
                 raise RuntimeError_(
                     message=f"Akses ditolak: '{name}' bersifat privat di kelas '{self.klass.name}'.",
-                    line=0, column=0,
+                    line=0,
+                    column=0,
                     solution=f"Hapus modifier 'privat' atau akses dari dalam kelas {self.klass.name}.",
                 )
-            if access == "terlindungi" and caller_class not in (self.klass.name, _get_subclass_names(self.klass)):
+            if access == "terlindungi" and caller_class not in (
+                self.klass.name,
+                _get_subclass_names(self.klass),
+            ):
                 raise RuntimeError_(
                     message=f"Akses ditolak: '{name}' bersifat terlindungi di kelas '{self.klass.name}'.",
-                    line=0, column=0,
+                    line=0,
+                    column=0,
                     solution=f"Akses '{name}' hanya bisa dari kelas {self.klass.name} atau keturunannya.",
                 )
             return method
         raise RuntimeError_(
             message=f"'{self.klass.name}' tidak memiliki atribut '{name}'.",
-            line=0, column=0,
+            line=0,
+            column=0,
             solution=f"Periksa apakah '{name}' sudah didefinisikan di kelas {self.klass.name}.",
         )
 
@@ -296,11 +388,11 @@ class BroLangGenerator:
         """Eksekusi list statement, tangkap yield di setiap level."""
         for stmt in stmts:
             cls = stmt.__class__.__name__
-            if cls == 'ForNode':
+            if cls == "ForNode":
                 self._collect_for(stmt)
-            elif cls == 'WhileNode':
+            elif cls == "WhileNode":
                 self._collect_while(stmt)
-            elif cls == 'YieldFromNode':
+            elif cls == "YieldFromNode":
                 self._collect_yield_from(stmt)
             else:
                 try:
@@ -408,8 +500,6 @@ _OVERLOAD_UNARY_MAP = {
 }
 
 
-
-
 class Interpreter(ASTVisitor):
     """Interpreter utama BroLang.
 
@@ -434,8 +524,12 @@ class Interpreter(ASTVisitor):
         # V6.0: kelas dasar error kustom — tersedia sebagai kelas & variabel
         self.global_env.variables["Kesalahan"] = Kesalahan
         self.global_env.classes["Kesalahan"] = BroLangClass(
-            "Kesalahan", methods={}, parent=None,
-            is_abstract=False, abstract_methods=[], required_interfaces=[],
+            "Kesalahan",
+            methods={},
+            parent=None,
+            is_abstract=False,
+            abstract_methods=[],
+            required_interfaces=[],
         )
         self.global_env.classes["Kesalahan"].is_error_class = True
 
@@ -459,8 +553,8 @@ class Interpreter(ASTVisitor):
         except Exception as e:
             raise RuntimeError_(
                 message=f"Terjadi error runtime: {str(e)}",
-                line=getattr(e, 'line', 0),
-                column=getattr(e, 'column', 0),
+                line=getattr(e, "line", 0),
+                column=getattr(e, "column", 0),
             )
 
     def _push_env(self) -> Environment:
@@ -485,8 +579,8 @@ class Interpreter(ASTVisitor):
             if name not in params:
                 raise RuntimeError_(
                     message=f"Keyword argument '{name}' tidak dikenal.",
-                    line=getattr(node, 'line', 0) if node else 0,
-                    column=getattr(node, 'column', 0) if node else 0,
+                    line=getattr(node, "line", 0) if node else 0,
+                    column=getattr(node, "column", 0) if node else 0,
                     solution=f"Parameter yang tersedia: {', '.join(params)}.",
                 )
             idx = params.index(name)
@@ -504,15 +598,15 @@ class Interpreter(ASTVisitor):
                 bound.append((param, None))
 
         # Type enforcement v6.0 pada parameter fungsi ber-tipe
-        param_types = getattr(node, 'param_types', None) or []
+        param_types = getattr(node, "param_types", None) or []
         for i, (param, val) in enumerate(bound):
             if i < len(param_types) and param_types[i]:
                 if not self._type_matches(val, param_types[i]):
                     raise TypeError_(
                         message=f"Parameter '{param}' diharapkan {param_types[i]}, "
-                                f"tapi mendapat {self._type_name_of(val)}.",
-                        line=getattr(node, 'line', 0) if node else 0,
-                        column=getattr(node, 'column', 0) if node else 0,
+                        f"tapi mendapat {self._type_name_of(val)}.",
+                        line=getattr(node, "line", 0) if node else 0,
+                        column=getattr(node, "column", 0) if node else 0,
                         solution=f"Berikan nilai {param_types[i]} untuk parameter '{param}'.",
                     )
         return bound
@@ -572,13 +666,12 @@ class Interpreter(ASTVisitor):
 
         # Union: Angka | Teks
         if "|" in type_name:
-            return any(self._type_matches(value, part.strip())
-                       for part in type_name.split("|"))
+            return any(self._type_matches(value, part.strip()) for part in type_name.split("|"))
 
         # Generics: Daftar<Angka>
         if "<" in type_name and ">" in type_name:
-            base = type_name[:type_name.index("<")].strip()
-            inner = type_name[type_name.index("<") + 1:type_name.rindex(">")]
+            base = type_name[: type_name.index("<")].strip()
+            inner = type_name[type_name.index("<") + 1 : type_name.rindex(">")]
             if not self._type_matches_base(value, base):
                 return False
             if isinstance(value, list):
@@ -633,18 +726,18 @@ class Interpreter(ASTVisitor):
     def _make_iterable(self, obj: BroLangInstance):
         """Konversi objek BroLangInstance jadi Python iterable."""
         try:
-            iter_func = obj.get('__iter__')
+            iter_func = obj.get("__iter__")
             if callable(iter_func) and not isinstance(iter_func, BroLangInstance):
                 result = iter_func(obj)
             else:
                 result = iter_func()
-            if hasattr(result, '__iter__') and hasattr(result, '__next__'):
+            if hasattr(result, "__iter__") and hasattr(result, "__next__"):
                 return result
             if isinstance(result, list):
                 return result
             # BroLang-style iterator: call __next__ repeatedly
-            if hasattr(result, 'get'):
-                next_func = result.get('__next__')
+            if hasattr(result, "get"):
+                next_func = result.get("__next__")
                 if callable(next_func):
                     items = []
                     while True:
@@ -654,11 +747,11 @@ class Interpreter(ASTVisitor):
                         except (StopIteration, Exception):
                             break
                     return items
-            return list(result) if hasattr(result, '__iter__') else [result]
+            return list(result) if hasattr(result, "__iter__") else [result]
         except RuntimeError_:
             pass
         try:
-            getitem_func = obj.get('__getitem__')
+            getitem_func = obj.get("__getitem__")
             idx = 0
             result = []
             while True:
@@ -673,7 +766,7 @@ class Interpreter(ASTVisitor):
             return result
         except RuntimeError_:
             pass
-        return list(obj.attributes.values()) if hasattr(obj, 'attributes') else []
+        return list(obj.attributes.values()) if hasattr(obj, "attributes") else []
 
     def visit_NumberNode(self, node: NumberNode) -> int:
         return node.value
@@ -694,13 +787,16 @@ class Interpreter(ASTVisitor):
         """Mengambil nilai variabel dari environment."""
         name = node.name
 
-        # Check variables first (user variables shadow builtins)
-        if self.current_env.has_variable(name):
-            return self.current_env.get_variable(name)
-
-        # Check built-in functions
-        if name in self.current_env.functions:
-            return self.current_env.functions[name]
+        # Check variables first (user variables shadow builtins),
+        # naik ke parent env sampai global.
+        env = self.current_env
+        while env is not None:
+            if env.has_variable(name):
+                return env.get_variable(name)
+            # Fungsi didefinisikan di env (global/local scope)
+            if name in env.functions:
+                return env.functions[name]
+            env = env.parent
 
         raise NameError_(
             message=f"Variabel '{name}' tidak ditemukan." + saran_keyword(name),
@@ -720,9 +816,10 @@ class Interpreter(ASTVisitor):
         if node.type_annotation and not self._type_matches(value, node.type_annotation):
             raise TypeError_(
                 message=f"Tipe tidak cocok untuk '{node.target.name}': "
-                        f"diharapkan {node.type_annotation}, "
-                        f"tapi mendapat {self._type_name_of(value)}.",
-                line=node.line, column=node.column,
+                f"diharapkan {node.type_annotation}, "
+                f"tapi mendapat {self._type_name_of(value)}.",
+                line=node.line,
+                column=node.column,
                 solution=f"Ubah nilai menjadi {node.type_annotation} atau ubah anotasi tipe.",
             )
 
@@ -747,13 +844,15 @@ class Interpreter(ASTVisitor):
                 else:
                     raise TypeError_(
                         message=f"Objek '{target.klass.name}' tidak bisa di-index assignment.",
-                        line=node.line, column=node.column,
+                        line=node.line,
+                        column=node.column,
                         solution="Implementasikan method _index_set_(self, index, nilai) di kelas.",
                     )
             else:
                 raise TypeError_(
                     message="Hanya list yang bisa di-index assignment.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
             return value
         elif isinstance(node.target, ObjectAccessNode):
@@ -766,10 +865,12 @@ class Interpreter(ASTVisitor):
             # set atribut langsung — konsisten dengan transpiler.
             # Module (SimpleNamespace) tetap error agar typo tidak tertutup.
             import types as _types
+
             if isinstance(obj, _types.SimpleNamespace):
                 raise RuntimeError_(
                     message=f"Objek tidak memiliki atribut '{node.target.property}'.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
             try:
                 setattr(obj, node.target.property, value)
@@ -778,7 +879,8 @@ class Interpreter(ASTVisitor):
                 pass
             raise RuntimeError_(
                 message=f"Objek tidak memiliki atribut '{node.target.property}'.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
         return value
@@ -791,7 +893,11 @@ class Interpreter(ASTVisitor):
 
         # Operator overloading (v5.5): instance kelas bisa definisikan
         # method `_tambah_`, `_kurang_`, `_sama_`, dst.
-        overloaded = self._overload_binary(op, left, right)
+        # Fast path: hanya cek overload bila salah satu operan adalah
+        # instance kelas BroLang (objek Python menangani operator sendiri).
+        overloaded = None
+        if isinstance(left, BroLangInstance) or isinstance(right, BroLangInstance):
+            overloaded = self._overload_binary(op, left, right)
         if overloaded is not None:
             return overloaded
 
@@ -832,7 +938,8 @@ class Interpreter(ASTVisitor):
             if right == 0:
                 raise ZeroDivisionError_(
                     message="Tidak bisa membagi dengan nol.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                     solution="Pastikan pembagi tidak bernilai 0.",
                 )
             return left / right
@@ -840,11 +947,12 @@ class Interpreter(ASTVisitor):
             if right == 0:
                 raise ZeroDivisionError_(
                     message="Tidak bisa modulo dengan nol.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
             return left % right
         elif op == "**":
-            return left ** right
+            return left**right
 
         # Bitwise operators
         elif op == "&":
@@ -860,7 +968,8 @@ class Interpreter(ASTVisitor):
 
         raise RuntimeError_(
             message=f"Operator '{op}' tidak dikenal.",
-            line=node.line, column=node.column,
+            line=node.line,
+            column=node.column,
         )
 
     def visit_UnaryOpNode(self, node: UnaryOpNode) -> Any:
@@ -868,8 +977,7 @@ class Interpreter(ASTVisitor):
         operand = self.visit(node.operand)
 
         # Operator overloading (v5.5): `_negasi_`, `_positif_`, dst.
-        method = self._get_overload_method(
-            operand, _OVERLOAD_UNARY_MAP.get(node.operator, ""))
+        method = self._get_overload_method(operand, _OVERLOAD_UNARY_MAP.get(node.operator, ""))
         if method is not None:
             return method(operand)
 
@@ -884,7 +992,8 @@ class Interpreter(ASTVisitor):
 
         raise RuntimeError_(
             message=f"Operator unary '{node.operator}' tidak dikenal.",
-            line=node.line, column=node.column,
+            line=node.line,
+            column=node.column,
         )
 
     def _get_overload_method(self, obj: Any, name: str) -> Optional[Callable]:
@@ -1059,7 +1168,8 @@ class Interpreter(ASTVisitor):
                 env = env.parent
             raise NameError_(
                 message=f"Variabel '{name}' tidak ditemukan untuk dihapus.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
         elif isinstance(node.target, IndexNode):
             target = self.visit(node.target.target)
@@ -1070,12 +1180,14 @@ class Interpreter(ASTVisitor):
                 except Exception as e:
                     raise RuntimeError_(
                         message=f"Gagal menghapus elemen: {e}",
-                        line=node.line, column=node.column,
+                        line=node.line,
+                        column=node.column,
                     )
             else:
                 raise TypeError_(
                     message=f"Tipe {type(target).__name__} tidak bisa dihapus elemennya.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
         elif isinstance(node.target, ObjectAccessNode):
             obj = self.visit(node.target.object)
@@ -1086,7 +1198,8 @@ class Interpreter(ASTVisitor):
                 else:
                     raise RuntimeError_(
                         message=f"Kunci '{prop}' tidak ditemukan.",
-                        line=node.line, column=node.column,
+                        line=node.line,
+                        column=node.column,
                     )
             elif isinstance(obj, BroLangInstance):
                 if prop in obj.attributes:
@@ -1094,12 +1207,14 @@ class Interpreter(ASTVisitor):
                 else:
                     raise RuntimeError_(
                         message=f"Atribut '{prop}' tidak ditemukan.",
-                        line=node.line, column=node.column,
+                        line=node.line,
+                        column=node.column,
                     )
         else:
             raise RuntimeError_(
                 message="Target 'hapus' tidak valid.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
     def visit_AssertNode(self, node: AssertNode) -> None:
@@ -1109,7 +1224,8 @@ class Interpreter(ASTVisitor):
             msg = self.visit(node.message) if node.message else "Assertion gagal"
             raise RuntimeError_(
                 message=f"Pastikan: {msg}",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
     def visit_FunctionNode(self, node: FunctionNode) -> None:
@@ -1187,21 +1303,28 @@ class Interpreter(ASTVisitor):
                         if access == "privat" and caller != obj.klass.name:
                             raise RuntimeError_(
                                 message=f"Akses ditolak: '{method_name}' bersifat privat di kelas '{obj.klass.name}'.",
-                                line=node.line, column=node.column,
+                                line=node.line,
+                                column=node.column,
                                 solution=f"Hapus modifier 'privat' atau akses dari dalam kelas {obj.klass.name}.",
                             )
-                        if access == "terlindungi" and caller not in (obj.klass.name, _get_subclass_names(obj.klass)):
+                        if access == "terlindungi" and caller not in (
+                            obj.klass.name,
+                            _get_subclass_names(obj.klass),
+                        ):
                             raise RuntimeError_(
                                 message=f"Akses ditolak: '{method_name}' bersifat terlindungi di kelas '{obj.klass.name}'.",
-                                line=node.line, column=node.column,
+                                line=node.line,
+                                column=node.column,
                                 solution=f"Akses '{method_name}' hanya bisa dari kelas {obj.klass.name} atau keturunannya.",
                             )
-                        if not getattr(method, '_brolang_static', False):
+                        if not getattr(method, "_brolang_static", False):
                             return method(obj, *args, **kwargs)
                         return method(*args, **kwargs)
                     # Built-in get/set for property access (only if no class method)
                     if method_name == "get":
-                        return obj.get(args[0], caller_class=self._current_class_name) if args else obj
+                        return (
+                            obj.get(args[0], caller_class=self._current_class_name) if args else obj
+                        )
                     if method_name == "set" and len(args) >= 2:
                         obj.set(args[0], args[1])
                         return None
@@ -1247,7 +1370,8 @@ class Interpreter(ASTVisitor):
 
             raise NameError_(
                 message=f"Fungsi '{func_name}' tidak ditemukan." + saran_keyword(func_name),
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
                 solution=f"Definisikan fungsi '{func_name}' dengan 'fungsi {func_name}(...)'.",
             )
 
@@ -1289,12 +1413,14 @@ class Interpreter(ASTVisitor):
             if node.parent in self.current_env.classes:
                 parent_class = self.current_env.classes[node.parent]
 
-        is_abstract = getattr(node, 'is_abstract', False)
-        abstract_methods = getattr(node, 'abstract_methods', [])
-        required_interfaces = getattr(node, 'implements', []) or []
+        is_abstract = getattr(node, "is_abstract", False)
+        abstract_methods = getattr(node, "abstract_methods", [])
+        required_interfaces = getattr(node, "implements", []) or []
 
         klass = BroLangClass(
-            node.name, methods, parent_class,
+            node.name,
+            methods,
+            parent_class,
             is_abstract=is_abstract,
             abstract_methods=abstract_methods,
             required_interfaces=required_interfaces,
@@ -1305,11 +1431,12 @@ class Interpreter(ASTVisitor):
         for iface_name in required_interfaces:
             if iface_name in self.current_env.interfaces:
                 iface = self.current_env.interfaces[iface_name]
-                for method_sig in iface['methods']:
+                for method_sig in iface["methods"]:
                     if method_sig not in methods:
                         raise RuntimeError_(
                             message=f"Kelas '{node.name}' harus mengimplementasi method '{method_sig}' dari antarmuka '{iface_name}'.",
-                            line=node.line, column=node.column,
+                            line=node.line,
+                            column=node.column,
                             solution=f"Tambahkan method '{method_sig}' ke kelas '{node.name}'.",
                         )
 
@@ -1318,7 +1445,8 @@ class Interpreter(ASTVisitor):
             if klass.is_abstract:
                 raise RuntimeError_(
                     message=f"Tidak bisa membuat instance dari kelas abstrak '{node.name}'.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                     solution=f"Buat kelas turunan yang mengimplementasi semua method abstrak dari '{node.name}'.",
                 )
             instance = BroLangInstance(klass)
@@ -1336,11 +1464,15 @@ class Interpreter(ASTVisitor):
         # Attach static methods to constructor for Class.method() access
         for name, method in methods.items():
             for stmt in node.body:
-                if isinstance(stmt, FunctionNode) and stmt.name == name and getattr(stmt, 'is_static', False):
+                if (
+                    isinstance(stmt, FunctionNode)
+                    and stmt.name == name
+                    and getattr(stmt, "is_static", False)
+                ):
                     setattr(class_constructor, name, method)
                     break
                 elif isinstance(stmt, AccessModifierNode) and isinstance(stmt.target, FunctionNode):
-                    if stmt.target.name == name and getattr(stmt.target, 'is_static', False):
+                    if stmt.target.name == name and getattr(stmt.target, "is_static", False):
                         setattr(class_constructor, name, method)
                         break
 
@@ -1391,7 +1523,9 @@ class Interpreter(ASTVisitor):
             parent_class = self.current_env.classes[parent_name]
 
         klass = BroLangClass(
-            node.name, methods, parent_class,
+            node.name,
+            methods,
+            parent_class,
             is_abstract=False,
             abstract_methods=[],
             required_interfaces=[],
@@ -1416,9 +1550,10 @@ class Interpreter(ASTVisitor):
     def _create_method(self, node) -> Callable:
         """Membuat method dari FunctionNode atau MethodNode."""
         owner_class_name = self._current_class_name
-        is_static = getattr(node, 'is_static', False)
+        is_static = getattr(node, "is_static", False)
 
         if is_static:
+
             def static_method(*args, **kwargs):
                 old_env = self.current_env
                 old_class_name = self._current_class_name
@@ -1496,7 +1631,8 @@ class Interpreter(ASTVisitor):
             return getattr(obj, node.attribute)
         raise RuntimeError_(
             message=f"Objek tidak memiliki atribut '{node.attribute}'.",
-            line=node.line, column=node.column,
+            line=node.line,
+            column=node.column,
         )
 
     def visit_ObjectAccessNode(self, node: ObjectAccessNode) -> Any:
@@ -1520,7 +1656,8 @@ class Interpreter(ASTVisitor):
                 return methods[prop]
             raise RuntimeError_(
                 message=f"Objek tidak memiliki properti '{prop}'.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
         if isinstance(obj, list):
@@ -1529,7 +1666,8 @@ class Interpreter(ASTVisitor):
                 return methods[prop]
             raise RuntimeError_(
                 message=f"List tidak memiliki method '{prop}'.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
         if isinstance(obj, str):
@@ -1538,7 +1676,8 @@ class Interpreter(ASTVisitor):
                 return methods[prop]
             raise RuntimeError_(
                 message=f"String tidak memiliki method '{prop}'.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
         if isinstance(obj, str):
@@ -1547,7 +1686,8 @@ class Interpreter(ASTVisitor):
                 return methods[prop]
             raise RuntimeError_(
                 message=f"String tidak memiliki method '{prop}'.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
         if isinstance(obj, BroLangClass):
@@ -1556,7 +1696,8 @@ class Interpreter(ASTVisitor):
                 return method
             raise RuntimeError_(
                 message=f"Kelas '{obj.name}' tidak memiliki method '{prop}'.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
         if hasattr(obj, prop):
@@ -1564,7 +1705,8 @@ class Interpreter(ASTVisitor):
 
         raise RuntimeError_(
             message=f"Tidak bisa mengakses '{prop}' pada tipe {type(obj).__name__}.",
-            line=node.line, column=node.column,
+            line=node.line,
+            column=node.column,
         )
 
     def visit_ImportNode(self, node: ImportNode) -> None:
@@ -1578,6 +1720,7 @@ class Interpreter(ASTVisitor):
             # Coba package BroLang yang terinstall (bro pkg install)
             try:
                 from brolang.package_manager.manager import PackageManager
+
                 pkg_manager = PackageManager()
                 pkg_dir = pkg_manager.find_package(module_name)
                 if pkg_dir:
@@ -1590,13 +1733,15 @@ class Interpreter(ASTVisitor):
             # Try Python import
             try:
                 import importlib
+
                 py_module = importlib.import_module(module_name)
                 alias = node.alias or module_name
                 self.current_env.variables[alias] = py_module
             except ImportError:
                 raise RuntimeError_(
                     message=f"Module '{module_name}' tidak ditemukan.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                     solution=f"Pastikan modul '{module_name}' sudah terinstal (bro pkg install {module_name}).",
                 )
 
@@ -1668,6 +1813,7 @@ class Interpreter(ASTVisitor):
         except ImportError:
             try:
                 import importlib
+
                 py_module = importlib.import_module(node.module)
                 for name in node.names:
                     if hasattr(py_module, name):
@@ -1675,7 +1821,8 @@ class Interpreter(ASTVisitor):
             except ImportError:
                 raise RuntimeError_(
                     message=f"Module '{node.module}' tidak ditemukan.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
 
     def visit_TryNode(self, node: TryNode) -> Optional[Any]:
@@ -1730,13 +1877,13 @@ class Interpreter(ASTVisitor):
                 self.current_env.define_variable(node.value_var, item[1])
             else:
                 self.current_env.define_variable(node.key_var, item)
-            
+
             if node.condition:
                 cond_result = self.visit(node.condition)
                 if not cond_result:
                     self._pop_env()
                     continue
-            
+
             key = self.visit(node.key_expr)
             value = self.visit(node.value_expr)
             result[key] = value
@@ -1752,7 +1899,8 @@ class Interpreter(ASTVisitor):
             if not isinstance(target, (list, str)):
                 raise TypeError_(
                     message=f"Tipe {type(target).__name__} tidak bisa di-slice.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
             start = self.visit(node.slice_start) if node.slice_start else None
             stop = self.visit(node.slice_stop) if node.slice_stop else None
@@ -1762,7 +1910,8 @@ class Interpreter(ASTVisitor):
             except Exception as e:
                 raise RuntimeError_(
                     message=f"Error slicing: {e}",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
 
         # Regular indexing
@@ -1774,7 +1923,8 @@ class Interpreter(ASTVisitor):
             except IndexError:
                 raise IndexError_(
                     message=f"Indeks {index} di luar batas. Panjang: {len(target)}.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                     solution=f"Gunakan indeks antara 0 dan {len(target) - 1}.",
                 )
 
@@ -1784,7 +1934,8 @@ class Interpreter(ASTVisitor):
                 return target[index]
             raise RuntimeError_(
                 message=f"Kunci '{index}' tidak ditemukan di objek.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
                 solution="Periksa nama kunci yang digunakan.",
             )
 
@@ -1799,13 +1950,15 @@ class Interpreter(ASTVisitor):
                     continue
             raise TypeError_(
                 message=f"Objek '{target.klass.name}' tidak bisa di-index.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
                 solution="Implementasikan method _index_(self, index) di kelas.",
             )
 
         raise TypeError_(
             message=f"Tipe {type(target).__name__} tidak bisa di-index.",
-            line=node.line, column=node.column,
+            line=node.line,
+            column=node.column,
         )
 
     def visit_ObjectNode(self, node: ObjectNode) -> Dict[str, Any]:
@@ -1845,7 +1998,7 @@ class Interpreter(ASTVisitor):
         """Lambda expression with closure: lalu(x) x + 1"""
         # Capture the enclosing environment at definition time (closure)
         closure_env = self.current_env
-        
+
         def lambda_func(*args, **kwargs):
             old_env = self.current_env
             # Create new env with captured closure env as parent
@@ -1866,6 +2019,7 @@ class Interpreter(ASTVisitor):
                 self._pop_env()
                 self.current_env = old_env
                 raise e
+
         lambda_func._brolang_fn = True
         return lambda_func
 
@@ -1898,19 +2052,24 @@ class Interpreter(ASTVisitor):
             elif ptype == "expr":
                 val = self.visit(pval)
                 result.append(str(val))
-        return ''.join(result)
+        return "".join(result)
 
     # ============= V2: Enum =============
 
     def visit_EnumNode(self, node: EnumNode) -> None:
         """Enum declaration: enum Warna { MERAH, BIRU, HIJAU }"""
         enum_members = {}
-        enum_class = type(node.name, (), {
-            '__init__': lambda self, val=None: setattr(self, 'value', val),
-            '__repr__': lambda self: f"{self.__class__.__name__}.{getattr(self, '_member_name', '?')}",
-            '__eq__': lambda self, other: isinstance(other, type(self)) and self.value == other.value,
-            '__hash__': lambda self: hash(getattr(self, 'value', 0)),
-        })
+        enum_class = type(
+            node.name,
+            (),
+            {
+                "__init__": lambda self, val=None: setattr(self, "value", val),
+                "__repr__": lambda self: f"{self.__class__.__name__}.{getattr(self, '_member_name', '?')}",
+                "__eq__": lambda self, other: isinstance(other, type(self))
+                and self.value == other.value,
+                "__hash__": lambda self: hash(getattr(self, "value", 0)),
+            },
+        )
         for i, member in enumerate(node.members):
             instance = enum_class(val=i)
             instance._member_name = member
@@ -1925,10 +2084,14 @@ class Interpreter(ASTVisitor):
 
     def visit_StructNode(self, node: StructNode) -> None:
         """Struct declaration: struktur Titik { x, y }"""
-        struct_class = type(node.name, (), {
-            '__init__': lambda self, *args: _struct_init(self, node.fields, args),
-            '__repr__': lambda self: f"{node.name}({', '.join(str(getattr(self, f)) for f in node.fields)})",
-        })
+        struct_class = type(
+            node.name,
+            (),
+            {
+                "__init__": lambda self, *args: _struct_init(self, node.fields, args),
+                "__repr__": lambda self: f"{node.name}({', '.join(str(getattr(self, f)) for f in node.fields)})",
+            },
+        )
         struct_class._fields = node.fields
         self.current_env.variables[node.name] = struct_class
 
@@ -1984,13 +2147,11 @@ class Interpreter(ASTVisitor):
 
         return None
 
-    def _match_pattern(self, value: Any, pattern: ASTNode,
-                       bindings: Dict[str, Any]) -> bool:
+    def _match_pattern(self, value: Any, pattern: ASTNode, bindings: Dict[str, Any]) -> bool:
         """Cocokkan nilai dengan pola (v6.0). Isi bindings kalau cocok."""
         if isinstance(pattern, DestructuringPatternNode):
             if pattern.is_array:
-                if (not isinstance(value, (list, tuple))
-                        or len(value) != len(pattern.variables)):
+                if not isinstance(value, (list, tuple)) or len(value) != len(pattern.variables):
                     return False
                 for var, item in zip(pattern.variables, value):
                     bindings[var] = item
@@ -2036,7 +2197,8 @@ class Interpreter(ASTVisitor):
         if not isinstance(node.target, IdentifierNode):
             raise RuntimeError_(
                 message="Target augmented assignment harus berupa variabel.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
         name = node.target.name
@@ -2054,22 +2216,25 @@ class Interpreter(ASTVisitor):
             if right == 0:
                 raise ZeroDivisionError_(
                     message="Tidak bisa membagi dengan nol.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
             result = current / right
         elif op == "%=":
             if right == 0:
                 raise ZeroDivisionError_(
                     message="Tidak bisa modulo dengan nol.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
             result = current % right
         elif op == "**=":
-            result = current ** right
+            result = current**right
         else:
             raise RuntimeError_(
                 message=f"Operator augmented assignment '{op}' tidak dikenal.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
         self.current_env.set_variable(name, result)
@@ -2135,6 +2300,7 @@ class Interpreter(ASTVisitor):
 
     def _get_list_methods(self, lst: list) -> dict:
         """Membuat method dictionary untuk list."""
+
         def tambah(item):
             lst.append(item)
             return None
@@ -2205,6 +2371,7 @@ class Interpreter(ASTVisitor):
 
     def _get_dict_methods(self, d: dict) -> dict:
         """Membuat method dictionary untuk dict."""
+
         def kunci():
             return list(d.keys())
 
@@ -2275,11 +2442,13 @@ class Interpreter(ASTVisitor):
             "strip": lambda: s.strip(),
             "panjang": lambda: len(s),
             # v4.0 string methods
-            "cocok": lambda pattern: bool(__import__('re').search(pattern, s)),
-            "cocok_semua": lambda pattern: __import__('re').findall(pattern, s),
-            "ganti_regexp": lambda pattern, replacement: __import__('re').sub(pattern, replacement, s),
-            "bagi_regexp": lambda pattern: __import__('re').split(pattern, s),
-            "encode": lambda enc='utf-8': s.encode(enc),
+            "cocok": lambda pattern: bool(__import__("re").search(pattern, s)),
+            "cocok_semua": lambda pattern: __import__("re").findall(pattern, s),
+            "ganti_regexp": lambda pattern, replacement: __import__("re").sub(
+                pattern, replacement, s
+            ),
+            "bagi_regexp": lambda pattern: __import__("re").split(pattern, s),
+            "encode": lambda enc="utf-8": s.encode(enc),
             "isalnum": lambda: s.isalnum(),
             "isalpha": lambda: s.isalpha(),
             "isdigit": lambda: s.isdigit(),
@@ -2456,9 +2625,9 @@ class Interpreter(ASTVisitor):
 
         # Try to call __enter__
         enter_result = None
-        if hasattr(context, '__enter__'):
+        if hasattr(context, "__enter__"):
             enter_result = context.__enter__()
-        elif hasattr(context, 'masuk'):
+        elif hasattr(context, "masuk"):
             enter_result = context.masuk()
 
         self._push_env()
@@ -2471,9 +2640,9 @@ class Interpreter(ASTVisitor):
         finally:
             self._pop_env()
             # Try to call __exit__
-            if hasattr(context, '__exit__'):
+            if hasattr(context, "__exit__"):
                 context.__exit__(None, None, None)
-            elif hasattr(context, 'keluar'):
+            elif hasattr(context, "keluar"):
                 context.keluar()
 
     # ============= V4: Multi-Except =============
@@ -2503,19 +2672,19 @@ class Interpreter(ASTVisitor):
                     # Typed except
                     exc_type_name = clause.exception_type
                     exc_type_map = {
-                        'RuntimeError': RuntimeError_,
-                        'TypeError': TypeError_,
-                        'NameError': NameError_,
-                        'ZeroDivisionError': ZeroDivisionError_,
-                        'IndexError': IndexError_,
-                        'ValueError': ValueError,
-                        'KeyError': KeyError,
-                        'AttributeError': AttributeError,
+                        "RuntimeError": RuntimeError_,
+                        "TypeError": TypeError_,
+                        "NameError": NameError_,
+                        "ZeroDivisionError": ZeroDivisionError_,
+                        "IndexError": IndexError_,
+                        "ValueError": ValueError,
+                        "KeyError": KeyError,
+                        "AttributeError": AttributeError,
                     }
                     exc_class = exc_type_map.get(exc_type_name)
                     # V6.0: error kustom (kelas_error) — cocokkan nama kelas
                     # beserta hierarki induknya (kecuali Induk menangkap semua turunan)
-                    inst = getattr(e, 'error_instance', None)
+                    inst = getattr(e, "error_instance", None)
                     if inst is not None and isinstance(inst, BroLangInstance):
                         k = inst.klass
                         while k is not None:
@@ -2538,9 +2707,9 @@ class Interpreter(ASTVisitor):
                         self._pop_env()
                         matched = True
                         break
-                    elif exc_type_name == 'semua':
+                    elif exc_type_name == "semua":
                         # Catch-all: binding instance error kustom (kalau ada)
-                        val = getattr(e, 'error_instance', None) or e
+                        val = getattr(e, "error_instance", None) or e
                         self._push_env()
                         self.current_env.define_variable(clause.variable, val)
                         for stmt in clause.body:
@@ -2580,19 +2749,21 @@ class Interpreter(ASTVisitor):
             module = get_stdlib_module(node.module)
             # Import all public attributes
             for attr in dir(module):
-                if not attr.startswith('_'):
+                if not attr.startswith("_"):
                     self.current_env.variables[attr] = getattr(module, attr)
         except ImportError:
             try:
                 import importlib
+
                 py_module = importlib.import_module(node.module)
                 for attr in dir(py_module):
-                    if not attr.startswith('_'):
+                    if not attr.startswith("_"):
                         self.current_env.variables[attr] = getattr(py_module, attr)
             except ImportError:
                 raise RuntimeError_(
                     message=f"Module '{node.module}' tidak ditemukan.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
 
     # ============= V4: Chained Call =============
@@ -2681,8 +2852,7 @@ class Interpreter(ASTVisitor):
         if isinstance(node.definition, IdentifierNode):
             # tipe ID = Angka -> simpan nama tipe (resolve nanti saat cek)
             self.current_env.variables[node.name] = node.definition.name
-        elif isinstance(node.definition,
-                        (GenericTypeNode, UnionTypeNode, TypeAnnotationNode)):
+        elif isinstance(node.definition, (GenericTypeNode, UnionTypeNode, TypeAnnotationNode)):
             self.current_env.variables[node.name] = self.visit(node.definition)
         else:
             self.current_env.variables[node.name] = self.visit(node.definition)
@@ -2707,23 +2877,23 @@ class Interpreter(ASTVisitor):
         for m in node.methods:
             if isinstance(m, MethodSignatureNode):
                 method_names.append(m.name)
-            elif hasattr(m, 'name'):
+            elif hasattr(m, "name"):
                 method_names.append(m.name)
 
         interface = {
-            'name': node.name,
-            'methods': method_names,
-            'raw_methods': node.methods,
-            'parent_interfaces': node.parent_interfaces,
+            "name": node.name,
+            "methods": method_names,
+            "raw_methods": node.methods,
+            "parent_interfaces": node.parent_interfaces,
         }
         self.current_env.interfaces[node.name] = interface
 
     def visit_MethodSignatureNode(self, node: MethodSignatureNode) -> Any:
         """Method signature - returns signature info."""
         return {
-            'name': node.name,
-            'params': [(p.name, p.type_name) for p in node.params],
-            'return_type': node.return_type,
+            "name": node.name,
+            "params": [(p.name, p.type_name) for p in node.params],
+            "return_type": node.return_type,
         }
 
     def visit_ImplementsNode(self, node: ImplementsNode) -> None:
@@ -2755,7 +2925,9 @@ class Interpreter(ASTVisitor):
                 parent_class = self.current_env.classes[node.parent]
 
         klass = BroLangClass(
-            node.name, methods, parent_class,
+            node.name,
+            methods,
+            parent_class,
             is_abstract=True,
             abstract_methods=node.abstract_methods,
             method_access=method_access,
@@ -2764,7 +2936,8 @@ class Interpreter(ASTVisitor):
         def class_constructor(*args):
             raise RuntimeError_(
                 message=f"Tidak bisa membuat instance dari kelas abstrak '{node.name}'.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
                 solution=f"Buat kelas turunan yang mengimplementasi semua method abstrak dari '{node.name}'.",
             )
 
@@ -2781,39 +2954,42 @@ class Interpreter(ASTVisitor):
         """Map: peta(iterable, fungsi)"""
         iterable = self.visit(node.iterable)
         func = self.visit(node.function)
-        
+
         if not callable(func):
             raise RuntimeError_(
                 message="Parameter kedua 'peta' harus berupa fungsi.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
-        
+
         return [func(item) for item in iterable]
 
     def visit_FilterNode(self, node: FilterNode) -> list:
         """Filter: saring(iterable, kondisi)"""
         iterable = self.visit(node.iterable)
         func = self.visit(node.condition)
-        
+
         if not callable(func):
             raise RuntimeError_(
                 message="Parameter kedua 'saring' harus berupa fungsi/predicate.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
-        
+
         return [item for item in iterable if func(item)]
 
     def visit_ReduceNode(self, node: ReduceNode) -> Any:
         """Reduce: kurangi(iterable, fungsi, awal?)"""
         iterable = self.visit(node.iterable)
         func = self.visit(node.function)
-        
+
         if not callable(func):
             raise RuntimeError_(
                 message="Parameter kedua 'kurangi' harus berupa fungsi.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
-        
+
         if node.initial is not None:
             initial = self.visit(node.initial)
             result = initial
@@ -2823,7 +2999,7 @@ class Interpreter(ASTVisitor):
             result = next(iter(iterable))
             for item in iterable:
                 result = func(result, item)
-        
+
         return result
 
     # ============= V5.0: Result/Option Types =============
@@ -2831,23 +3007,23 @@ class Interpreter(ASTVisitor):
     def visit_ResultNode(self, node: ResultNode) -> dict:
         """Result type: Benar(value) atau Salah(error)"""
         value = self.visit(node.value)
-        return {'type': 'Result', 'is_success': node.is_success, 'value': value}
+        return {"type": "Result", "is_success": node.is_success, "value": value}
 
     def visit_OptionNode(self, node: OptionNode) -> dict:
         """Option type: Ada(value) atau Kosong()"""
         if node.has_value and node.value:
             value = self.visit(node.value)
-            return {'type': 'Option', 'has_value': True, 'value': value}
-        return {'type': 'Option', 'has_value': False, 'value': None}
+            return {"type": "Option", "has_value": True, "value": value}
+        return {"type": "Option", "has_value": False, "value": None}
 
     # ============= V5.0: Macros =============
 
     def visit_MacroDefNode(self, node: MacroDefNode) -> None:
         """Macro definition - stores macro for later expansion and also as callable."""
         macro = {
-            'type': 'macro',
-            'params': node.params,
-            'body': node.body,
+            "type": "macro",
+            "params": node.params,
+            "body": node.body,
         }
         self.current_env.variables[node.name] = macro
 
@@ -2882,26 +3058,27 @@ class Interpreter(ASTVisitor):
     def visit_MacroCallNode(self, node: MacroCallNode) -> Any:
         """Macro call - expands and executes macro."""
         macro = self.current_env.get_variable(node.name)
-        if not macro or macro.get('type') != 'macro':
+        if not macro or macro.get("type") != "macro":
             raise RuntimeError_(
                 message=f"'{node.name}' bukan sebuah macro.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
-        
+
         # Evaluate arguments
         args = [self.visit(arg) for arg in node.args]
-        
+
         # Create new environment for macro expansion
         self._push_env()
-        for i, param in enumerate(macro['params']):
+        for i, param in enumerate(macro["params"]):
             if i < len(args):
                 self.current_env.define_variable(param, args[i])
-        
+
         # Execute macro body
         result = None
-        for stmt in macro['body']:
+        for stmt in macro["body"]:
             result = self.visit(stmt)
-        
+
         self._pop_env()
         return result
 
@@ -2919,6 +3096,7 @@ class Interpreter(ASTVisitor):
 
         # Create a SimpleNamespace-like object that supports attribute access
         from types import SimpleNamespace
+
         ns = SimpleNamespace(**namespace_vars)
         # Also add functions as attributes
         for fname, ffunc in namespace_funcs.items():
@@ -2940,14 +3118,15 @@ class Interpreter(ASTVisitor):
             else:
                 raise RuntimeError_(
                     message=f"Module '{node.module}' tidak ditemukan.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
 
     # ============= V5.0: Access Modifiers =============
 
     def visit_AccessModifierNode(self, node: AccessModifierNode) -> Any:
         """Access modifier: publik/privat/terlindungi.
-        
+
         Di dalam class body, ini ditangani oleh visit_ClassNode.
         Di luar class, langsung eksekusi target-nya.
         """
@@ -2969,19 +3148,19 @@ class Interpreter(ASTVisitor):
         obj = self.visit(node.object)
         if obj is None:
             return None
-        
+
         if isinstance(obj, BroLangInstance):
             try:
                 return obj.get(node.property)
             except:
                 return None
-        
+
         if isinstance(obj, dict):
             return obj.get(node.property)
-        
+
         if hasattr(obj, node.property):
             return getattr(obj, node.property)
-        
+
         return None
 
     # ============= V5.0: For Each with Index =============
@@ -2989,13 +3168,13 @@ class Interpreter(ASTVisitor):
     def visit_ForEachNode(self, node: ForEachNode) -> None:
         """For-each with index: untuk setiap (item, index) dalam iterable"""
         iterable = self.visit(node.iterable)
-        
+
         for index, item in enumerate(iterable):
             self._push_env()
             self.current_env.define_variable(node.variable, item)
             if node.index_variable:
                 self.current_env.define_variable(node.index_variable, index)
-            
+
             try:
                 for stmt in node.body:
                     self.visit(stmt)
@@ -3015,28 +3194,29 @@ class Interpreter(ASTVisitor):
     def visit_ChainedComparisonNode(self, node: ChainedComparisonNode) -> bool:
         """Chained comparison: 0 < x < 10"""
         left = self.visit(node.left)
-        
+
         for i, (op, comparator) in enumerate(zip(node.operators, node.comparators)):
             right = self.visit(comparator)
-            
-            if op == '<':
+
+            if op == "<":
                 result = left < right
-            elif op == '>':
+            elif op == ">":
                 result = left > right
-            elif op == '<=':
+            elif op == "<=":
                 result = left <= right
-            elif op == '>=':
+            elif op == ">=":
                 result = left >= right
             else:
                 raise RuntimeError_(
                     message=f"Operator '{op}' tidak didukung dalam chained comparison.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
-            
+
             if not result:
                 return False
             left = right
-        
+
         return True
 
     # ============= V5.0: Destructuring Pattern =============
@@ -3097,7 +3277,8 @@ class Interpreter(ASTVisitor):
                 return func(left, *args, **kwargs)
             raise RuntimeError_(
                 message=f"'{right.function}' bukan fungsi yang bisa dipanggil.",
-                line=node.line, column=node.column,
+                line=node.line,
+                column=node.column,
             )
 
         # Jika sisi kanan adalah lambda atau identifier, panggil dengan nilai kiri
@@ -3107,7 +3288,8 @@ class Interpreter(ASTVisitor):
 
         raise RuntimeError_(
             message=f"Sisi kanan pipeline harus berupa fungsi, tapi mendapatkan {type(right).__name__}.",
-            line=node.line, column=node.column,
+            line=node.line,
+            column=node.column,
             solution="Gunakan: nilai |> fungsi atau nilai |> lalu(x) ekspresi",
         )
 
@@ -3121,13 +3303,15 @@ class Interpreter(ASTVisitor):
             if not isinstance(value, (list, tuple)):
                 raise TypeError_(
                     message=f"Destructuring list membutuhkan list/tuple, tapi mendapatkan {type(value).__name__}.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                     solution="Gunakan: buat [a, b] = [1, 2]",
                 )
             if len(value) < len(node.targets):
                 raise RuntimeError_(
                     message=f"Tidak cukup elemen untuk destructuring: butuh {len(node.targets)}, ada {len(value)}.",
-                    line=node.line, column=node.column,
+                    line=node.line,
+                    column=node.column,
                 )
             for i, name in enumerate(node.targets):
                 self.current_env.define_variable(name, value[i])
@@ -3135,8 +3319,9 @@ class Interpreter(ASTVisitor):
             if not isinstance(value, dict):
                 raise TypeError_(
                     message=f"Destructuring objek membutuhkan objek/dict, tapi mendapatkan {type(value).__name__}.",
-                    line=node.line, column=node.column,
-                    solution="Gunakan: buat {x, y} = {\"x\": 1, \"y\": 2}",
+                    line=node.line,
+                    column=node.column,
+                    solution='Gunakan: buat {x, y} = {"x": 1, "y": 2}',
                 )
             for name in node.targets:
                 if name in value:

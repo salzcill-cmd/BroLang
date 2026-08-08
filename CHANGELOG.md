@@ -4,6 +4,92 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [6.4.0] - 2026-08-08
+
+### Added
+- **Modul `kripto` — Keamanan & Kriptografi** (hashlib/base64/secrets, tanpa
+  dependency eksternal):
+  - Hash hex: `md5`, `sha1`, `sha256`, `sha512`.
+  - Base64: `base64_encode` / `base64_decode`.
+  - Password aman: `hash_password` (PBKDF2-SHA256 + salt acak, format
+    `pbkdf2_sha256$salt$hash`) dan `cek_password` (constant-time).
+  - Token crypto-grade: `token(panjang)` & `bilangan_acak(batas)`.
+- **Modul `arsip` — ZIP & Kompresi** (zipfile/zlib/base64, tanpa dependency):
+  - ZIP: `buat_zip`, `tambah_ke_zip`, `ekstrak_zip`, `daftar_zip`.
+  - Kompresi teks: `kompres` (zlib level 9 + Base64) & `dekompres`.
+- **Modul `terminal` — UX CLI** (murni stdlib Python):
+  - Warna ANSI: `merah`, `hijau`, `kuning`, `biru`, `magenta`, `cyan`,
+    `putih`, `abu`, `warna(teks, nama)`.
+  - Gaya teks: `tebal`, `miring`, `garis_bawah`, `terbalik`.
+  - Pesan status: `sukses`, `info`, `peringatan`, `gagal`.
+  - Progress bar: `bilah_progress` (string) & `cetak_progress` (inline \r).
+  - Prompt interaktif: `tanya` (dengan default) & `tanya_ya`.
+  - `banner(teks)` untuk header program.
+- **Tooling CLI**:
+  - `bro test --nama <filter>` — hanya jalankan file tes yang namanya
+    mengandung filter; `bro test --detail` — status ✓/✗ + durasi per file;
+    ringkasan total kini menyertakan waktu eksekusi.
+  - `bro upgrade` — update BroLang dari GitHub (git pull + pip install -e),
+    dengan validasi folder instalasi.
+  - `bro doc` — topik baru: `kripto`, `arsip`, `terminal`, `web`.
+- **Contoh baru**: `examples/kripto.bro`, `examples/arsip.bro`,
+  `examples/terminal.bro`.
+
+### Changed
+- Versi di-bump dari `6.3.0` ke `6.4.0`.
+- 26 test baru (kripto, arsip, terminal, CLI v6.4, proteksi zip-slip) — total **704 test passing**.
+
+## [6.3.0] - 2026-08-08
+
+### Added
+- **Performance boost** (3 lapis optimasi + benchmark publik):
+  - **Peephole optimizer di bytecode VM** (`apply_peephole`) — constant folding
+    (`2 + 3 * 4` dikompilasi jadi satu konstanta), removal NOP, dan remap jump
+    otomatis. Berlaku juga untuk body fungsi, method kelas/struct, dan lambda.
+  - **Method cache di VM** — pencarian method di inheritance chain di-cache per
+    (kelas, nama) dan di-invalidate saat monkey-patch; mempercepat pemanggilan
+    method pada inheritance yang dalam.
+  - **Fast path interpreter** — operator biner pada operan primitif tidak lagi
+    mengecek operator overloading (hanya di-cek bila ada instance kelas BroLang).
+  - **Benchmark suite publik** (`benchmarks/`): `fibonacci.bro`, `loop.bro`,
+    `string.bro`, `objek.bro` — dijalankan dengan `bro benchmark <file> --repeat N`.
+  - Docs baru `docs/PERFORMANCE.md` berisi arsitektur eksekusi, optimasi, dan
+    benchmark resmi (transpiler 11x-151x lebih cepat dari VM per kasus).
+- **Tooling proyek modern**:
+  - `bro init <nama>` (alias `bro new`) — scaffolding proyek lengkap:
+    `brolang.json` (manifest), `src/main.bro`, `tests/test_utama.bro`,
+    `docs/README.md`, `README.md`, dan `.gitignore`.
+  - `bro run` **tanpa argumen** — membaca `brolang.json` di folder proyek dan
+    menjalankan entry point (`main`); error ramah bila tidak ada proyek.
+- **Web framework** (modul baru `web_server`):
+  - Server HTTP berbasis stdlib Python (tanpa dependency eksternal).
+  - Routing metode + jalur: `app.rute("GET", "/", handler)` + shorthand
+    `app.get` / `app.post` / `app.put` / `app.hapus`.
+  - Parameter dinamis `/pengguna/{id}`, query string otomatis, body JSON otomatis
+    untuk POST/PUT.
+  - Helper response: `req.kirim_teks`, `kirim_json`, `kirim_html`, `kirim_status`,
+    `kirim_file` (static files + MIME type).
+  - `app.jalankan(port)` (blocking) dan `app.jalankan_async(port)` (thread) +
+    `app.berhenti()`; CORS opsional via `app.atur_cors(benar)`.
+  - Contoh lengkap: `examples/web_api.bro` (API CRUD + halaman HTML).
+
+### Fixed
+- **Lexer: string multi-baris & f-string multi-baris tidak pernah berfungsi**
+  (bug offset deteksi triple-quote `"""`). Kini `"""..."""` dan
+  `f"""...{expr}..."""` berfungsi dengan benar.
+- **VM: binding parameter method class** — method non-static multi-parameter
+  error "slot belum diinisialisasi"; kini `param_count` menghitung `self`.
+- **Interpreter: lookup fungsi antar-scope** — fungsi yang direferensikan dari dalam
+  fungsi lain (mis. callback) kini ditemukan via parent env (sebelumnya error
+  "variabel tidak ditemukan").
+- **CLI: exit code** — `python -m brolang.cli` kini `sys.exit(main())` sehingga
+  exit code benar (mis. `bro run` di folder non-proyek mengembalikan 1).
+
+### Changed
+- Versi di-bump dari `6.2.0` ke `6.3.0`.
+- 24 test baru (peephole, method cache, multi-line string, tooling, web_server) —
+  total **678 test passing**.
+
 ## [6.2.0] - 2026-08-08
 
 ### Added

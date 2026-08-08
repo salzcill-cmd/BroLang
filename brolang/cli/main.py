@@ -25,6 +25,7 @@ def main(args: Optional[List[str]] = None) -> int:
 
     if not args:
         from brolang import __version__
+
         print(f"BroLang {__version__}")
         print("Gunakan 'bro --help' untuk bantuan.")
         return 0
@@ -47,9 +48,12 @@ def main(args: Optional[List[str]] = None) -> int:
         "doc": _cmd_doc,
         "new-game": _cmd_new_game,
         "run-game": _cmd_run_game,
+        "init": _cmd_init,
+        "new": _cmd_init,
         "pkg": _cmd_pkg,
         "benchmark": _cmd_benchmark,
         "bench": _cmd_benchmark,
+        "upgrade": _cmd_upgrade,
         "belajar": _cmd_belajar,
         "version": _cmd_version,
         "--version": _cmd_version,
@@ -72,12 +76,28 @@ def _cmd_run(args: List[str]) -> int:
 
     Penggunaan:
         bro run <file>
+        bro run                  # dari folder proyek: jalankan entry point (brolang.json)
     """
     parser = argparse.ArgumentParser(prog="bro run", description="Menjalankan file BroLang")
-    parser.add_argument("file", help="File BroLang (.bro)")
+    parser.add_argument("file", nargs="?", help="File BroLang (.bro)")
     parsed = parser.parse_args(args)
 
     file_path = parsed.file
+
+    # Tanpa argumen: jalankan entry point dari manifest proyek (v6.3)
+    if not file_path:
+        from brolang.package_manager.manager import PackageManager
+
+        manager = PackageManager()
+        manifest = manager.read_manifest()
+        if manifest is None:
+            print("Error: Tidak ada file .bro dan tidak ada brolang.json di folder ini.")
+            print("Gunakan: bro run <file.bro>  atau  bro init <nama>  untuk proyek baru.")
+            return 1
+        main = manifest.get("main", "src/main.bro")
+        file_path = main
+        print(f"Menjalankan proyek '{manifest.get('nama', '?')}' ({main}) ...")
+
     if not os.path.exists(file_path):
         print(f"Error: File '{file_path}' tidak ditemukan.")
         return 1
@@ -111,10 +131,11 @@ def _cmd_run(args: List[str]) -> int:
         # Fast path: try transpiler first (97x faster)
         try:
             from brolang.vm.transpiler import Transpiler
+
             transpiler = Transpiler()
             py_code = transpiler.transpile(optimized_ast)
-            compiled = compile(py_code, file_path, 'exec')
-            exec(compiled, {'__builtins__': __builtins__})
+            compiled = compile(py_code, file_path, "exec")
+            exec(compiled, {"__builtins__": __builtins__})
             return 0
         except Exception:
             # Fallback ke interpreter (tanpa warning untuk user)
@@ -130,7 +151,6 @@ def _cmd_run(args: List[str]) -> int:
         return _print_error(e, file_path, source)
 
 
-
 def _print_error(e: Exception, file_path: str = "", source: str = "") -> int:
     """Tampilkan error BroLang dengan stack trace profesional (v6.0).
 
@@ -141,9 +161,9 @@ def _print_error(e: Exception, file_path: str = "", source: str = "") -> int:
     """
     from brolang.exceptions import BroLangError
 
-    detail = getattr(e, 'detail', None)
-    line = getattr(e, 'line', 0) or (detail.line if detail else 0)
-    column = getattr(e, 'column', 0) or (detail.column if detail else 0)
+    detail = getattr(e, "detail", None)
+    line = getattr(e, "line", 0) or (detail.line if detail else 0)
+    column = getattr(e, "column", 0) or (detail.column if detail else 0)
 
     print()
     print("=" * 50)
@@ -264,6 +284,7 @@ def _cmd_fmt(args: List[str]) -> int:
 
     try:
         from brolang.formatter import format_file, check_format
+
         file_path = parsed.file
 
         if parsed.check:
@@ -296,6 +317,7 @@ def _cmd_lint(args: List[str]) -> int:
 
     try:
         from brolang.linter import lint_file
+
         issues = lint_file(parsed.file)
 
         if not issues:
@@ -321,14 +343,19 @@ def _cmd_test(args: List[str]) -> int:
     Penggunaan:
         bro test <file>
         bro test
+        bro test --nama <filter>     # hanya file yang namanya mengandung filter
+        bro test --detail            # tampilkan detail + durasi tiap file
     """
     parser = argparse.ArgumentParser(prog="bro test", description="Menjalankan tes BroLang")
     parser.add_argument("file", nargs="?", help="File tes BroLang (.bro)")
+    parser.add_argument("--nama", default="", help="Hanya jalankan file yang namanya mengandung teks ini")
+    parser.add_argument("--detail", action="store_true", help="Tampilkan detail + durasi tiap file")
     parsed = parser.parse_args(args)
 
     try:
         import os
         import glob
+        import time
 
         if parsed.file:
             files = [parsed.file]
@@ -339,14 +366,20 @@ def _cmd_test(args: List[str]) -> int:
             files.extend(glob.glob("tests/**/*.bro", recursive=True))
             files = list(set(files))
 
+        # Filter berdasarkan nama (v6.4)
+        if parsed.nama:
+            files = [f for f in files if parsed.nama in f]
+
         if not files:
             print("Tidak ada file tes ditemukan.")
             return 1
 
         total_pass = 0
         total_fail = 0
+        total_detik = 0.0
 
-        for file_path in files:
+        for file_path in sorted(files):
+            mulai = time.perf_counter()
             print(f"\nMenjalankan: {file_path}")
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
@@ -365,17 +398,28 @@ def _cmd_test(args: List[str]) -> int:
                 interpreter.interpret(ast)
 
                 # Check test results
-                if hasattr(interpreter, 'output'):
+                if hasattr(interpreter, "output"):
                     for line in interpreter.output:
                         print(f"  {line}")
 
+                durasi = time.perf_counter() - mulai
+                total_detik += durasi
                 total_pass += 1
+                if parsed.detail:
+                    print(f"  ✓ {file_path} ({durasi*1000:.0f} ms)")
             except Exception as e:
+                durasi = time.perf_counter() - mulai
+                total_detik += durasi
                 print(f"  Error: {e}")
                 total_fail += 1
+                if parsed.detail:
+                    print(f"  ✗ {file_path} ({durasi*1000:.0f} ms)")
 
         print(f"\n{'='*50}")
-        print(f"Total: {len(files)} file, {total_pass} berhasil, {total_fail} gagal")
+        print(
+            f"Total: {len(files)} file, {total_pass} berhasil, {total_fail} gagal "
+            f"({total_detik:.2f} s)"
+        )
         print(f"{'='*50}")
 
         return 0 if total_fail == 0 else 1
@@ -450,7 +494,7 @@ def _cmd_profile(args: List[str]) -> int:
         # Print top functions
         print(f"\nTop 10 functions:")
         s = io.StringIO()
-        ps = pstats.Stats(pr, stream=s).sort_stats('cumulative')
+        ps = pstats.Stats(pr, stream=s).sort_stats("cumulative")
         ps.print_stats(10)
         print(s.getvalue())
 
@@ -482,6 +526,10 @@ def _cmd_doc(args: List[str]) -> int:
         "async": _doc_async,
         "generator": _doc_generators,
         "decorator": _doc_decorators,
+        "kripto": _doc_kripto,
+        "arsip": _doc_arsip,
+        "terminal": _doc_terminal,
+        "web": _doc_web,
     }
 
     if parsed.topik in topics:
@@ -500,20 +548,22 @@ BroLang - Bahasa Pemrograman Profesional untuk Game Development
 ===============================================================
 
 BroLang adalah bahasa pemrograman modern yang menggunakan sintaks Bahasa Indonesia.
-Dirancang untuk kemudahan belajar dan pembuatan game 2D.
-
-Perintah:
-  bro run <file>         : Menjalankan file BroLang
+Dirancang untuk kemudahan belajar dan pembuatan game 2D.Perintah:
+  bro run <file>         : Menjalankan file BroLang (tanpa argumen: dari brolang.json)
+  bro init <nama>        : Buat proyek BroLang baru
   bro build <file>       : Mengompilasi ke Python
   bro repl               : REPL interaktif
   bro belajar            : Belajar coding interaktif untuk pemula 🎓
-  bro test [file]        : Menjalankan tes
+  bro test [file]        : Menjalankan tes (--nama <filter>, --detail)
   bro profile <file>     : Profil eksekusi
   bro lint <file>        : Analisis kode
   bro fmt <file>         : Format kode
   bro doc [topik]        : Dokumentasi
   bro new-game <nama>    : Buat proyek game baru
   bro run-game <file>    : Jalankan game
+  bro pkg <cmd>          : Package manager
+  bro benchmark <file>   : Benchmark (transpiler vs interpreter)
+  bro upgrade            : Update BroLang ke versi terbaru (v6.4)
 
 Topik Dokumentasi:
   bro doc dasar          : Dasar bahasa
@@ -525,7 +575,116 @@ Topik Dokumentasi:
   bro doc async          : Async/await
   bro doc generator      : Generator
   bro doc decorator      : Decorator
-""")
+  bro doc kripto         : Modul keamanan (hash, base64, password)
+  bro doc arsip          : Modul arsip (ZIP, kompresi)
+  bro doc terminal       : Modul terminal (warna, progress, prompt)
+  bro doc web            : Web framework & HTTP client
+"""
+)
+
+
+def _doc_kripto():
+    print(
+        """
+Modul Kripto — Keamanan & Kriptografi (v6.4)
+=============================================
+
+impor kripto
+
+Hash:
+  kripto.md5(teks)        # 32 char hex
+  kripto.sha1(teks)       # 40 char hex
+  kripto.sha256(teks)     # 64 char hex
+  kripto.sha512(teks)     # 128 char hex
+
+Base64:
+  kripto.base64_encode(teks)   # teks -> base64
+  kripto.base64_decode(teks)   # base64 -> teks
+
+Password (PBKDF2 + salt acak):
+  buat hash = kripto.hash_password("rahasia123")
+  kripto.cek_password("rahasia123", hash)   # True
+
+Token aman (session / API key):
+  buat key = kripto.token(32)
+"""
+    )
+
+
+def _doc_arsip():
+    print(
+        """
+Modul Arsip — ZIP & Kompresi (v6.4)
+====================================
+
+impor arsip
+
+Arsip ZIP:
+  arsip.buat_zip("backup.zip", ["a.txt", "b.txt"])
+  arsip.tambah_ke_zip("backup.zip", "baru.txt")
+  tulis arsip.daftar_zip("backup.zip")        # [a.txt, b.txt]
+  tulis arsip.ekstrak_zip("backup.zip", "restore/")
+
+Kompresi teks:
+  buat padat = arsip.kompres("teks panjang ...")
+  tulis arsip.dekompres(padat)
+"""
+    )
+
+
+def _doc_terminal():
+    print(
+        """
+Modul Terminal — UX CLI (v6.4)
+===============================
+
+impor terminal
+
+Warna & gaya:
+  tulis terminal.hijau("sukses")          # merah/hijau/kuning/biru/magenta/cyan/putih/abu
+  tulis terminal.tebal("judul")           # tebal/miring/garis_bawah/terbalik
+
+Pesan status:
+  terminal.sukses("Deploy berhasil")
+  terminal.peringatan("Hati-hati")
+  terminal.gagal("Terjadi error")
+
+Progress bar:
+  tulis terminal.bilah_progress(7, 10)     # [███████░░░] 70%
+  untuk i dari 1 sampai 100
+      terminal.cetak_progress(i, 100)
+  selesai
+
+Prompt interaktif:
+  buat nama = terminal.tanya("Nama? ", "anonim")
+  jika terminal.tanya_ya("Lanjut? ") maka ... selesai
+
+Banner:
+  tulis terminal.banner("Aplikasi Saya")
+"""
+    )
+
+
+def _doc_web():
+    print(
+        """
+Web di BroLang (v6.3)
+=====================
+
+impor web            # HTTP client
+  buat respons = web.get("https://api.example.com")
+
+impor web_server     # Web framework / server HTTP
+  fungsi halaman(req)
+      kembali req.kirim_json({"pesan": "Halo"})
+  selesai
+  buat app = web_server.Buat()
+  app.get("/", halaman)
+  app.jalankan(8000)
+
+Lihat contoh lengkap: examples/web_api.bro
+"""
+    )
 
 
 def _doc_basics():
@@ -929,6 +1088,7 @@ def _cmd_belajar(args: List[str]) -> int:
     """
     try:
         from brolang.belajar import mulai_belajar
+
         return mulai_belajar()
     except KeyboardInterrupt:
         print("\nSampai jumpa! Tetap semangat belajar ya 💪")
@@ -941,6 +1101,7 @@ def _cmd_belajar(args: List[str]) -> int:
 def _cmd_version(args: List[str]) -> int:
     """Menampilkan versi BroLang."""
     from brolang import __version__
+
     print(f"BroLang {__version__}")
     return 0
 
@@ -951,7 +1112,9 @@ def _cmd_new_game(args: List[str]) -> int:
     Penggunaan:
         bro new-game <nama_folder>
     """
-    parser = argparse.ArgumentParser(prog="bro new-game", description="Membuat proyek game BroLang baru")
+    parser = argparse.ArgumentParser(
+        prog="bro new-game", description="Membuat proyek game BroLang baru"
+    )
     parser.add_argument("nama", help="Nama folder proyek game")
     parsed = parser.parse_args(args)
 
@@ -966,7 +1129,7 @@ def _cmd_new_game(args: List[str]) -> int:
         os.makedirs(os.path.join(project_dir, "assets", "suara"))
         os.makedirs(os.path.join(project_dir, "assets", "gambar"))
 
-        template = '''# Game BroLang
+        template = """# Game BroLang
 # ==================
 # Dibuat dengan: bro new-game {nama}
 
@@ -1026,7 +1189,7 @@ game.buat_jendela(800, 600, "Game BroLang Baru")
 game.tambah_scene("utama", update, gambar)
 game.ganti_scene("utama")
 game.mulai()
-'''.format(nama=parsed.nama)
+""".format(nama=parsed.nama)
 
         with open(os.path.join(project_dir, "main.bro"), "w", encoding="utf-8") as f:
             f.write(template)
@@ -1044,6 +1207,226 @@ game.mulai()
         print(f"  bro run-game main.bro")
         return 0
 
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
+def _cmd_init(args: List[str]) -> int:
+    """Membuat proyek BroLang baru dengan struktur modern.
+
+    Penggunaan:
+        bro init <nama_proyek>
+
+    Struktur yang dibuat:
+        <nama_proyek>/
+        ├── brolang.json     <- manifest proyek (nama, versi, main, dst)
+        ├── src/
+        │   └── main.bro     <- entry point aplikasi
+        ├── tests/
+        │   └── test_utama.bro  <- contoh test
+        ├── docs/
+        │   └── README.md    <- dokumentasi proyek
+        ├── .gitignore
+        └── README.md
+    """
+    parser = argparse.ArgumentParser(prog="bro init", description="Membuat proyek BroLang baru")
+    parser.add_argument("nama", help="Nama folder proyek")
+    parsed = parser.parse_args(args)
+
+    project_dir = os.path.abspath(parsed.nama)
+    if os.path.exists(project_dir):
+        print(f"Error: Folder '{parsed.nama}' sudah ada.")
+        return 1
+
+    try:
+        from brolang.package_manager.manager import PackageManager
+
+        nama = parsed.nama
+        os.makedirs(os.path.join(project_dir, "src"))
+        os.makedirs(os.path.join(project_dir, "tests"))
+        os.makedirs(os.path.join(project_dir, "docs"))
+
+        # brolang.json
+        manifest = PackageManager.create_manifest(
+            name=nama, version="1.0.0", description=f"Proyek BroLang {nama}", main="src/main.bro"
+        )
+        with open(os.path.join(project_dir, "brolang.json"), "w", encoding="utf-8") as f:
+            import json as _json
+
+            _json.dump(manifest, f, indent=2)
+            f.write("\n")
+
+        # src/main.bro
+        main_template = f"""# {nama}
+# ========
+# Proyek BroLang dibuat dengan: bro init {nama}
+# Jalankan dengan: bro run
+
+impor teks
+
+fungsi sapa(nama)
+    kembali f"Halo, {{nama}}! Selamat datang di proyek {nama}."
+selesai
+
+tulis sapa("Dunia")
+"""
+        with open(os.path.join(project_dir, "src", "main.bro"), "w", encoding="utf-8") as f:
+            f.write(main_template)
+
+        # tests/test_utama.bro
+        test_template = f"""# Test untuk {nama}
+# Jalankan dengan: bro test tests/test_utama.bro
+
+impor tes
+
+fungsi sapa(nama)
+    kembali f"Halo, {{nama}}!"
+selesai
+
+fungsi blok_it()
+    tes.harusnya_sama(sapa("Budi"), "Halo, Budi!")
+selesai
+
+fungsi blok_describe()
+    tes.it("menyapa dengan benar", blok_it)
+selesai
+
+tes.describe("fungsi sapa", blok_describe)
+tes.jalankan()
+"""
+        with open(os.path.join(project_dir, "tests", "test_utama.bro"), "w", encoding="utf-8") as f:
+            f.write(test_template)
+
+        # docs/README.md
+        docs_template = f"""# Dokumentasi {nama}
+
+## Struktur Proyek
+
+- `src/main.bro` — entry point aplikasi
+- `tests/` — unit test (bro test)
+- `docs/` — dokumentasi
+
+## Cara Menjalankan
+
+```bash
+bro run          # jalankan dari folder proyek
+bro test         # jalankan semua test
+bro build        # kompilasi ke Python
+```
+"""
+        with open(os.path.join(project_dir, "docs", "README.md"), "w", encoding="utf-8") as f:
+            f.write(docs_template)
+
+        # README.md
+        readme_template = f"""# {nama}
+
+Proyek BroLang. Dibuat dengan `bro init {nama}`.
+
+## Struktur
+
+```
+{nama}/
+├── brolang.json
+├── src/main.bro
+├── tests/
+└── docs/
+```
+
+## Menjalankan
+
+```bash
+bro run
+bro test
+```
+"""
+        with open(os.path.join(project_dir, "README.md"), "w", encoding="utf-8") as f:
+            f.write(readme_template)
+
+        # .gitignore
+        gitignore = """# BroLang
+__pycache__/
+*.pyc
+build/
+dist/
+.brolang/
+
+# Python
+.venv/
+venv/
+"""
+        with open(os.path.join(project_dir, ".gitignore"), "w", encoding="utf-8") as f:
+            f.write(gitignore)
+
+        print(f"Proyek '{nama}' berhasil dibuat! 🎉")
+        print()
+        print(f"  {nama}/")
+        print(f"    brolang.json       <- manifest proyek")
+        print(f"    src/main.bro       <- entry point")
+        print(f"    tests/test_utama.bro <- contoh test")
+        print(f"    docs/README.md     <- dokumentasi")
+        print(f"    .gitignore")
+        print()
+        print("Langkah selanjutnya:")
+        print(f"  cd {nama}")
+        print("  bro run          # jalankan aplikasi")
+        print("  bro test         # jalankan test")
+        print("  bro lint src/main.bro")
+        return 0
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return 1
+
+
+def _cmd_upgrade(args: List[str]) -> int:
+    """Mengupdate BroLang ke versi terbaru dari GitHub (v6.4).
+
+    Penggunaan:
+        bro upgrade
+
+    Langkah yang dilakukan:
+        1. git pull dari repository asal
+        2. pip install -e . (instal ulang paket)
+    """
+    parser = argparse.ArgumentParser(prog="bro upgrade", description="Update BroLang ke versi terbaru")
+    parser.parse_args(args)
+
+    import subprocess
+    from brolang import __version__
+
+    # __file__ = <root>/brolang/cli/main.py
+    repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+    if not os.path.isdir(os.path.join(repo_dir, ".git")):
+        print(f"Error: Folder instalasi ({repo_dir}) bukan repo git.")
+        print("Update manual: pip install --upgrade brolang")
+        return 1
+
+    print(f"BroLang {__version__} terdeteksi di {repo_dir}")
+    try:
+        print("\n1. Menarik update dari git ...")
+        result = subprocess.run(["git", "pull"], cwd=repo_dir, capture_output=True, text=True)
+        print((result.stdout or result.stderr).strip())
+        if result.returncode != 0:
+            print("Gagal menarik update dari git.")
+            return 1
+
+        print("\n2. Menginstal ulang paket ...")
+        result2 = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", repo_dir],
+            capture_output=True,
+            text=True,
+        )
+        print((result2.stdout or result2.stderr).strip())
+        if result2.returncode != 0:
+            print("Gagal menginstal ulang paket.")
+            print("Petunjuk: pada sistem Linux/Ubuntu modern (PEP 668), coba:")
+            print("  pip install -e . --break-system-packages   # atau pakai venv")
+            return 1
+
+        print("\nSelesai! Cek versi baru dengan: bro --version")
+        return 0
     except Exception as e:
         print(f"Error: {e}")
         return 1
@@ -1109,6 +1492,7 @@ def _cmd_run_game(args: List[str]) -> int:
 def _cmd_pkg(args: List[str]) -> int:
     """Package manager: bro pkg <command> [options]"""
     from brolang.package_manager.manager import main as pkg_main
+
     return pkg_main(args)
 
 
@@ -1130,6 +1514,7 @@ def _cmd_benchmark(args: List[str]) -> int:
 
     try:
         import time
+
         with open(file_path, "r", encoding="utf-8") as f:
             source = f.read()
 
@@ -1172,10 +1557,10 @@ def _cmd_benchmark(args: List[str]) -> int:
         times = []
         transpiler = Transpiler()
         py_code = transpiler.transpile(optimized_ast)
-        compiled = compile(py_code, file_path, 'exec')
+        compiled = compile(py_code, file_path, "exec")
         for _ in range(parsed.repeat):
             start = time.perf_counter()
-            exec(compiled, {'__builtins__': __builtins__})
+            exec(compiled, {"__builtins__": __builtins__})
             times.append(time.perf_counter() - start)
         results["Transpiler"] = sum(times) / len(times)
 
@@ -1197,11 +1582,13 @@ def _cmd_benchmark(args: List[str]) -> int:
             ratio = t / base if base > 0 else 0
             print(f"  {name:<14} {t*1000:>10.3f} ms   ({ratio:.2f}x)")
 
-        interp_ms = results['Interpreter'] * 1000
-        transp_ms = results['Transpiler'] * 1000
-        speedup = results['Interpreter'] / results['Transpiler'] if results['Transpiler'] > 0 else 0
-        print(f"\nTranspiler {speedup:.1f}x lebih cepat dari interpreter "
-              f"({transp_ms:.2f} ms vs {interp_ms:.2f} ms).")
+        interp_ms = results["Interpreter"] * 1000
+        transp_ms = results["Transpiler"] * 1000
+        speedup = results["Interpreter"] / results["Transpiler"] if results["Transpiler"] > 0 else 0
+        print(
+            f"\nTranspiler {speedup:.1f}x lebih cepat dari interpreter "
+            f"({transp_ms:.2f} ms vs {interp_ms:.2f} ms)."
+        )
         print(f"{'='*60}\n")
         return 0
 
@@ -1216,17 +1603,19 @@ def _cmd_help(args: List[str]) -> int:
 BroLang - Bahasa Pemrograman Profesional untuk Game Development
 
 Penggunaan:
-    bro run <file>         : Menjalankan file BroLang
+    bro run <file>         : Menjalankan file BroLang (tanpa argumen: dari brolang.json)
+    bro init <nama>        : Buat proyek BroLang baru (v6.3)
     bro build <file>       : Mengompilasi ke Python
     bro repl               : Memulai REPL interaktif
-    bro test [file]        : Menjalankan tes
+    bro test [file]        : Menjalankan tes (--nama <filter>, --detail)
     bro profile <file>     : Profil eksekusi
     bro lint <file>        : Analisis kode statis
     bro fmt <file>         : Memformat kode
-    bro doc [topik]        : Dokumentasi
+    bro doc [topik]        : Dokumentasi (kripto, arsip, terminal, web, ...)
     bro new-game <nama>    : Buat proyek game baru
     bro run-game <file>    : Jalankan file game
   bro benchmark <file>   : Benchmark interpreter vs transpiler vs VM
+  bro upgrade            : Update BroLang ke versi terbaru (v6.4)
   bro belajar            : Belajar coding interaktif (untuk pemula) 🎓
   bro pkg <cmd>          : Package manager (init/install/publish/dll)
   bro version            : Informasi versi

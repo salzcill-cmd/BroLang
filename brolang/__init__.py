@@ -53,7 +53,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "6.2.0"
+__version__ = "6.4.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

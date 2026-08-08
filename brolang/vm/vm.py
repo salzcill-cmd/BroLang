@@ -13,6 +13,7 @@ from brolang.interpreter.builtins import BUILTINS
 
 class _Missing:
     """Sentinel untuk cache lookup yang miss."""
+
     __slots__ = ()
 
     def __bool__(self):
@@ -25,8 +26,7 @@ _MISSING = _Missing()
 class Frame:
     """Execution frame — represents one function call."""
 
-    __slots__ = ('bytecode', 'ip', 'stack', 'locals', 'parent', 'globals',
-                 'closure')
+    __slots__ = ("bytecode", "ip", "stack", "locals", "parent", "globals", "closure")
 
     def __init__(self, bytecode: Bytecode, parent=None, globals_=None, closure=None):
         self.bytecode = bytecode
@@ -41,13 +41,17 @@ class Frame:
 class VM:
     """Stack-based bytecode virtual machine."""
 
-    __slots__ = ('frames', 'globals', 'output', '_frame', '_builtin_cache')
+    __slots__ = ("frames", "globals", "output", "_frame", "_builtin_cache", "_method_cache")
 
     def __init__(self):
         self.globals: Dict[str, Any] = {}
         self.output: List[str] = []
         self._frame = None
         self._builtin_cache: Dict[str, Any] = {}
+        # Cache hasil pencarian method (id(klass), name) -> VMFunction | None.
+        # Menghindari rekursi parent-chain berulang untuk pemanggilan method
+        # pada inheritance yang dalam (hot path: _get_attribute / _call_method).
+        self._method_cache: Dict[Any, Any] = {}
 
         # Register builtins
         for name, func in BUILTINS.items():
@@ -64,7 +68,7 @@ class VM:
 
     def _execute(self, frame: Frame) -> Any:
         """Main execution loop — the hot path.
-        
+
         Uses pre-flattened instruction arrays from Bytecode.finalize() for minimal overhead.
         """
         stack = frame.stack
@@ -114,7 +118,9 @@ class VM:
                 if val is None:
                     raise RuntimeError_(
                         message=f"Variabel lokal belum diinisialisasi (slot {arg}).",
-                        line=lines_arr[ip - 1], column=cols_arr[ip - 1])
+                        line=lines_arr[ip - 1],
+                        column=cols_arr[ip - 1],
+                    )
                 _append(val)
 
             elif op == _Op.STORE_LOCAL:
@@ -131,8 +137,10 @@ class VM:
                 else:
                     raise RuntimeError_(
                         message=f"Variabel '{name}' belum didefinisikan.",
-                        line=lines_arr[ip - 1], column=cols_arr[ip - 1],
-                        solution=f"Deklarasikan '{name}' dengan 'buat {name} = ...'.")
+                        line=lines_arr[ip - 1],
+                        column=cols_arr[ip - 1],
+                        solution=f"Deklarasikan '{name}' dengan 'buat {name} = ...'.",
+                    )
 
             elif op == _Op.STORE_GLOBAL:
                 globals_dict[names[arg]] = _pop()
@@ -244,8 +252,7 @@ class VM:
             elif op == _Op.CLOSURE:
                 func_bc_idx, param_count, has_defaults = arg
                 func_bc = constants[func_bc_idx]
-                closure = VMFunction(func_bc, param_count, has_defaults,
-                                    _locals[:len(_locals)])
+                closure = VMFunction(func_bc, param_count, has_defaults, _locals[: len(_locals)])
                 _append(closure)
 
             elif op == _Op.CALL:
@@ -253,7 +260,7 @@ class VM:
                 args_list = [_pop() for _ in range(arg)][::-1]
                 if isinstance(func, VMClass):
                     instance = VMInstance(func)
-                    init_method = self._find_method_on_class(func, '__init__')
+                    init_method = self._find_method_on_class(func, "__init__")
                     if init_method:
                         self._call_function(init_method, [instance] + args_list, None)
                     _append(instance)
@@ -282,8 +289,8 @@ class VM:
                 klass = _pop()
                 args_list = [_pop() for _ in range(arg)][::-1]
                 instance = VMInstance(klass)
-                if '__init__' in klass.methods:
-                    self._call_method(instance, '__init__', args_list)
+                if "__init__" in klass.methods:
+                    self._call_method(instance, "__init__", args_list)
                 _append(instance)
 
             elif op == _Op.LOAD_ATTR:
@@ -354,30 +361,30 @@ class VM:
 
             elif op == _Op.DEL_VAR:
                 kind, idx = arg
-                if kind == 'local':
+                if kind == "local":
                     _locals[idx] = None
                 else:
                     del globals_dict[names[idx]]
 
             elif op == _Op.PRINT:
                 args_list = [_pop() for _ in range(arg)][::-1]
-                self.output.append(' '.join(str(a) for a in args_list))
+                self.output.append(" ".join(str(a) for a in args_list))
 
             elif op == _Op.ASSERT:
                 msg = _pop()
                 if not _pop():
                     raise RuntimeError_(
-                        message=f"Pastikan: {msg}",
-                        line=lines_arr[ip - 1], column=cols_arr[ip - 1])
+                        message=f"Pastikan: {msg}", line=lines_arr[ip - 1], column=cols_arr[ip - 1]
+                    )
 
             elif op == _Op.RAISE:
                 val = _pop() if stack else "Error"
                 raise RuntimeError_(
-                    message=str(val),
-                    line=lines_arr[ip - 1], column=cols_arr[ip - 1])
+                    message=str(val), line=lines_arr[ip - 1], column=cols_arr[ip - 1]
+                )
 
             elif op == _Op.TRY_PUSH:
-                _append(('handler', arg))
+                _append(("handler", arg))
 
             elif op == _Op.TRY_POP:
                 if stack and isinstance(stack[-1], tuple):
@@ -396,7 +403,7 @@ class VM:
 
             elif op == _Op.FSTRING:
                 parts = [_pop() for _ in range(arg)][::-1]
-                _append(''.join(str(p) for p in parts))
+                _append("".join(str(p) for p in parts))
 
             elif op == _Op.AUG_ADD:
                 right = _pop()
@@ -437,13 +444,14 @@ class VM:
         if not isinstance(func, VMFunction):
             raise RuntimeError_(
                 message=f"'{func}' bukan fungsi yang bisa dipanggil.",
-                line=getattr(instr, 'line', 0) if instr else 0,
-                column=getattr(instr, 'column', 0) if instr else 0)
+                line=getattr(instr, "line", 0) if instr else 0,
+                column=getattr(instr, "column", 0) if instr else 0,
+            )
 
         # Create new frame
-        new_frame = Frame(func.bytecode, parent=self._frame,
-                         globals_=self._frame.globals,
-                         closure=func.closure)
+        new_frame = Frame(
+            func.bytecode, parent=self._frame, globals_=self._frame.globals, closure=func.closure
+        )
 
         # Bind parameters by index (params occupy slots 0..param_count-1)
         for i in range(func.param_count):
@@ -466,15 +474,30 @@ class VM:
             method = self._find_method_on_class(obj.klass, method_name)
             if method:
                 return self._call_function(method, [obj] + args)
-        raise RuntimeError_(
-            message=f"Method '{method_name}' tidak ditemukan.")
+        raise RuntimeError_(message=f"Method '{method_name}' tidak ditemukan.")
 
     def _find_method_on_class(self, klass, method_name):
-        """Find a method on a class, walking up the parent chain."""
+        """Find a method on a class, walking up the parent chain.
+
+        Hasil di-cache per (kelas, nama) sehingga pencarian berulang pada
+        inheritance yang dalam tidak mengulang traversal parent-chain.
+        Key memakai objek kelas (bukan id()) agar tidak tabrakan bila
+        kelas lama di-GC dan id-nya dipakai ulang.
+        """
+        key = (klass, method_name)
+        cached = self._method_cache.get(key, _MISSING)
+        if cached is not _MISSING:
+            return cached
+        method = self._find_method_on_class_uncached(klass, method_name)
+        self._method_cache[key] = method
+        return method
+
+    def _find_method_on_class_uncached(self, klass, method_name):
+        """Pencarian method tanpa cache (traversal parent chain)."""
         if method_name in klass.methods:
             return klass.methods[method_name]
         if klass.parent:
-            return self._find_method_on_class(klass.parent, method_name)
+            return self._find_method_on_class_uncached(klass.parent, method_name)
         return None
 
     def _call_builtin(self, func, args, name, instr=None):
@@ -486,8 +509,9 @@ class VM:
                 raise
             raise RuntimeError_(
                 message=f"Error di builtin '{name}': {e}",
-                line=getattr(instr, 'line', 0) if instr else 0,
-                column=getattr(instr, 'column', 0) if instr else 0)
+                line=getattr(instr, "line", 0) if instr else 0,
+                column=getattr(instr, "column", 0) if instr else 0,
+            )
 
     # ============= Attribute Access =============
 
@@ -503,8 +527,7 @@ class VM:
                 if isinstance(method, tuple):
                     # (bytecode, is_static)
                     bc, is_static = method
-                    func = VMFunction(bc, len(self._get_params(bc)),
-                                     False, [])
+                    func = VMFunction(bc, len(self._get_params(bc)), False, [])
                     if not is_static:
                         return lambda *a: self._call_function(func, [obj] + list(a))
                     return lambda *a: self._call_function(func, list(a))
@@ -513,16 +536,21 @@ class VM:
             if obj.klass.parent:
                 return self._get_attribute(obj.klass.parent, name, instr)
             # Built-in get/set
-            if name == 'get':
-                return lambda n: self._get_attribute(obj, n, instr) if n in obj.dict else obj.dict.get(n)
-            if name == 'set':
+            if name == "get":
+                return lambda n: (
+                    self._get_attribute(obj, n, instr) if n in obj.dict else obj.dict.get(n)
+                )
+            if name == "set":
+
                 def _set(n, v):
                     obj.dict[n] = v
+
                 return _set
             raise RuntimeError_(
                 message=f"'{obj.klass.name}' tidak memiliki atribut '{name}'.",
-                line=getattr(instr, 'line', 0) if instr else 0,
-                column=getattr(instr, 'column', 0) if instr else 0)
+                line=getattr(instr, "line", 0) if instr else 0,
+                column=getattr(instr, "column", 0) if instr else 0,
+            )
 
         if isinstance(obj, VMClass):
             if name in obj.methods:
@@ -531,7 +559,8 @@ class VM:
                 return self._get_attribute(obj.parent, name, instr)
             raise RuntimeError_(
                 message=f"Kelas '{obj.name}' tidak memiliki method '{name}'.",
-                line=getattr(instr, 'line', 0) if instr else 0)
+                line=getattr(instr, "line", 0) if instr else 0,
+            )
 
         # Python objects
         if hasattr(obj, name):
@@ -539,8 +568,9 @@ class VM:
 
         raise RuntimeError_(
             message=f"Tidak bisa mengakses '{name}' pada tipe {type(obj).__name__}.",
-            line=getattr(instr, 'line', 0) if instr else 0,
-            column=getattr(instr, 'column', 0) if instr else 0)
+            line=getattr(instr, "line", 0) if instr else 0,
+            column=getattr(instr, "column", 0) if instr else 0,
+        )
 
     def _set_attribute(self, obj, name, val, instr=None):
         """Set attribute on an object."""
@@ -549,9 +579,15 @@ class VM:
             return
         if isinstance(obj, VMClass):
             obj.methods[name] = val
+            # Monkey-patch: invalidate seluruh cache — method bisa saja
+            # terselesaikan lewat parent, sehingga subclass yang sudah
+            # meng-cache hasil lama ikut terpengaruh. Cache kecil dan
+            # jarang di-patch, jadi clear penuh lebih aman.
+            self._method_cache.clear()
             return
         raise RuntimeError_(
-            message=f"Tidak bisa mengatur atribut '{name}' pada {type(obj).__name__}.")
+            message=f"Tidak bisa mengatur atribut '{name}' pada {type(obj).__name__}."
+        )
 
     def _get_params(self, bytecode):
         """Get parameter names from bytecode (heuristic)."""
@@ -562,15 +598,16 @@ class VM:
                 count += 1
             elif instr.op not in (Op.STORE_LOCAL, Op.NOP):
                 break
-        return [''] * count
+        return [""] * count
 
     def _do_import(self, module_path):
         """Import a module."""
         import importlib
-        parts = module_path.split('.')
+
+        parts = module_path.split(".")
         # Try stdlib first
         try:
-            mod = importlib.import_module(f'brolang.stdlib.{parts[0]}')
+            mod = importlib.import_module(f"brolang.stdlib.{parts[0]}")
             return mod
         except ImportError:
             pass
@@ -584,7 +621,8 @@ class VM:
 
 class VMFunction:
     """Bytecode function object."""
-    __slots__ = ('bytecode', 'param_count', 'has_defaults', 'closure')
+
+    __slots__ = ("bytecode", "param_count", "has_defaults", "closure")
 
     def __init__(self, bytecode, param_count, has_defaults, closure):
         self.bytecode = bytecode
@@ -595,20 +633,21 @@ class VMFunction:
     def param_names(self):
         """Extract param names from bytecode."""
         names = []
-        for instr in self.bytecode.instructions[:self.param_count + 5]:
+        for instr in self.bytecode.instructions[: self.param_count + 5]:
             if instr.op == Op.STORE_LOCAL:
-                names.append(f'p{instr.arg}')
+                names.append(f"p{instr.arg}")
             if len(names) >= self.param_count:
                 break
         return names
 
     def __repr__(self):
-        return f'<VMFunction {self.bytecode}>'
+        return f"<VMFunction {self.bytecode}>"
 
 
 class VMClass:
     """Bytecode class object."""
-    __slots__ = ('name', 'parent', 'methods', 'access_map')
+
+    __slots__ = ("name", "parent", "methods", "access_map")
 
     def __init__(self, name, parent, methods_data):
         self.name = name
@@ -619,20 +658,20 @@ class VMClass:
         for method_name, method_data in methods_data.items():
             bc, is_static = method_data[0], method_data[1]
             param_count = method_data[2] if len(method_data) > 2 else 0
-            self.methods[method_name] = VMFunction(
-                bc, param_count, False, [])
+            self.methods[method_name] = VMFunction(bc, param_count, False, [])
 
     def __repr__(self):
-        return f'<VMClass {self.name}>'
+        return f"<VMClass {self.name}>"
 
 
 class VMInstance:
     """Instance of a VM class."""
-    __slots__ = ('klass', 'dict')
+
+    __slots__ = ("klass", "dict")
 
     def __init__(self, klass):
         self.klass = klass
         self.dict = {}
 
     def __repr__(self):
-        return f'<{self.klass.name} instance>'
+        return f"<{self.klass.name} instance>"
