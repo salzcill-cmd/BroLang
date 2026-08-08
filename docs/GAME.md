@@ -46,6 +46,43 @@ game.dapatkan_scene_sekarang()         # nama scene aktif
 game.hapus_scene("menu")
 ```
 
+### Scene Lifecycle (v6.2) 🆕
+
+Scene punya siklus hidup lengkap: callback `on_masuk` dipanggil sekali saat
+scene aktif, `on_keluar` saat scene diganti. Cocok untuk setup/cleanup
+(muat asset, reset skor, dll).
+
+```bro
+game.tambah_scene("main", update_main, gambar_main,
+                   on_masuk=mulai_main, on_keluar=bersihkan_main)
+```
+
+### Transisi Antar Scene (v6.2) 🆕
+
+Pindah scene dengan efek fade — scene lama memudar ke warna, lalu scene baru
+muncul. `transisi="fade"`, `durasi` dalam detik, `warna` overlay (nama warna
+atau tuple RGB).
+
+```bro
+game.ganti_scene("main", transisi="fade", durasi=1.0, warna="hitam")
+game.ganti_scene("menu", transisi="fade", durasi=0.5, warna="putih")
+```
+
+- `game.transisi_aktif()` → cek apakah sedang transisi
+- `game.progres_transisi()` → progres 0.0..1.0 (buat animasi paralel)
+
+### Tumpukan Scene / Overlay (v6.2) 🆕
+
+Tumpuk scene di atas scene lain — scene bawah **tetap digambar** tapi tidak
+di-update. Sempurna untuk menu pause / dialog di atas gameplay.
+
+```bro
+game.dorong_scene("pause", transisi="fade")   # pause di atas scene utama
+game.pop_scene(transisi="fade")               # kembali ke scene bawah
+```
+
+- `game.kedalaman_tumpukan()` → jumlah scene yang sedang ditumpuk
+
 ### Pause & Data Global
 
 ```bro
@@ -400,7 +437,9 @@ buat hujan = partikel.buat_hujan(800, jumlah=60, warna="biru")
 
 ## 10. UI (`ui`)
 
-Komponen antarmuka: Tombol, Label, Panel, Bar (health/progress).
+Komponen antarmuka: Tombol, Label, Panel, Bar (health/progress), plus
+komponen baru v6.2: **KotakTeks** (input teks), **Slider**, **KotakCentang**
+(checkbox), dan **DaftarPilih** (dropdown).
 
 ```bro
 impor ui
@@ -426,6 +465,99 @@ panel.gambar(screen)
 tombol_mulai.gambar(screen)
 hp.gambar(screen)
 ```
+
+### KotakTeks — Input Teks (v6.2) 🆕
+
+Input teks satu baris dengan fokus (klik), kursor berkedip, placeholder,
+dan batas panjang karakter. Input keyboard dilakukan manual di kode game
+melalui `input.events_tombol()`.
+
+```bro
+buat nama = ui.KotakTeks(200, 150, 250, 40, placeholder="Nama pemain",
+                         maks_karakter=12)
+
+# Setiap frame:
+nama.update(input.tikus_posisi()[0], input.tikus_posisi()[1],
+            input.tikus_baru_ditekan(0))
+
+jika nama.fokus maka
+    untuk ev dalam input.events_tombol() lakukan
+        nama.tambah_karakter(ev)          # terima karakter yang diketik
+    selesai
+    jika input.tombol_baru_ditekan("BACKSPACE") maka
+        nama.hapus_karakter()
+    selesai
+selesai
+
+nama.gambar(screen)
+tulis nama.teks_sekarang()
+```
+
+Metode: `tambah_karakter(c)`, `hapus_karakter()` (backspace), `kosongkan()`,
+`set_teks(t)`, `teks_sekarang()`, `habis()`/`apakah_kosong()`,
+`fokus_set(True/False)`, `enter()` (pemicu tombol Enter). Callback:
+`on_ubah`, `on_enter`, `on_fokus`, `on_keluar_fokus`.
+
+### Slider (v6.2) 🆕
+
+Slider horizontal — geser nilai dengan drag mouse. Cocok untuk volume,
+kecerahan, kecepatan, dll.
+
+```bro
+buat volume = ui.Slider(200, 300, 250, nilai=50, min=0, maks=100,
+                        langkah=5)          # langkah opsional (kelipatan)
+
+# Setiap frame:
+volume.update(input.tikus_posisi()[0], input.tikus_posisi()[1],
+              input.tikus_tekanan()[0])    # true selama tombol kiri ditekan
+
+audio.atur_volume_musik(volume.nilai_sekarang() / 100)
+volume.gambar(screen)
+```
+
+Metode: `nilai_sekarang()`, `atur_nilai(v)`, `persen()` (0.0..1.0),
+`atur_dari_posisi(x)`. Callback: `on_ubah`, `on_selesai` (saat drag selesai).
+
+### KotakCentang — Checkbox (v6.2) 🆕
+
+Checkbox dengan label — toggle saat diklik.
+
+```bro
+buat musik = ui.KotakCentang(200, 400, label="Aktifkan musik",
+                             dicentang=True)
+
+# Setiap frame:
+musik.update(input.tikus_posisi()[0], input.tikus_posisi()[1],
+             input.tikus_baru_ditekan(0))
+
+jika musik.dicentang_sekarang() maka
+    audio.mainkan_musik()
+selesai
+musik.gambar(screen)
+```
+
+Metode: `centang()`, `hapus_centang()`, `toggle()`, `dicentang_sekarang()`.
+Callback: `on_ubah`, `on_centang`, `on_hapus`.
+
+### DaftarPilih — Dropdown (v6.2) 🆕
+
+Dropdown untuk memilih satu opsi dari daftar.
+
+```bro
+buat level = ui.DaftarPilih(200, 500, 200,
+                            opsi=["Mudah", "Sedang", "Sulit"],
+                            terpilih=1)     # default "Sedang"
+
+# Setiap frame:
+level.update(input.tikus_posisi()[0], input.tikus_posisi()[1],
+             input.tikus_baru_ditekan(0))
+
+tulis level.opsi_terpilih()   # nama opsi aktif
+level.gambar(screen)
+```
+
+Metode: `buka()`, `tutup()`, `pilih(indeks)`, `indeks_terpilih()`,
+`opsi_terpilih()`, `jumlah_opsi()`. Callback: `on_ubah`, `on_buka`, `on_tutup`.
 
 ---
 

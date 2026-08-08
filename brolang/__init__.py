@@ -11,6 +11,11 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v6.2 (Game Dev Upgrade):
+- Scene lifecycle: on_masuk/on_keluar + transisi fade antar scene
+- Tumpukan scene (overlay): dorong_scene/pop_scene untuk menu pause
+- UI baru: KotakTeks (input teks), Slider, KotakCentang, DaftarPilih
+
 Fitur v6.0:
 - Type System lengkap: `buat x: Angka = 5`, `fungsi f(a: Angka) -> Teks`,
   union (`Angka | Teks`), generik (`Daftar<Angka>`), alias tipe
@@ -48,7 +53,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "6.1.0"
+__version__ = "6.2.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

@@ -4,6 +4,39 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [6.2.0] - 2026-08-08
+
+### Added
+- **Scene Lifecycle lengkap** (modul `game`):
+  - Scene kini punya siklus hidup penuh — callback `on_masuk` (dipanggil sekali saat scene aktif) dan `on_keluar` (saat scene diganti), cocok untuk setup/cleanup asset.
+  - `tambah_scene(nama, update, gambar, on_masuk=..., on_keluar=...)` — kompatibel dengan API lama (parameter baru opsional).
+- **Transisi antar scene** — pindah scene dengan efek fade:
+  - `ganti_scene(nama, transisi="fade", durasi=0.5, warna="hitam")` — scene lama memudar ke warna, lalu scene baru muncul.
+  - `transisi_aktif()` cek status, `progres_transisi()` (0.0..1.0) untuk animasi paralel.
+  - Scene berganti tepat di titik paling gelap (tengah durasi) — transisi digambar sebagai overlay di atas scene aktif.
+- **Tumpukan Scene / Overlay** — `dorong_scene(nama, ...)` / `pop_scene(...)`:
+  - Tumpuk scene di atas scene lain — scene bawah **tetap digambar** tapi tidak di-update; sempurna untuk menu pause / dialog di atas gameplay.
+  - `kedalaman_tumpukan()` untuk cek jumlah scene bertumpuk; `reset()` kini membersihkan tumpukan & transisi.
+- **UI komponen baru** (modul `ui`):
+  - **`KotakTeks`** — input teks satu baris: fokus via klik, kursor berkedip, placeholder, `maks_karakter`, `tambah_karakter`/`hapus_karakter`/`kosongkan`/`set_teks`, callback `on_ubah`/`on_fokus`/`on_keluar_fokus`.
+  - **`Slider`** — slider horizontal dengan drag mouse: `nilai_sekarang`/`atur_nilai`/`persen`, opsi `langkah` (kelipatan), callback `on_ubah`/`on_selesai`.
+  - **`KotakCentang`** — checkbox dengan label: `centang`/`hapus_centang`/`toggle`/`dicentang_sekarang`, callback `on_centang`/`on_hapus`/`on_ubah`.
+  - **`DaftarPilih`** — dropdown: `buka`/`tutup`/`pilih`/`indeks_terpilih`/`opsi_terpilih`, hover item, auto-tutup setelah pilih, callback `on_ubah`/`on_buka`/`on_tutup`.
+  - Semua komponen baru bersifat deklaratif — **logika berjalan tanpa pygame** (hanya render yang butuh pygame), konsisten dengan komponen lama.
+- **5 modul stdlib baru** (dijanjikan `docs/STDLIB.md` tapi sebelumnya tidak ada — kini lengkap):
+  - **`angka`** — matematika lanjut: `pi`/`e` sebagai nilai, `sqr`, `abs`, `min`/`max` (2+ angka atau satu list), `lantai`/`langit`/`bulat`, `pangkat`, `log`, `sin`/`cos`/`tan`, `faktorial`, `acak_antara`.
+  - **`sistem`** — info sistem: `versi()` (versi BroLang), `platform()` (linux/windows/darwin), `nama`, `versi_os`, `prosesor`, `python`, `hostname`, `cwd`, `home`, `lingkungan`.
+  - **`sistem_operasi`** — operasi OS: `list_dir`, `daftar_file`/`daftar_folder`, `ada`/`adalah_file`/`adalah_folder`, `buat_folder`, `hapus_file`/`hapus_folder`, `pindah`/`salin`, `ukuran`, `cwd`/`ganti_cwd`, manipulasi jalur (`nama_dasar`, `folder_induk`, `ekstensi`, `gabung_jalur`, `jalur_absolut`, `ubah_ekstensi`, dll).
+  - **`web`** — HTTP client: `get`/`post`/`put`/`hapus_http`/`kirim` → objek respon (`teks`, `status`, `json`, `header`, `sukses`, `error`).
+  - **`database`** — SQLite wrapper: `buka`/`buka_memori`, `eksekusi_sql` (param `?`), `query` → list objek, `query_satu`/`query_nilai`, `eksekusi_banyak`, `tabel`, `kolom`, `jumlah_baris`, `tutup`.
+  - Nama fungsi yang tabrakan keyword BroLang dihindari: `eksekusi` → `eksekusi_sql`, `hapus` (DELETE) → `hapus_http`.
+
+### Changed
+- Versi di-bump dari `6.1.0` ke `6.2.0`.
+- Game loop (`mulai()`) kini memproses transisi scene tiap frame dan menggambar overlay fade di paling atas.
+- `docs/STDLIB.md` kini mendokumentasikan API asli semua modul (termasuk 5 modul baru yang sebelumnya hanya dijanjikan).
+- 79 test baru (43 game dev + 36 modul stdlib baru) — total **654 test passing**.
+
 ## [6.1.0] - 2026-08-07
 
 ### Added

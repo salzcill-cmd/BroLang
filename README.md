@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-6.1-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-6.2-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v6.1</h1>
+<h1 align="center">BroLang v6.2</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/575-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/654-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/110+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/130+Token%20Types-purple?style=flat-square" alt="tokens"/>
-  <img src="https://img.shields.io/badge/34+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
+  <img src="https://img.shields.io/badge/39+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
 </p>
 
 ---
@@ -45,10 +45,77 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 6.1.0
+bro --version    # BroLang 6.2.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v6.2?
+
+### Scene Lifecycle + Transisi 🎬
+Scene sekarang punya siklus hidup penuh: `on_masuk` / `on_keluar`, transisi **fade** antar scene, dan tumpukan scene untuk **overlay menu pause**.
+
+```bro
+impor game
+
+# Lifecycle: setup saat scene aktif, cleanup saat diganti
+game.tambah_scene("main", update_main, gambar_main,
+                   on_masuk=muat_level, on_keluar=simpan_skor)
+
+# Transisi fade antar scene
+game.ganti_scene("main", transisi="fade", durasi=1.0, warna="hitam")
+
+# Overlay menu pause di atas gameplay (scene bawah tetap digambar)
+game.dorong_scene("pause", transisi="fade")
+game.pop_scene(transisi="fade")
+```
+
+### UI Komponen Baru 🖱️
+Empat komponen UI baru siap pakai: **KotakTeks** (input teks), **Slider**, **KotakCentang** (checkbox), dan **DaftarPilih** (dropdown).
+
+```bro
+impor ui
+
+buat nama = ui.KotakTeks(200, 150, 250, 40, placeholder="Nama pemain")
+buat volume = ui.Slider(200, 300, 250, nilai=50, min=0, maks=100)
+buat musik = ui.KotakCentang(200, 400, label="Aktifkan musik", dicentang=True)
+buat level = ui.DaftarPilih(200, 500, 200, opsi=["Mudah", "Sedang", "Sulit"])
+
+nama.update(mx, my, klik)          # fokus via klik
+nama.tambah_karakter("A")          # terima karakter dari input keyboard
+volume.update(mx, my, ditekan)     # drag
+musik.update(mx, my, klik)         # toggle
+level.update(mx, my, klik)         # buka/pilih opsi
+```
+
+Semua komponen logika-nya jalan **tanpa pygame** (hanya render yang butuh pygame) — gampang di-test.
+
+### 5 Modul Stdlib Baru 🧩
+Modul yang selama ini hanya dijanjikan di dokumentasi kini **benar-benar ada**: `angka`, `sistem`, `sistem_operasi`, `web`, dan `database`.
+
+```bro
+impor angka
+impor sistem
+impor web
+impor database
+
+tulis angka.pi                  # 3.141592653589793 (konstanta langsung)
+tulis angka.sqr(16)             # 4.0
+tulis sistem.platform()         # linux / windows / darwin
+
+buat respon = web.get("https://api.example.com/data")
+tulis respon.status             # 200
+tulis respon.json               # body ter-parse sebagai objek
+
+buat db = database.buka("data.db")
+db.eksekusi_sql("CREATE TABLE IF NOT EXISTS t (id INTEGER, nama TEXT)")
+db.eksekusi_sql("INSERT INTO t (id, nama) VALUES (?, ?)", 1, "Budi")
+tulis db.query("SELECT * FROM t")[0]["nama"]    # Budi
+```
+
+Plus `sistem_operasi` untuk operasi file/folder & jalur (`list_dir`, `buat_folder`, `pindah`, `gabung_jalur`, dll).
 
 ---
 
@@ -747,7 +814,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 
 ---
 
-## Standard Library (25+ modules)
+## Standard Library (39+ modules)
 
 | Module | Fungsi |
 |--------|--------|
@@ -788,6 +855,11 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | `proses` | Jalankan subprocess (keluaran, kode exit) |
 | `csv` | Baca/tulis CSV → list objek |
 | `registri` | Package registry online: server HTTP + publish/install |
+| `angka` | Matematika lanjut: pi/e (nilai), sqr, abs, min, max, faktorial |
+| `sistem` | Info sistem: versi, platform, prosesor, hostname, cwd |
+| `sistem_operasi` | Operasi OS: list_dir, buat/hapus/pindah file & folder, jalur |
+| `web` | HTTP client: get/post/put/delete → objek respon (teks, status, json) |
+| `database` | SQLite: buka, query, eksekusi_sql, tabel, kolom |
 
 ---
 
@@ -803,7 +875,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | [Fitur v6.0](docs/FITUR_V60.md) | Type system, pattern matching modern, kelas_error, stdlib baru, package registry online |
 | [Fitur v5.0](docs/FITUR.md) | Semua fitur lengkap |
 | [Game Development](docs/GAME.md) | Bikin game pake BroLang |
-| [Standard Library](docs/STDLIB.md) | 25+ module built-in |
+| [Standard Library](docs/STDLIB.md) | 39+ module built-in |
 | [CLI Tools](docs/CLI.md) | Compiler, formatter, profiler |
 | [Arsitektur](docs/ARSITEKTUR.md) | Pipeline eksekusi |
 
@@ -886,7 +958,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**575 test cases, semua passing!** (termasuk 61 test library game v5.4, output-consistency tests, suite v5.x, test visualisasi: ASCII, SVG, GUI, 45 test v6.0, dan 39 test ramah pemula: mode belajar, saran keyword, hint pemula, REPL)
+**654 test cases, semua passing!** (termasuk 61 test library game v5.4, output-consistency tests, suite v5.x, test visualisasi: ASCII, SVG, GUI, 45 test v6.0, 39 test ramah pemula: mode belajar, saran keyword, hint pemula, REPL, 43 test v6.2 game dev: scene lifecycle, transisi, tumpukan scene, UI komponen baru, dan 36 test modul stdlib baru: angka, sistem, sistem_operasi, web, database)
 
 ---
 
@@ -910,7 +982,7 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v6.1** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v6.2** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>

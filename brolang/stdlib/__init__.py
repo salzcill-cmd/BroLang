@@ -175,3 +175,19 @@ def _load_module(name: str) -> None:
     elif name == "registri":
         from brolang.stdlib.registri import module as registri_module
         register_module("registri", registri_module)
+    # v6.2 modules (dijanjikan docs/STDLIB.md)
+    elif name == "angka":
+        from brolang.stdlib.angka import module as angka_module
+        register_module("angka", angka_module)
+    elif name == "sistem":
+        from brolang.stdlib.sistem import module as sistem_module
+        register_module("sistem", sistem_module)
+    elif name == "sistem_operasi":
+        from brolang.stdlib.sistem_operasi import module as sistem_operasi_module
+        register_module("sistem_operasi", sistem_operasi_module)
+    elif name == "web":
+        from brolang.stdlib.web import module as web_module
+        register_module("web", web_module)
+    elif name == "database":
+        from brolang.stdlib.database import module as database_module
+        register_module("database", database_module)

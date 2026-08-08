@@ -108,14 +108,62 @@ audio.muat("efek_lompat", "assets/lompat.mp3")
 audio.mainkan("efek_lompat")
 ```
 
+## `angka` — Matematika Lanjut
+
+Konstanta & fungsi matematika cepat. `pi` dan `e` langsung sebagai nilai
+(tanpa kurung).
+
+```
+impor angka
+
+tulis angka.pi           # 3.141592653589793
+tulis angka.e            # 2.718281828459045
+tulis angka.sqr(16)      # 4.0
+tulis angka.abs(-5)      # 5
+tulis angka.min(3, 7)    # 3
+tulis angka.max(3, 7)    # 7
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `pi`, `e` | Konstanta matematika (nilai) |
+| `sqr(x)` / `akar(x)` | Akar kuadrat |
+| `abs(x)` | Nilai absolut |
+| `min(...)` / `max(...)` | Minimum/maksimum (2+ angka atau satu list) |
+| `pangkat(x, y)` | x pangkat y |
+| `lantai(x)` / `langit(x)` | Floor / ceil |
+| `bulat(x, n?)` | Pembulatan ke n digit |
+| `log(x, base?)` | Logaritma |
+| `sin(x)` / `cos(x)` / `tan(x)` | Trigonometri (radian) |
+| `faktorial(n)` | Faktorial |
+| `acak_antara(a, b)` | Angka acak antara a dan b |
+
+---
+
 ## `sistem` — Info System
 
-```
-muat sistem
+Informasi sistem operasi & lingkungan.
 
-tulis sistem.versi()        # Versi BroLang
-tulis sistem.platform()     # linux / windows / darwin
 ```
+impor sistem
+
+tulis sistem.versi()        # 6.2.0 (Versi BroLang)
+tulis sistem.platform()     # linux / windows / darwin
+tulis sistem.nama()         # Linux
+tulis sistem.prosesor()     # x86_64
+tulis sistem.python()       # 3.12.3
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `versi()` | Versi BroLang yang berjalan |
+| `platform()` | OS huruf kecil: linux/windows/darwin |
+| `nama()` / `versi_os()` | Nama & versi detail OS |
+| `prosesor()` | Arsitektur prosesor |
+| `python()` | Versi Python |
+| `hostname()` | Nama host mesin |
+| `cwd()` / `home()` | Direktori kerja & folder home |
+| `lingkungan()` | Nilai `BROLANG_ENV` (default development) |
 
 ## `game` — Game Utilities
 
@@ -136,17 +184,40 @@ selesai
 
 ## `web` — HTTP Requests
 
+HTTP client sederhana. Setiap request mengembalikan objek respon dengan
+atribut: `teks` (body), `status` (kode HTTP), `json` (body ter-parse atau
+`kosong`), `header` (objek header), `sukses` (True untuk status 2xx),
+dan `error` (pesan error atau `kosong`).
+
 ```
-muat web
+impor web
 
 buat respon = web.get("https://api.example.com/data")
-tulis respon.teks
+tulis respon.status       # 200
+tulis respon.teks         # body mentah
+tulis respon.json         # body sebagai objek (bila JSON)
+
+buat hasil = web.post("https://api.example.com/login",
+                      json={"nama": "Budi", "kata": "rahasia"})
+jika hasil.sukses maka
+    tulis hasil.json
+selesai
 ```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `get(url, header?, timeout?)` | HTTP GET |
+| `post(url, data?, json?, header?, timeout?)` | HTTP POST (form atau JSON) |
+| `put(url, data?, json?, header?, timeout?)` | HTTP PUT |
+| `hapus_http(url, header?, timeout?)` | HTTP DELETE |
+| `kirim(metode, url, data?, json?, header?, timeout?)` | Request bebas |
 
 ## `sistem_operasi` — OS Operations
 
+Operasi file/folder & manipulasi jalur.
+
 ```
-muat sistem_operasi
+impor sistem_operasi
 
 buat daftar = sistem_operasi.list_dir(".")
 untuk file dalam daftar lakukan
@@ -154,13 +225,65 @@ untuk file dalam daftar lakukan
 selesai
 ```
 
+| Fungsi | Keterangan |
+|--------|------------|
+| `list_dir(path?)` | Daftar nama file & folder (urut abjad) |
+| `daftar_file(path?)` / `daftar_folder(path?)` | Hanya file / hanya folder |
+| `ada(path)` / `adalah_file(path)` / `adalah_folder(path)` | Cek keberadaan |
+| `buat_folder(path)` | Buat folder (termasuk induk) |
+| `hapus_file(path)` / `hapus_folder(path)` | Hapus file / folder |
+| `pindah(sumber, tujuan)` / `salin(sumber, tujuan)` | Pindah / salin |
+| `ukuran(path)` | Ukuran file (byte) |
+| `cwd()` / `ganti_cwd(path)` | Direktori kerja |
+| `nama_dasar(path)` / `folder_induk(path)` | Basename / dirname |
+| `ekstensi(path)` / `nama_tanpa_ekstensi(path)` | Ekstensi & nama tanpa ekstensi |
+| `gabung_jalur(...)` | Gabung bagian jalur (sesuai OS) |
+| `jalur_absolut(path)` / `jalur_nyata(path)` | Jalur lengkap / kanonik |
+| `ubah_ekstensi(path, ekstensi)` | Ganti ekstensi file |
+
+---
+
+## `database` — Database (SQLite)
+
+Wrapper SQLite untuk penyimpanan data lokal. Bisa buka file `.db` atau
+langsung di memori (`:memory:`).
+
+```
+impor database
+
+buat db = database.buka("data.db")   # atau database.buka() / buka_memori()
+db.eksekusi_sql("CREATE TABLE IF NOT EXISTS pengguna (id INTEGER, nama TEXT)")
+db.eksekusi_sql("INSERT INTO pengguna (id, nama) VALUES (?, ?)", 1, "Budi")
+
+buat semua = db.query("SELECT * FROM pengguna")
+untuk row dalam semua lakukan
+    tulis row["nama"]
+selesai
+
+tulis db.jumlah_baris("pengguna")    # 1
+db.tutup()
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `buka(path?)` / `buka_memori()` | Buka database file / di memori |
+| `eksekusi_sql(sql, *params)` | Jalankan INSERT/UPDATE/DELETE/DDL (pakai `?` placeholder) |
+| `query(sql, *params)` | SELECT → list objek `{kolom: nilai}` |
+| `query_satu(sql, *params)` | Baris pertama atau `kosong` |
+| `query_nilai(sql, *params)` | Nilai kolom pertama baris pertama |
+| `eksekusi_banyak(sql, daftar)` | Insert banyak baris sekaligus |
+| `tabel()` | Daftar nama tabel |
+| `kolom(nama_tabel)` | Daftar nama kolom tabel |
+| `jumlah_baris(nama_tabel)` | Jumlah baris di tabel |
+| `tutup()` / `tersambung()` | Tutup koneksi / cek status |
+
 ---
 
 ## Module List
 
 | Module | Fungsi |
 |--------|--------|
-| `angka` | Matematika lanjut (pi, e, sqr, abs) |
+| `angka` | Matematika lanjut — pi, e (nilai), sqr, abs, min, max |
 | `vektor` | Vektor 2D/3D |
 | `audio` | Sound effects |
 | `grafis` | Graphics rendering |
@@ -172,7 +295,7 @@ selesai
 | `random` | Angka random |
 | `waktu` | Waktu & sleep |
 | `crypto` | Encryption |
-| `database` | Database operations |
+| `database` | SQLite wrapper — buka, query, eksekusi_sql, tabel |
 | `regex` | Regular expressions |
 | `json` | JSON parsing |
 | `csv` | CSV parsing |
