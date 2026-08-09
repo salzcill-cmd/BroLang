@@ -9,3 +9,7 @@ build/
 *.egg
 .venv/
 venv/
+
+# File runtime game (DaftarSkor dll)
+skor_*.json
+screenshot_*.png
