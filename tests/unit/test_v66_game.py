@@ -379,6 +379,79 @@ class TestFisikaAABB:
         assert pemain.grounded
         assert abs(pemain.kecepatan.y) < 0.01
 
+    def test_lingkaran_vs_lingkaran_statis_tidak_crash(self):
+        """Regresi: resolve collision lingkaran-lingkaran dengan bodi statis
+        (massa 0) tidak boleh ZeroDivisionError. Bola harus berhenti di atas
+        bola statis, grounded, dan yang statis tidak ikut bergeser."""
+        fisika = _mod("fisika")
+        w = fisika.buat_dunia(gravitasi_y=900)
+        statis = fisika.buat_bodi(400, 300, massa=0, radius=50)
+        bola = fisika.buat_bodi(400, 100, massa=1, radius=15)
+        w.tambah_bodi(statis)
+        w.tambah_bodi(bola)
+        for _ in range(600):
+            w.update(1 / 60)
+            w.resolve_collision(bola, statis)
+        # Bola diam di atas statis: pusat bola = 300 - 50 - 15 = 235
+        assert 230 <= bola.posisi.y <= 240
+        assert bola.grounded
+        assert abs(bola.kecepatan.y) < 0.01
+        # Bodi statis tidak boleh ikut bergeser
+        assert statis.posisi.y == 300.0
+        assert statis.posisi.x == 400.0
+
+    def test_lingkaran_statis_urutan_argumen_terbalik(self):
+        """Regresi: urutan argumen resolve_collision tidak memengaruhi hasil
+        (bodi statis boleh jadi argumen pertama)."""
+        fisika = _mod("fisika")
+        w = fisika.buat_dunia(gravitasi_y=900)
+        statis = fisika.buat_bodi(400, 300, massa=0, radius=50)
+        bola = fisika.buat_bodi(400, 100, massa=1, radius=15)
+        w.tambah_bodi(statis)
+        w.tambah_bodi(bola)
+        for _ in range(600):
+            w.update(1 / 60)
+            w.resolve_collision(statis, bola)  # statis dulu
+        assert 230 <= bola.posisi.y <= 240
+        assert bola.grounded
+        assert statis.posisi.y == 300.0
+
+    def test_lingkaran_tabrakan_samping_statispantul(self):
+        """Tabrakan samping bola vs bola statis (normal hampir horizontal)
+        dipantulkan dengan elastisitas — bukan dihentikan seperti landing."""
+        fisika = _mod("fisika")
+        w = fisika.buat_dunia(gravitasi_y=0)
+        statis = fisika.buat_bodi(200, 200, massa=0, radius=40)
+        bola = fisika.buat_bodi(155, 200, massa=1, radius=10)
+        bola.set_kecepatan(150, 0)  # menuju sisi kiri bola statis
+        w.tambah_bodi(statis)
+        w.tambah_bodi(bola)
+        assert w.check_collision(bola, statis)
+        w.resolve_collision(bola, statis)
+        # Normal sisi kiri = (1, 0): kecepatan x dipantulkan (elastisitas 0.8)
+        assert bola.kecepatan.x < 0
+        assert abs(bola.kecepatan.x) == pytest.approx(120.0, abs=0.01)  # -0.8 * 150
+        assert not bola.grounded  # tabrakan samping bukan landing
+        # Bola statis tidak bergeser
+        assert statis.posisi.x == 200.0
+
+    def test_dua_lingkaran_dinamis_tetap_normal(self):
+        """Dua lingkaran dinamis (massa > 0) tetap pakai impulse standar —
+        tidak terpengaruh penanganan bodi statis."""
+        fisika = _mod("fisika")
+        w = fisika.buat_dunia(gravitasi_y=0)
+        a = fisika.buat_bodi(100, 100, massa=1, radius=15)
+        b = fisika.buat_bodi(120, 100, massa=1, radius=15)
+        a.set_kecepatan(100, 0)
+        b.set_kecepatan(0, 0)
+        w.tambah_bodi(a)
+        w.tambah_bodi(b)
+        assert w.check_collision(a, b)
+        w.resolve_collision(a, b)
+        # Impulse standar: energi dipindahkan, a melambat
+        assert a.kecepatan.x < 100
+        assert b.kecepatan.x > 0
+
 
 # ============================================================
 # 4. partikel — gradien & emiter bantu

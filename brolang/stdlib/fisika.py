@@ -337,12 +337,17 @@ class FisikaWorld:
             if dvn < 0 and jarak > 0:
                 e = min(lingkaran.elastisitas, persegi.elastisitas)
                 if m_pers == 0:
-                    lingkaran.kecepatan.x -= (1 + e) * dvn * nx
-                    lingkaran.kecepatan.y -= (1 + e) * dvn * ny
-                    # Normal menunjuk dari permukaan ke pusat lingkaran:
-                    # bola DI ATAS lantai -> ny < 0
                     if ny < -0.5:
+                        # Mendarat di atas lantai statis -> berhenti (tanpa
+                        # pantul), anti-jitter. Normal menunjuk dari permukaan
+                        # ke pusat lingkaran: bola DI ATAS lantai -> ny < 0
+                        lingkaran.kecepatan.x -= dvn * nx
+                        lingkaran.kecepatan.y -= dvn * ny
                         lingkaran.grounded = True
+                    else:
+                        # Tabrakan samping dinding: pantulkan dengan elastisitas
+                        lingkaran.kecepatan.x -= (1 + e) * dvn * nx
+                        lingkaran.kecepatan.y -= (1 + e) * dvn * ny
                 elif m_ling == 0:
                     persegi.kecepatan.x += (1 + e) * dvn * nx
                     persegi.kecepatan.y += (1 + e) * dvn * ny
@@ -364,28 +369,71 @@ class FisikaWorld:
         if jarak == 0:
             return
 
-        # Normal vector
+        # Normal vector (dari bodi1 ke bodi2)
         nx = dx / jarak
         ny = dy / jarak
 
+        total_massa = bodi1.massa + bodi2.massa
+        if total_massa <= 0:
+            return
+
+        # ---- Satu bodi statis (massa 0): bodi statis diam, yang dinamis
+        # didorong keluar & dipantulkan. Normal diarahkan dari bodi statis ke
+        # bodi dinamis (konsisten dengan branch campuran), sehingga urutan
+        # argumen resolve_collision tidak memengaruhi hasil.
+        if bodi1.massa == 0 and bodi2.massa > 0:
+            # bodi1 statis: normal dari bodi1 ke bodi2 = (nx, ny)
+            snx, sny = nx, ny
+            dinamis, statis = bodi2, bodi1
+        elif bodi2.massa == 0 and bodi1.massa > 0:
+            # bodi2 statis: normal dari bodi2 ke bodi1 = -(nx, ny)
+            snx, sny = -nx, -ny
+            dinamis, statis = bodi1, bodi2
+        else:
+            snx = sny = None
+            dinamis = statis = None
+
+        if dinamis is not None:
+            # Koreksi posisi: dorong dinamis keluar dari statis (statis diam)
+            overlap = radius_total - jarak
+            if overlap > 0:
+                dinamis.posisi.x += snx * overlap
+                dinamis.posisi.y += sny * overlap
+            # Impulse: hentikan komponen kecepatan yang menembus (mendekat
+            # = dvn < 0; normal menunjuk dari statis ke dinamis)
+            dvn = ((dinamis.kecepatan.x - statis.kecepatan.x) * snx
+                   + (dinamis.kecepatan.y - statis.kecepatan.y) * sny)
+            if dvn < 0:
+                # Mendarat di atas bodi statis -> berhenti (tanpa pantul),
+                # konsisten dengan lantai statis persegi (anti-jitter).
+                if sny < -0.5:
+                    dinamis.kecepatan.x -= dvn * snx
+                    dinamis.kecepatan.y -= dvn * sny
+                    dinamis.grounded = True
+                else:
+                    # Tabrakan samping: pantulkan dengan elastisitas
+                    e = min(dinamis.elastisitas, statis.elastisitas)
+                    dinamis.kecepatan.x -= (1 + e) * dvn * snx
+                    dinamis.kecepatan.y -= (1 + e) * dvn * sny
+            return
+
+        # ---- Keduanya dinamis: impulse + koreksi posisi standar
         # Relative velocity
         dvx = bodi1.kecepatan.x - bodi2.kecepatan.x
         dvy = bodi1.kecepatan.y - bodi2.kecepatan.y
 
-        # Relative velocity in collision normal
+        # Relative velocity in collision normal. Normal menunjuk dari bodi1
+        # ke bodi2, jadi bodi1 MENDEKAT saat dvn > 0.
         dvn = dvx * nx + dvy * ny
 
-        # Do not resolve if velocities are separating
-        if dvn > 0:
+        # Resolve hanya saat mendekat; bodi yang saling menjauh diabaikan
+        if dvn <= 0:
             return
 
         # Restitution
         e = min(bodi1.elastisitas, bodi2.elastisitas)
 
         # Impulse scalar
-        total_massa = bodi1.massa + bodi2.massa
-        if total_massa == 0:
-            return
         j = -(1 + e) * dvn
         j /= 1 / bodi1.massa + 1 / bodi2.massa
 

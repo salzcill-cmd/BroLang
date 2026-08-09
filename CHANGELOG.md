@@ -37,10 +37,36 @@ Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   (navigasi keyboard), `Tombol` dengan gambar.
 - **`sprite`**: `ikuti_patroli`, `rotasi_ke_titik`, `tampilkan`/`sembunyikan`.
 
+### Fixed (pasca-rilis)
+
+- **`fisika` — bodi statis (massa 0) di semua mode collider**: `resolve_collision`
+  kini menangani lantai/tembok statis untuk persegi, lingkaran, dan campuran.
+  Pemain/bola berhenti di lantai (`grounded = benar`), bodi statis tidak ikut
+  bergeser, dan tidak ada `ZeroDivisionError` (sebelumnya lingkaran vs lingkaran
+  statis langsung crash; lingkaran vs persegi statis menimbulkan jitter
+  osilasi ±6.7 px/dtk yang tidak pernah berhenti).
+- **`fisika` — impulse lingkaran-lingkaran dinamis**: guard pendeteksi arah
+  mendekat/menjauh sebelumnya terbalik (`dvn > 0` = menjauh padahal normal
+  menunjuk bodi1→bodi2), sehingga tabrakan kepala-ke-kepala dua lingkaran
+  dinamis tidak pernah memindahkan momentum. Kini impulse standar diterapkan
+  saat mendekat (`dvn > 0`).
+- **`fisika` — urutan argumen `resolve_collision`**: bodi statis boleh jadi
+  argumen pertama atau kedua, hasil tetap sama (sebelumnya hanya bekerja pada
+  satu urutan tertentu).
+- **`ui.Tombol`**: atribut `gambar` (v6.6) menimpa method `gambar()` sehingga
+  tombol tidak bisa di-render — gambar latar kini disimpan di `gambar_latar`.
+- **`kamera.set_target`**: menerima `Bodi` fisika (punya `.posisi` bukan `.x`)
+  tanpa error "object has no attribute 'x'".
+- **`game_v66.bro`**: tambah lantai fisika statis + `resolve_collision` +
+  `check_bounds`; update tilemap/partikel dipindah ke `update_utama` agar FPS
+  naik (24 → 36+).
+- +4 test regresi lingkaran-statis (rest di atas, urutan argumen, impulse
+  dinamis, pantulan samping) → total **838 test passing**.
+
 ### Notes
 
 - Contoh lengkap: `examples/game_v66.bro`. Dokumentasi: `docs/GAME_V66.md`.
-- 825 test passing (760 + 65 baru).
+- 838 test passing.
 
 ## [6.5.0] - 2026-08-09
 
