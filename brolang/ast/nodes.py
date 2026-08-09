@@ -123,11 +123,12 @@ class IdentifierNode(ASTNode):
 
 @dataclass
 class AssignmentNode(ASTNode):
-    """Node untuk assignment: buat x = nilai (v6.0: buat x: Tipe = nilai)"""
+    """Node untuk assignment: buat x = nilai (v6.0: buat x: Tipe = nilai; v6.5: konstanta)"""
     target: ASTNode = field(default_factory=lambda: IdentifierNode(""))
     value: ASTNode = field(default_factory=lambda: NumberNode())
     is_declaration: bool = True
     type_annotation: Optional[str] = None  # v6.0: 'buat x: Angka = 5'
+    is_const: bool = False  # v6.5: 'konstanta x = 5' (immutable)
 
     def get_children(self) -> List[Any]:
         return [self.target, self.value]
@@ -194,6 +195,57 @@ class WhileNode(ASTNode):
 
     def get_children(self) -> List[Any]:
         children = [self.condition] + self.body
+        if self.else_body:
+            children.extend(self.else_body)
+        return children
+
+
+# ============= V6.5: Do-Until Loop =============
+
+@dataclass
+class DoUntilNode(ASTNode):
+    """Node untuk do-until loop (v6.5): ulangi ... sampai kondisi
+
+    Body dijalankan minimal sekali, lalu kondisi dicek setelah body:
+        ulangi
+            tulis x
+            x = x + 1
+        sampai x >= 10
+    """
+    body: List[ASTNode] = field(default_factory=list)
+    condition: ASTNode = field(default_factory=lambda: BooleanNode())
+
+    def get_children(self) -> List[Any]:
+        return self.body + [self.condition]
+
+
+# ============= V6.5: Range For Loop =============
+
+@dataclass
+class RangeForNode(ASTNode):
+    """Node untuk range for loop (v6.5): untuk i dari 1 sampai 10 langkah 2
+
+    Iterasi angka inklusif dari start sampai end dengan langkah opsional:
+        untuk i dari 1 sampai 10 lakukan
+            tulis i
+        selesai
+
+        untuk i dari 10 sampai 1 langkah -1 lakukan
+            tulis i
+        selesai
+    """
+    variable: str = ""
+    start: ASTNode = field(default_factory=lambda: NumberNode(0))
+    end: ASTNode = field(default_factory=lambda: NumberNode(0))
+    step: Optional[ASTNode] = None  # default: otomatis 1 atau -1
+    body: List[ASTNode] = field(default_factory=list)
+    else_body: Optional[List[ASTNode]] = None
+
+    def get_children(self) -> List[Any]:
+        children = [self.start, self.end]
+        if self.step:
+            children.append(self.step)
+        children.extend(self.body)
         if self.else_body:
             children.extend(self.else_body)
         return children

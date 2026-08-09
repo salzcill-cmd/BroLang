@@ -21,9 +21,11 @@ from brolang.ast.nodes import (
     DelNode,
     DestructuringAssignmentNode,
     DictComprehensionNode,
+    DoUntilNode,
     EnumNode,
     ForNode,
     FromImportNode,
+    RangeForNode,
     FStringNode,
     FunctionNode,
     GlobalNode,
@@ -268,8 +270,15 @@ class Compiler:
             self._emit_if(node)
         elif isinstance(node, WhileNode):
             self._emit_while(node)
+        elif isinstance(node, DoUntilNode):
+            self._emit_do_until(node)
         elif isinstance(node, ForNode):
             self._emit_for(node)
+        elif isinstance(node, RangeForNode):
+            raise NotImplementedError(
+                f"Range for (untuk i dari A sampai B) belum didukung di bytecode VM (baris {node.line}). "
+                "Gunakan 'bro run' (transpiler) atau interpreter untuk fitur ini."
+            )
         elif isinstance(node, PrintNode):
             self._emit_print(node)
         elif isinstance(node, BreakNode):
@@ -549,6 +558,51 @@ class Compiler:
 
         self.bytecode.add(Op.JUMP, loop_start, node.line, node.column)
         self.bytecode.instructions[exit_jump_idx].arg = len(self.bytecode.instructions)
+
+    def _emit_do_until(self, node: DoUntilNode):
+        """ulangi ... sampai kondisi -> body dulu, cek kondisi di akhir (v6.5).
+
+        Body dijalankan minimal sekali. Loop berhenti saat kondisi TRUE
+        (POP_JUMP_IF_FALSE kembali ke awal = ulangi selama kondisi FALSE).
+        BREAK dilompatkan ke akhir loop (melewati pengecekan kondisi)
+        supaya tidak berisiko infinite loop saat kondisi masih FALSE.
+        LANJUTKAN dilompatkan ke pengecekan kondisi (bawah body) — karena
+        kondisi do-until dicek SETELAH body, continue tidak boleh balik ke
+        awal body (loop_start) seperti di while.
+        """
+        loop_start = len(self.bytecode.instructions)
+        break_idx = None
+        continue_idxs = []
+
+        for stmt in node.body:
+            self._emit_stmt(stmt)
+            # Check for break/continue markers
+            last = self.bytecode.instructions[-1]
+            if last.op == Op.JUMP and isinstance(last.arg, tuple):
+                if last.arg[0] == "BREAK":
+                    break_idx = len(self.bytecode.instructions) - 1
+                    break
+                elif last.arg[0] == "CONTINUE":
+                    continue_idxs.append(len(self.bytecode.instructions) - 1)
+
+        # LANJUTKAN -> cek kondisi (posisi sebelum evaluasi kondisi)
+        cond_start = len(self.bytecode.instructions)
+        for idx in continue_idxs:
+            cont = self.bytecode.instructions[idx]
+            self.bytecode.instructions[idx] = Instruction(
+                Op.JUMP, cond_start, cont.line, cont.column
+            )
+
+        self._emit_expr(node.condition)
+        self.bytecode.add(Op.POP_JUMP_IF_FALSE, loop_start, node.line, node.column)
+
+        # Patch break jump ke akhir loop (lewat kondisi + pengecekan)
+        if break_idx is not None:
+            loop_end = len(self.bytecode.instructions)
+            brk = self.bytecode.instructions[break_idx]
+            self.bytecode.instructions[break_idx] = Instruction(
+                Op.JUMP, loop_end, brk.line, brk.column
+            )
 
     def _emit_for(self, node: ForNode):
         """Emit for loop."""

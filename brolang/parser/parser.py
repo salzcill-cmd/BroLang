@@ -84,6 +84,8 @@ from brolang.ast.nodes import (
     # V6.0 Nodes
     ObjectPatternNode, BindingPatternNode,
     KelasErrorNode,
+    # V6.5 Nodes
+    DoUntilNode, RangeForNode,
 )
 from brolang.exceptions import ParserError
 from brolang.suggestions import saran_keyword
@@ -206,12 +208,16 @@ class Parser:
 
         if token_type == TokenType.TOKEN_BUAT:
             return self._parse_assignment()
+        elif token_type == TokenType.TOKEN_KONSTANTA:
+            return self._parse_assignment(is_const=True)
         elif token_type == TokenType.TOKEN_TULIS:
             return self._parse_print()
         elif token_type == TokenType.TOKEN_JIKA:
             return self._parse_if()
         elif token_type == TokenType.TOKEN_SELAMA:
             return self._parse_while()
+        elif token_type == TokenType.TOKEN_ULANGI:
+            return self._parse_do_until()
         elif token_type == TokenType.TOKEN_UNTUK:
             # Check for 'untuk setiap' (for-each with index)
             if self._peek(1) == TokenType.TOKEN_IDENTIFIER and self.tokens[self.pos + 1].value == "setiap":
@@ -330,15 +336,21 @@ class Parser:
 
     # ============= Assignment =============
 
-    def _parse_assignment(self) -> AssignmentNode:
-        """buat identifier (. identifier)? = expression"""
-        token = self._advance()  # buat
+    def _parse_assignment(self, is_const: bool = False) -> AssignmentNode:
+        """buat identifier (. identifier)? = expression | konstanta identifier = expression (v6.5)"""
+        token = self._advance()  # buat / konstanta
 
         # Destructuring assignment: buat [a, b] = list atau buat {x, y} = objek
-        if self._check(TokenType.TOKEN_LBRACKET):
-            return self._parse_destructuring_assignment(token, is_array=True)
-        if self._check(TokenType.TOKEN_LBRACE):
-            return self._parse_destructuring_assignment(token, is_array=False)
+        if self._check(TokenType.TOKEN_LBRACKET) or self._check(TokenType.TOKEN_LBRACE):
+            if is_const:
+                raise self._error(
+                    message="'konstanta' tidak mendukung destructuring.",
+                    solution="Deklarasikan satu konstanta per baris, mis. konstanta A = 1.",
+                    example="konstanta A = 1\nkonstanta B = 2",
+                )
+            return self._parse_destructuring_assignment(
+                token, is_array=self._check(TokenType.TOKEN_LBRACKET)
+            )
 
         id_token = self._expect(
             TokenType.TOKEN_IDENTIFIER,
@@ -377,6 +389,7 @@ class Parser:
             value=value,
             is_declaration=True,
             type_annotation=type_annotation,
+            is_const=is_const,
             line=token.line,
             column=token.column,
         )
@@ -632,10 +645,47 @@ class Parser:
 
         return WhileNode(condition=condition, body=body, else_body=else_body, line=token.line, column=token.column)
 
+    # ============= V6.5: Do-Until Loop =============
+
+    def _parse_do_until(self) -> DoUntilNode:
+        """ulangi block sampai expression (v6.5)
+
+        Body dijalankan minimal sekali, lalu kondisi dicek setelah body:
+            ulangi
+                tulis x
+                x = x + 1
+            sampai x >= 10
+        """
+        token = self._advance()  # ulangi
+
+        body = self._parse_block()
+
+        self._expect(
+            TokenType.TOKEN_SAMPAI,
+            message="Setelah blok 'ulangi', harus ada 'sampai' + kondisi.",
+            solution="Tambahkan 'sampai' + kondisi untuk mengakhiri loop.",
+            example="ulangi\n    tulis x\n    x = x + 1\nsampai x >= 10",
+        )
+
+        condition = self._parse_expression()
+
+        return DoUntilNode(
+            body=body,
+            condition=condition,
+            line=token.line,
+            column=token.column,
+        )
+
     # ============= For Loop =============
 
     def _parse_for(self) -> ForNode:
-        """untuk identifier dalam expression lakukan block (lainnya block)? selesai"""
+        """untuk identifier dalam expression lakukan block (lainnya block)? selesai
+
+        v6.5: bentuk range numerik:
+            untuk i dari 1 sampai 10 lakukan ... selesai
+            untuk i dari 1 sampai 10 langkah 2 lakukan ... selesai
+            untuk i dari 10 sampai 1 langkah -1 lakukan ... selesai
+        """
         token = self._advance()  # untuk
         id_token = self._expect(
             TokenType.TOKEN_IDENTIFIER,
@@ -644,6 +694,10 @@ class Parser:
             example="untuk item dalam list lakukan\n    tulis item\nselesai",
         )
         variable = id_token.value
+
+        # v6.5: 'untuk i dari A sampai B (langkah S)?' — range numerik
+        if self._check(TokenType.TOKEN_DARI):
+            return self._parse_range_for(token, variable)
 
         self._expect(
             TokenType.TOKEN_DALAM,
@@ -678,6 +732,58 @@ class Parser:
         return ForNode(
             variable=variable,
             iterable=iterable,
+            body=body,
+            else_body=else_body,
+            line=token.line,
+            column=token.column,
+        )
+
+    def _parse_range_for(self, token: Token, variable: str) -> RangeForNode:
+        """untuk i dari start sampai end (langkah step)? lakukan block (lainnya block)? selesai (v6.5)"""
+        self._advance()  # dari
+        start = self._parse_expression()
+
+        self._expect(
+            TokenType.TOKEN_SAMPAI,
+            message="Setelah 'dari', harus ada 'sampai'.",
+            solution="Gunakan: untuk i dari 1 sampai 10 lakukan ... selesai",
+            example="untuk i dari 1 sampai 10 lakukan\n    tulis i\nselesai",
+        )
+
+        end = self._parse_expression()
+
+        # 'langkah' adalah soft keyword — hanya dikenali di sini supaya nama
+        # variabel/kelas 'langkah' di program lama tetap valid.
+        step = None
+        if self._check(TokenType.TOKEN_IDENTIFIER) and self.current_token.value == "langkah":
+            self._advance()
+            step = self._parse_expression()
+
+        self._expect(
+            TokenType.TOKEN_LAKUKAN,
+            message="Setelah batas range, harus ada 'lakukan'.",
+            solution="Tambahkan 'lakukan' setelah batas range.",
+            example="untuk i dari 1 sampai 10 lakukan\n    tulis i\nselesai",
+        )
+
+        body = self._parse_block()
+
+        else_body = None
+        if self._check(TokenType.TOKEN_LAINNYA):
+            self._advance()  # consume 'lainnya'
+            else_body = self._parse_block()
+
+        self._expect(
+            TokenType.TOKEN_SELESAI,
+            message="Blok 'untuk' harus ditutup dengan 'selesai'.",
+            solution="Tambahkan 'selesai' di akhir blok untuk.",
+        )
+
+        return RangeForNode(
+            variable=variable,
+            start=start,
+            end=end,
+            step=step,
             body=body,
             else_body=else_body,
             line=token.line,

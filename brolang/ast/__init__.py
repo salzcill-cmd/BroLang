@@ -38,6 +38,8 @@ from brolang.ast.nodes import (
     IfNode,
     WhileNode,
     ForNode,
+    DoUntilNode,
+    RangeForNode,
     BreakNode,
     ContinueNode,
     # Functions

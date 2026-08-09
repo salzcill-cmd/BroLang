@@ -29,7 +29,8 @@ from brolang.ast.nodes import (
     ProgramNode, NumberNode, DecimalNode, StringNode,
     BooleanNode, KosongNode, IdentifierNode, VariableNode,
     AssignmentNode, BinaryOpNode, UnaryOpNode,
-    IfNode, WhileNode, ForNode, BreakNode, ContinueNode,
+    IfNode, WhileNode, ForNode, DoUntilNode, RangeForNode,
+    BreakNode, ContinueNode,
     FunctionNode, ReturnNode, CallNode,
     ClassNode, MethodNode, AttributeNode,
     ImportNode, FromImportNode,
@@ -328,6 +329,26 @@ class Optimizer(ASTVisitor):
                        body=body, else_body=else_body,
                        line=node.line, column=node.column)
 
+    def visit_DoUntilNode(self, node: DoUntilNode) -> ASTNode:
+        """Optimasi do-until loop (v6.5)."""
+        body = [self.visit(stmt) for stmt in node.body]
+        condition = self.visit(node.condition)
+        return DoUntilNode(body=body, condition=condition,
+                           line=node.line, column=node.column)
+
+    def visit_RangeForNode(self, node: RangeForNode) -> ASTNode:
+        """Optimasi range for loop (v6.5)."""
+        start = self.visit(node.start)
+        end = self.visit(node.end)
+        step = self.visit(node.step) if node.step else None
+        body = [self.visit(stmt) for stmt in node.body]
+        else_body = None
+        if node.else_body:
+            else_body = [self.visit(stmt) for stmt in node.else_body]
+        return RangeForNode(variable=node.variable, start=start, end=end,
+                            step=step, body=body, else_body=else_body,
+                            line=node.line, column=node.column)
+
     def visit_ProgramNode(self, node: ProgramNode) -> ProgramNode:
         """Optimasi program."""
         statements = []
@@ -343,6 +364,8 @@ class Optimizer(ASTVisitor):
         value = self.visit(node.value) if node.value else None
         return AssignmentNode(target=node.target, value=value if value else node.value,
                               is_declaration=node.is_declaration,
+                              type_annotation=node.type_annotation,
+                              is_const=node.is_const,
                               line=node.line, column=node.column)
 
     def visit_FunctionNode(self, node: FunctionNode) -> FunctionNode:

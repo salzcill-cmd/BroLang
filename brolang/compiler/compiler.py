@@ -18,7 +18,8 @@ from brolang.ast.nodes import (
     ProgramNode, NumberNode, DecimalNode, StringNode,
     BooleanNode, KosongNode, IdentifierNode, VariableNode,
     AssignmentNode, BinaryOpNode, UnaryOpNode,
-    IfNode, WhileNode, ForNode, BreakNode, ContinueNode,
+    IfNode, WhileNode, ForNode, DoUntilNode, RangeForNode,
+    BreakNode, ContinueNode,
     FunctionNode, ReturnNode, CallNode,
     ClassNode, MethodNode, AttributeNode,
     ImportNode, FromImportNode,
@@ -213,9 +214,47 @@ class PythonCodeGenerator(ASTVisitor):
             self.visit(stmt)
         self.indent_level -= 1
 
+    def visit_DoUntilNode(self, node: DoUntilNode) -> None:
+        """ulangi ... sampai kondisi -> while True + break (v6.5)."""
+        self._emit("while True:")
+        self.indent_level += 1
+        for stmt in node.body:
+            self.visit(stmt)
+        cond = self._expr(node.condition)
+        self._emit(f"if {cond}:")
+        self.indent_level += 1
+        self._emit("break")
+        self.indent_level -= 1
+        self.indent_level -= 1
+
     def visit_ForNode(self, node: ForNode) -> None:
         iterable = self._expr(node.iterable)
         self._emit(f"for {node.variable} in {iterable}:")
+        self.indent_level += 1
+        for stmt in node.body:
+            self.visit(stmt)
+        self.indent_level -= 1
+
+    def visit_RangeForNode(self, node: RangeForNode) -> None:
+        """untuk i dari A sampai B langkah S (v6.5).
+
+        Ekspresi start/end/step dievaluasi sekali lewat temp agar konsisten
+        dengan interpreter dan transpiler (hindari evaluasi ganda).
+        """
+        s = self._new_temp()
+        e = self._new_temp()
+        self._emit(f"{s} = {self._expr(node.start)}")
+        self._emit(f"{e} = {self._expr(node.end)}")
+        if node.step:
+            k = self._new_temp()
+            self._emit(f"{k} = {self._expr(node.step)}")
+            self._emit(f"if {k} == 0:")
+            self.indent_level += 1
+            self._emit("raise ValueError('Langkah range tidak boleh nol')")
+            self.indent_level -= 1
+            self._emit(f"for {node.variable} in range({s}, {e} + (1 if {k} > 0 else -1), {k}):")
+        else:
+            self._emit(f"for {node.variable} in range({s}, {e} + (1 if {s} <= {e} else -1), (1 if {s} <= {e} else -1)):")
         self.indent_level += 1
         for stmt in node.body:
             self.visit(stmt)

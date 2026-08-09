@@ -14,7 +14,7 @@ Fitur:
 - Standard library integration
 """
 
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional, Callable, Set
 from dataclasses import dataclass, field
 import os
 from brolang.ast.nodes import (
@@ -34,6 +34,8 @@ from brolang.ast.nodes import (
     IfNode,
     WhileNode,
     ForNode,
+    DoUntilNode,
+    RangeForNode,
     BreakNode,
     ContinueNode,
     FunctionNode,
@@ -153,9 +155,12 @@ class Environment:
     should_return: bool = False
     should_break: bool = False
     should_continue: bool = False
+    constants: Set[str] = field(default_factory=set)  # v6.5: nama variabel immutable
 
-    def define_variable(self, name: str, value: Any) -> None:
+    def define_variable(self, name: str, value: Any, is_const: bool = False) -> None:
         self.variables[name] = value
+        if is_const:
+            self.constants.add(name)
 
     def get_variable(self, name: str) -> Any:
         if name in self.variables:
@@ -169,12 +174,21 @@ class Environment:
             solution=f"Pastikan '{name}' sudah dideklarasikan dengan 'buat'.",
         )
 
-    def set_variable(self, name: str, value: Any) -> None:
+    def set_variable(self, name: str, value: Any, line: int = 0, column: int = 0) -> None:
         if name in self.variables:
+            # v6.5: konstanta tidak bisa diubah setelah deklarasi
+            if name in self.constants:
+                raise RuntimeError_(
+                    message=f"Konstanta '{name}' tidak bisa diubah.",
+                    line=line,
+                    column=column,
+                    solution=f"Hapus assignment ke '{name}' atau ubah deklarasi menjadi 'buat {name} = ...'.",
+                    example=f"konstanta {name} = 10\n{name} = 20  # error!",
+                )
             self.variables[name] = value
             return
         if self.parent is not None:
-            self.parent.set_variable(name, value)
+            self.parent.set_variable(name, value, line, column)
             return
         raise NameError_(
             message=f"Variabel '{name}' tidak ditemukan.",
@@ -390,8 +404,12 @@ class BroLangGenerator:
             cls = stmt.__class__.__name__
             if cls == "ForNode":
                 self._collect_for(stmt)
+            elif cls == "RangeForNode":
+                self._collect_range_for(stmt)
             elif cls == "WhileNode":
                 self._collect_while(stmt)
+            elif cls == "DoUntilNode":
+                self._collect_do_until(stmt)
             elif cls == "YieldFromNode":
                 self._collect_yield_from(stmt)
             else:
@@ -401,6 +419,39 @@ class BroLangGenerator:
                     self._values.append(e.value)
                 if self._interpreter.current_env.should_return:
                     return
+
+    def _collect_range_for(self, node):
+        """Eksekusi range-for item per item supaya yield bisa ditangkap (v6.5)."""
+        start = self._interpreter.visit(node.start)
+        end = self._interpreter.visit(node.end)
+        if node.step is not None:
+            step = self._interpreter.visit(node.step)
+            if step == 0:
+                return
+        else:
+            step = 1 if start <= end else -1
+        for item in range(start, end + step, step):
+            self._interpreter._push_env()
+            self._interpreter.current_env.define_variable(node.variable, item)
+            try:
+                self._collect_stmts(node.body)
+            finally:
+                self._interpreter._pop_env()
+            if self._interpreter.current_env.should_return:
+                return
+
+    def _collect_do_until(self, node):
+        """Eksekusi do-until item per item supaya yield bisa ditangkap (v6.5)."""
+        while True:
+            self._interpreter._push_env()
+            try:
+                self._collect_stmts(node.body)
+            finally:
+                self._interpreter._pop_env()
+            if self._interpreter.current_env.should_return:
+                return
+            if self._interpreter.visit(node.condition):
+                break
 
     def _collect_for(self, node):
         """Eksekusi for-loop item per item supaya yield bisa ditangkap."""
@@ -826,9 +877,10 @@ class Interpreter(ASTVisitor):
         if isinstance(node.target, IdentifierNode):
             name = node.target.name
             if node.is_declaration:
-                self.current_env.define_variable(name, value)
+                # v6.5: `konstanta x = 5` — variabel immutable
+                self.current_env.define_variable(name, value, is_const=node.is_const)
             else:
-                self.current_env.set_variable(name, value)
+                self.current_env.set_variable(name, value, line=node.line, column=node.column)
             return value
         elif isinstance(node.target, IndexNode):
             # Array assignment: list[index] = value
@@ -1100,6 +1152,82 @@ class Interpreter(ASTVisitor):
                 continue
 
         # Execute else clause if loop completed normally (not via break)
+        if not broke and node.else_body:
+            self._push_env()
+            for stmt in node.else_body:
+                self.visit(stmt)
+            self._pop_env()
+
+    def visit_DoUntilNode(self, node: DoUntilNode) -> None:
+        """Do-until loop (v6.5): ulangi ... sampai kondisi.
+
+        Body dijalankan minimal sekali, lalu kondisi dicek setelah body.
+        Loop berhenti saat kondisi bernilai benar (true).
+        """
+        while True:
+            try:
+                self._push_env()
+                for stmt in node.body:
+                    self.visit(stmt)
+                    if self.current_env.should_return:
+                        self._pop_env()
+                        return
+                self._pop_env()
+            except BreakException:
+                self._pop_env()
+                break
+            except ContinueException:
+                self._pop_env()
+                continue
+
+            condition = self.visit(node.condition)
+            if condition:
+                break
+
+    def visit_RangeForNode(self, node: RangeForNode) -> None:
+        """Range for loop (v6.5): untuk i dari 1 sampai 10 langkah 2.
+
+        Iterasi angka inklusif dari start sampai end. Langkah default
+        otomatis 1 (atau -1 jika start > end).
+        """
+        start = self.visit(node.start)
+        end = self.visit(node.end)
+
+        if node.step is not None:
+            step = self.visit(node.step)
+            if step == 0:
+                raise RuntimeError_(
+                    message="Langkah range tidak boleh nol.",
+                    line=node.line,
+                    column=node.column,
+                    solution="Gunakan langkah selain 0, misal 'langkah 1' atau 'langkah -1'.",
+                )
+        else:
+            step = 1 if start <= end else -1
+
+        # Inklusif: batas atas end + 1 (step positif) atau end - 1 (step negatif)
+        items = list(range(start, end + (1 if step > 0 else -1), step))
+
+        broke = False
+        for item in items:
+            self._push_env()
+            self.current_env.define_variable(node.variable, item)
+
+            try:
+                for stmt in node.body:
+                    self.visit(stmt)
+                    if self.current_env.should_return:
+                        self._pop_env()
+                        return
+                self._pop_env()
+            except BreakException:
+                self._pop_env()
+                broke = True
+                break
+            except ContinueException:
+                self._pop_env()
+                continue
+
         if not broke and node.else_body:
             self._push_env()
             for stmt in node.else_body:
@@ -2193,7 +2321,7 @@ class Interpreter(ASTVisitor):
     # ============= V3: Augmented Assignment =============
 
     def visit_AugmentedAssignmentNode(self, node: AugmentedAssignmentNode) -> Any:
-        """Augmented assignment: x += 1, x -= 2, dll."""
+        """Augmented assignment: x += 1, x -= 2, dll. (v6.5: konstanta ditolak)"""
         if not isinstance(node.target, IdentifierNode):
             raise RuntimeError_(
                 message="Target augmented assignment harus berupa variabel.",
@@ -2202,6 +2330,19 @@ class Interpreter(ASTVisitor):
             )
 
         name = node.target.name
+        # v6.5: konstanta tidak bisa diubah lewat augmented assignment
+        env = self.current_env
+        while env is not None:
+            if name in env.variables:
+                if name in env.constants:
+                    raise RuntimeError_(
+                        message=f"Konstanta '{name}' tidak bisa diubah.",
+                        line=node.line,
+                        column=node.column,
+                        solution=f"Hapus assignment ke '{name}' atau ubah deklarasi menjadi 'buat {name} = ...'.",
+                    )
+                break
+            env = env.parent
         current = self.current_env.get_variable(name)
         right = self.visit(node.value)
 

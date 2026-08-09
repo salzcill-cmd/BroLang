@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-6.4-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-6.5-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v6.4</h1>
+<h1 align="center">BroLang v6.5</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,9 +13,9 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/704-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
-  <img src="https://img.shields.io/badge/110+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
-  <img src="https://img.shields.io/badge/130+Token%20Types-purple?style=flat-square" alt="tokens"/>
+  <img src="https://img.shields.io/badge/747-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/115+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
+  <img src="https://img.shields.io/badge/135+Token%20Types-purple?style=flat-square" alt="tokens"/>
   <img src="https://img.shields.io/badge/43+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
 </p>
 
@@ -45,10 +45,50 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 6.3.0
+bro --version    # BroLang 6.5.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v6.5?
+
+### Fitur Bahasa Baru 🧩
+
+**`konstanta`** — variabel immutable, nilai tidak bisa diubah setelah deklarasi:
+
+```bro
+konstanta PI = 3.14
+konstanta NAMA = "BroLang"
+
+PI = 3.15   # error: Konstanta 'PI' tidak bisa diubah
+```
+
+**`ulangi ... sampai`** — do-until loop, body jalan minimal satu kali:
+
+```bro
+buat tebakan = 0
+ulangi
+    tebakan = tebakan + 1
+    tulis "Percobaan ke-" + teks(tebakan)
+sampai tebakan >= 3
+```
+
+**`untuk i dari A sampai B`** — range for loop (inklusif, bisa `langkah`):
+
+```bro
+untuk i dari 1 sampai 10 lakukan
+    tulis i
+selesai
+
+untuk i dari 10 sampai 2 langkah -2 lakukan
+    tulis i
+selesai
+```
+
+Semua fitur berjalan konsisten di interpreter, transpiler (`bro run`),
+dan compiler (`bro build`). Detail: `docs/FITUR_V65.md`.
 
 ---
 
@@ -973,6 +1013,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | [Dasar Bahasa](docs/DASAR.md) | Tipe data, variabel, operator |
 | [Fungsi](docs/FUNGSI.md) | Fungsi, lambda, closures |
 | [Class & OOP](docs/OOP.md) | OOP & inheritance |
+| [Fitur v6.5](docs/FITUR_V65.md) | Konstanta, do-until loop, range for loop |
 | [Fitur v6.0](docs/FITUR_V60.md) | Type system, pattern matching modern, kelas_error, stdlib baru, package registry online |
 | [Fitur v5.0](docs/FITUR.md) | Semua fitur lengkap |
 | [Game Development](docs/GAME.md) | Bikin game pake BroLang |

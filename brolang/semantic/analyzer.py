@@ -22,7 +22,8 @@ from brolang.ast.nodes import (
     ProgramNode, NumberNode, DecimalNode, StringNode,
     BooleanNode, KosongNode, IdentifierNode, VariableNode,
     AssignmentNode, BinaryOpNode, UnaryOpNode,
-    IfNode, WhileNode, ForNode, BreakNode, ContinueNode,
+    IfNode, WhileNode, ForNode, DoUntilNode, RangeForNode,
+    BreakNode, ContinueNode,
     FunctionNode, ReturnNode, CallNode,
     ClassNode, MethodNode, AttributeNode,
     ImportNode, FromImportNode,
@@ -55,6 +56,7 @@ class SymbolInfo:
     line: int = 0
     column: int = 0
     is_initialized: bool = False
+    is_const: bool = False  # v6.5: 'konstanta x = 5'
 
 
 class SymbolTable:
@@ -70,7 +72,8 @@ class SymbolTable:
         self.scope_name: str = scope_name
 
     def define(self, name: str, kind: str, line: int = 0, column: int = 0,
-               type_hint: Optional[str] = None, is_initialized: bool = False) -> None:
+               type_hint: Optional[str] = None, is_initialized: bool = False,
+               is_const: bool = False) -> None:
         """Mendefinisikan symbol baru dalam scope ini."""
         if name in self.symbols:
             existing = self.symbols[name]
@@ -88,6 +91,7 @@ class SymbolTable:
             line=line,
             column=column,
             is_initialized=is_initialized,
+            is_const=is_const,
         )
 
     def lookup(self, name: str) -> Optional[SymbolInfo]:
@@ -310,6 +314,7 @@ class SemanticAnalyzer(ASTVisitor):
                         column=node.column,
                         solution=f"Ubah nilai menjadi {node.type_annotation} atau ubah anotasi tipe.",
                     )
+                # v6.5: `konstanta x = 5` — tandai sebagai immutable
                 self.current_scope.define(
                     name=name,
                     kind="variable",
@@ -317,6 +322,7 @@ class SemanticAnalyzer(ASTVisitor):
                     column=node.column,
                     type_hint=value_type,
                     is_initialized=True,
+                    is_const=node.is_const,
                 )
             else:
                 # Assignment to existing variable
@@ -327,6 +333,15 @@ class SemanticAnalyzer(ASTVisitor):
                         line=node.line,
                         column=node.column,
                         solution=f"Deklarasikan '{name}' dengan 'buat {name} = ...' terlebih dahulu.",
+                    )
+                # v6.5: konstanta tidak bisa diubah
+                if info.is_const:
+                    raise self._error(
+                        message=f"Konstanta '{name}' tidak bisa diubah.",
+                        line=node.line,
+                        column=node.column,
+                        solution=f"Hapus assignment ke '{name}' atau ubah deklarasi menjadi 'buat {name} = ...'.",
+                        example=f"konstanta {name} = 10\n{name} = 20  # error!",
                     )
                 if node.value:
                     self.visit(node.value)
@@ -473,6 +488,40 @@ class SemanticAnalyzer(ASTVisitor):
         )
         for stmt in node.body:
             self.visit(stmt)
+        self._exit_scope()
+        self._loop_depth -= 1
+
+    def visit_DoUntilNode(self, node: DoUntilNode) -> None:
+        """Memeriksa do-until loop (v6.5): ulangi ... sampai kondisi."""
+        self._loop_depth += 1
+        self._enter_scope("do_until")
+        for stmt in node.body:
+            self.visit(stmt)
+        self._exit_scope()
+        self.visit(node.condition)
+        self._loop_depth -= 1
+
+    def visit_RangeForNode(self, node: RangeForNode) -> None:
+        """Memeriksa range for loop (v6.5): untuk i dari 1 sampai 10."""
+        self.visit(node.start)
+        self.visit(node.end)
+        if node.step:
+            self.visit(node.step)
+
+        self._loop_depth += 1
+        self._enter_scope("range_for")
+        self.current_scope.define(
+            name=node.variable,
+            kind="variable",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+        for stmt in node.body:
+            self.visit(stmt)
+        if node.else_body:
+            for stmt in node.else_body:
+                self.visit(stmt)
         self._exit_scope()
         self._loop_depth -= 1
 
@@ -1073,7 +1122,7 @@ class SemanticAnalyzer(ASTVisitor):
     # ============= V3: Augmented Assignment =============
 
     def visit_AugmentedAssignmentNode(self, node: AugmentedAssignmentNode) -> None:
-        """Memeriksa augmented assignment: x += 1, x -= 2, dll."""
+        """Memeriksa augmented assignment: x += 1, x -= 2, dll. (v6.5: konstanta ditolak)"""
         if isinstance(node.target, IdentifierNode):
             name = node.target.name
             info = self.current_scope.lookup(name)
@@ -1083,6 +1132,13 @@ class SemanticAnalyzer(ASTVisitor):
                     line=node.line,
                     column=node.column,
                     solution=f"Deklarasikan '{name}' dengan 'buat {name} = ...' terlebih dahulu.",
+                )
+            if info.is_const:
+                raise self._error(
+                    message=f"Konstanta '{name}' tidak bisa diubah.",
+                    line=node.line,
+                    column=node.column,
+                    solution=f"Hapus assignment ke '{name}' atau ubah deklarasi menjadi 'buat {name} = ...'.",
                 )
         self.visit(node.value)
 

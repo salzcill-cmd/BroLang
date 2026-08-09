@@ -732,6 +732,24 @@ selesai
 
 # Ternary
 buat status = "Dewasa" jika umur > 18 lainnya "Anak"
+
+# v6.5: Konstanta (immutable)
+konstanta PI = 3.14        # tidak bisa diubah setelah ini
+
+# v6.5: do-until loop (body jalan minimal sekali)
+ulangi
+    tulis x
+    x = x + 1
+sampai x >= 10
+
+# v6.5: range for loop (inklusif, bisa pakai langkah)
+untuk i dari 1 sampai 10 lakukan
+    tulis i
+selesai
+
+untuk i dari 10 sampai 1 langkah -2 lakukan
+    tulis i
+selesai
 """)
 
 
@@ -783,6 +801,13 @@ x *= 2                      # x = 24
 jika (x := panjang()) > 10 maka
     tulis "Panjang:" + teks(x)
 selesai
+
+# v6.5: Konstanta (immutable) — reassignment memunculkan error
+konstanta NAMA = "BroLang"
+konstanta PI: Desimal = 3.14
+
+# v6.5: Destructuring objek tetap tersedia
+buat {x, y} = {"x": 10, "y": 20}
 """)
 
 

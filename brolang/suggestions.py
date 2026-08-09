@@ -18,7 +18,7 @@ BAHASA_INGGRIS: dict = {
     # Variabel
     "let": "buat",
     "var": "buat",
-    "const": "buat",
+    "const": "konstanta",
     "val": "buat",
     # Percabangan
     "if": "jika",
@@ -29,8 +29,11 @@ BAHASA_INGGRIS: dict = {
     # Perulangan
     "for": "untuk",
     "while": "selama",
-    "do": "lakukan",
+    "do": "ulangi",
+    "do-while": "ulangi ... sampai",
+    "until": "sampai",
     "in": "dalam",
+    "range": "dari ... sampai",
     "break": "hentikan",
     "continue": "lanjutkan",
     # Fungsi

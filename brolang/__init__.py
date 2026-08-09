@@ -11,6 +11,11 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v6.5 (Fitur Bahasa):
+- Konstanta: variabel immutable `konstanta PI = 3.14`
+- Do-until loop: `ulangi ... sampai kondisi` (body jalan minimal sekali)
+- Range for loop: `untuk i dari 1 sampai 10 langkah 2` (inklusif)
+
 Fitur v6.2 (Game Dev Upgrade):
 - Scene lifecycle: on_masuk/on_keluar + transisi fade antar scene
 - Tumpukan scene (overlay): dorong_scene/pop_scene untuk menu pause
@@ -53,7 +58,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "6.4.0"
+__version__ = "6.5.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

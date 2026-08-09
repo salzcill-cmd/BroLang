@@ -223,6 +223,15 @@ class TokenType(Enum):
     # v6.0 Keywords — Custom Error Classes
     TOKEN_KELAS_ERROR = auto() # kelas_error (custom error class)
 
+    # v6.5 Keywords — Fitur Bahasa
+    TOKEN_KONSTANTA = auto()   # konstanta (immutable variable)
+    TOKEN_ULANGI = auto()      # ulangi (do-until loop)
+    TOKEN_SAMPAI = auto()      # sampai (range for / do-until condition)
+    # CATATAN: 'langkah' (range for step) sengaja BUKAN keyword agar nama
+    # variabel/kelas 'langkah' (dipakai program lama, mis. test v5) tetap
+    # valid — parser mengenalinya sebagai soft keyword dalam konteks
+    # 'untuk i dari A sampai B langkah S'.
+
     # Special
     TOKEN_EOF = auto()
 
@@ -316,6 +325,11 @@ KEYWORDS: dict[str, TokenType] = {
     "kelas_method": TokenType.TOKEN_KELASMETHOD,
     # v6.0 keywords — Custom Error Classes
     "kelas_error": TokenType.TOKEN_KELAS_ERROR,
+    # v6.5 keywords — Fitur Bahasa
+    "konstanta": TokenType.TOKEN_KONSTANTA,
+    "ulangi": TokenType.TOKEN_ULANGI,
+    "sampai": TokenType.TOKEN_SAMPAI,
+    # 'langkah' sengaja tidak di sini — soft keyword (lihat komentar di atas).
 }
 
 

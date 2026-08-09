@@ -83,6 +83,7 @@ class Transpiler:
         self._lines: List[str] = []
         self._in_class = False
         self._modules: set = set()  # nama identifier yang merupakan modul (impor)
+        self._tmp_counter = 0  # v6.5: nama temp unik untuk range-for
 
     def transpile(self, node: ASTNode) -> str:
         """Transpile AST root → Python source code string."""
@@ -118,8 +119,12 @@ class Transpiler:
             self._emit_if(node)
         elif isinstance(node, WhileNode):
             self._emit_while(node)
+        elif isinstance(node, DoUntilNode):
+            self._emit_do_until(node)
         elif isinstance(node, ForNode):
             self._emit_for(node)
+        elif isinstance(node, RangeForNode):
+            self._emit_range_for(node)
         elif isinstance(node, ForEachNode):
             self._emit_for_each(node)
         elif isinstance(node, ReturnNode):
@@ -344,6 +349,59 @@ class Transpiler:
     def _emit_while(self, node: WhileNode):
         cond = self._emit_expr(node.condition)
         self._line(f'while {cond}:')
+        self._indent += 1
+        if not node.body:
+            self._line('pass')
+        else:
+            for stmt in node.body:
+                self._emit_stmt(stmt)
+        self._indent -= 1
+        if node.else_body:
+            self._line('else:')
+            self._indent += 1
+            for stmt in node.else_body:
+                self._emit_stmt(stmt)
+            self._indent -= 1
+
+    def _emit_do_until(self, node: DoUntilNode):
+        """ulangi ... sampai kondisi -> while True: body; if kond: break (v6.5)"""
+        self._line('while True:')
+        self._indent += 1
+        if not node.body:
+            self._line('pass')
+        else:
+            for stmt in node.body:
+                self._emit_stmt(stmt)
+        cond = self._emit_expr(node.condition)
+        self._line(f'if {cond}:')
+        self._indent += 1
+        self._line('break')
+        self._indent -= 1
+        self._indent -= 1
+
+    def _emit_range_for(self, node: RangeForNode):
+        """untuk i dari A sampai B langkah S -> range inklusif Python (v6.5)
+
+        `sampai` inklusif: nilai akhir ikut termasuk. Langkah default
+        otomatis 1 (start <= end) atau -1 (start > end). Ekspresi start/end/
+        step dievaluasi sekali lewat temp agar konsisten dengan interpreter.
+        """
+        self._tmp_counter += 1
+        n = self._tmp_counter
+        s, e, k = f'_bro_range_s{n}', f'_bro_range_e{n}', f'_bro_range_k{n}'
+        start = self._emit_expr(node.start)
+        end = self._emit_expr(node.end)
+        if node.step is not None:
+            self._line(f'{s} = {start}')
+            self._line(f'{e} = {end}')
+            self._line(f'{k} = {self._emit_expr(node.step)}')
+            self._line(f'if {k} == 0: raise ValueError("Langkah range tidak boleh nol")')
+            self._line(f'for {node.variable} in range({s}, {e} + (1 if {k} > 0 else -1), {k}):')
+        else:
+            self._line(f'{s} = {start}')
+            self._line(f'{e} = {end}')
+            self._line(f'{k} = 1 if {s} <= {e} else -1')
+            self._line(f'for {node.variable} in range({s}, {e} + (1 if {k} > 0 else -1), {k}):')
         self._indent += 1
         if not node.body:
             self._line('pass')

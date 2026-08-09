@@ -45,6 +45,7 @@ _EXPRESI_NODE = (
 _PEMBUKA_BLOK = (
     "fungsi", "kelas", "kelas_error", "coba",
     "ruang", "makro", "asinkron", "dengan",
+    "ulangi",  # v6.5: do-until loop (ditutup oleh 'sampai')
 )
 
 
@@ -81,6 +82,9 @@ def delta_kedalaman(baris: str) -> int:
         d += 1
     if kata[-1] in ("maka", "lakukan"):
         d += 1
+    # v6.5: 'sampai kondisi' menutup blok 'ulangi' (do-until)
+    if kata[0] == "sampai":
+        d -= 1
     # Blok kurung kurawal: baris berakhir '{' membuka, baris diawali '}' menutup
     if s.rstrip().endswith("{"):
         d += 1

@@ -188,6 +188,7 @@ class BroLangLSP:
 
     _DECL_KEYWORDS = {
         "buat": "Variable",
+        "konstanta": "Variable",  # v6.5
         "fungsi": "Function",
         "kelas": "Class",
         "konstanta": "Constant",

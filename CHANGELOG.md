@@ -4,6 +4,51 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [6.5.0] - 2026-08-09
+
+### Added
+- **`konstanta` — variabel immutable**: nilai tidak bisa diubah setelah
+  deklarasi. Reassignment (`PI = 3`) dan augmented assignment (`PI += 1`)
+  ditolak dengan error ramah. Mendukung anotasi tipe
+  (`konstanta umur: Angka = 25`) dan scope fungsi. Penegakan **dua lapis**
+  (konsisten dengan type system v6.0): SemanticAnalyzer menolak statis
+  (jadi `bro run` ikut menolak) + Interpreter menolak runtime.
+- **`ulangi ... sampai` — do-until loop**: body dijalankan **minimal satu
+  kali**, lalu kondisi dicek di akhir. Berhenti saat kondisi `benar`.
+  Mendukung `hentikan`/`lanjutkan`, loop bersarang, dan generator.
+  Konversi transpiler: `while True: body; if kond: break`.
+- **`untuk i dari A sampai B` — range-based for loop** (inklusif):
+  - `untuk i dari 1 sampai 10 lakukan ... selesai` → 1..10
+  - `untuk i dari 3 sampai 1` → turun otomatis (3, 2, 1)
+  - `untuk i dari 0 sampai 20 langkah 5` → 0, 5, 10, 15, 20
+  - `untuk i dari 10 sampai 2 langkah -2` → 10, 8, 6, 4, 2
+  - Else clause (`lainnya`) saat loop selesai normal, batas boleh ekspresi
+  - `langkah 0` → error ramah; ekspresi start/end/step dievaluasi sekali
+- **REPL**: blok `ulangi ... sampai` kini dikenali (multi-line) dengan
+  `sampai kondisi` menutup blok.
+- **LSP**: `konstanta` didukung go-to-definition / symbol declaration.
+- **Saran pemula**: `const` → `konstanta`, `do` → `ulangi`,
+  `until` → `sampai`, `range` → `dari ... sampai`.
+- **Contoh baru**: `examples/fitur_bahasa.bro` dan docs `docs/FITUR_V65.md`
+  (semua contoh tervalidasi lewat `bro run`).
+- **`bro doc dasar` & `bro doc variabel`**: contoh konstanta, do-until,
+  dan range for.
+
+### Fixed
+- **Bug dokumentasi**: `untuk i dari 1 sampai 100` (disebut di `bro doc`
+  sejak v6.4) ternyata **belum pernah diimplementasikan** — keyword
+  `sampai`/`langkah` tidak ada di lexer. Kini berfungsi penuh.
+- **Optimizer**: `visit_AssignmentNode` kini mempertahankan `type_annotation`
+  dan `is_const` (sebelumnya keduanya hilang setelah optimasi).
+
+### Changed
+- Versi di-bump dari `6.4.0` ke `6.5.0`.
+- `langkah` sengaja menjadi **soft keyword** — hanya dikenali dalam konteks
+  `untuk i dari A sampai B langkah S` — supaya program lama yang memakai
+  `langkah` sebagai nama variabel/kelas tetap valid.
+- 43 test baru (konstanta, do-until, range for, konsistensi
+  interpreter↔transpiler, CLI) — total **747 test passing**.
+
 ## [6.4.0] - 2026-08-08
 
 ### Added
