@@ -323,6 +323,62 @@ class TestFisikaAABB:
         assert w.bodi_di_posisi(100, 100) is pr
         assert w.bodi_di_posisi(130, 100) is None
 
+    def test_lantai_statis_massa_nol(self):
+        """Regresi: resolve collision dengan bodi statis (massa 0) — pemain
+        harus berhenti di lantai, grounded, dan tidak menembus selamanya.
+        Sebelumnya pemain jatuh tembus ("amburadul" di game_v66)."""
+        fisika = _mod("fisika")
+        w = fisika.buat_dunia(gravitasi_y=900)
+        lantai = fisika.buat_bodi(400, 560, massa=0).set_persegi(960, 40)
+        pemain = fisika.buat_bodi(400, 100, massa=1).set_persegi(30, 40)
+        w.tambah_bodi(lantai)
+        w.tambah_bodi(pemain)
+        for _ in range(600):
+            w.update(1 / 60)
+            w.resolve_collision(pemain, lantai)
+        assert pemain.grounded
+        assert 519 <= pemain.posisi.y <= 541
+        assert abs(pemain.kecepatan.y) < 0.01
+        # Lantai statis tidak boleh ikut bergeser
+        assert lantai.posisi.y == 560.0
+
+    def test_lantai_statis_lingkaran(self):
+        """Regresi: bola (lingkaran) vs lantai statis juga harus berhenti."""
+        fisika = _mod("fisika")
+        w = fisika.buat_dunia(gravitasi_y=900)
+        lantai = fisika.buat_bodi(400, 560, massa=0).set_persegi(960, 40)
+        bola = fisika.buat_bodi(400, 100, radius=15)
+        w.tambah_bodi(lantai)
+        w.tambah_bodi(bola)
+        for _ in range(600):
+            w.update(1 / 60)
+            w.resolve_collision(bola, lantai)
+        assert 520 <= bola.posisi.y <= 526
+        assert bola.grounded
+        assert lantai.posisi.y == 560.0
+
+    def test_lompat_lalu_mendarat(self):
+        fisika = _mod("fisika")
+        w = fisika.buat_dunia(gravitasi_y=900)
+        lantai = fisika.buat_bodi(400, 560, massa=0).set_persegi(960, 40)
+        pemain = fisika.buat_bodi(400, 100, massa=1).set_persegi(30, 40)
+        w.tambah_bodi(lantai)
+        w.tambah_bodi(pemain)
+        for _ in range(100):
+            w.update(1 / 60)
+            w.resolve_collision(pemain, lantai)
+        assert pemain.grounded
+        pemain.apply_impulse(0, -1500)
+        terbang = False
+        for _ in range(600):
+            w.update(1 / 60)
+            w.resolve_collision(pemain, lantai)
+            if not pemain.grounded:
+                terbang = True
+        assert terbang
+        assert pemain.grounded
+        assert abs(pemain.kecepatan.y) < 0.01
+
 
 # ============================================================
 # 4. partikel — gradien & emiter bantu

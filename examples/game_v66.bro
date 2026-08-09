@@ -38,6 +38,9 @@ pemain.warna = "langit"
 buat bodi_pemain = fisika.buat_bodi(100, 100, massa=1).set_persegi(30, 40)
 bodi_pemain.gesekan = 0.85
 dunia.tambah_bodi(bodi_pemain)
+# Lantai fisika statis (massa 0) — pemain tidak jatuh tembus tilemap
+buat lantai_fisika = fisika.buat_bodi(lebar_layar / 2, 560, massa=0).set_persegi(lebar_layar + 80, 40)
+dunia.tambah_bodi(lantai_fisika)
 
 # Patroli musuh: sprite ikut bergerak antar waypoint (bolak-balik)
 buat musuh = sprite.Sprite(kosong, 400, 300, lebar=36, tinggi=36)
@@ -107,26 +110,24 @@ buat rute = jalur.cari_jalur(peta_tile, (2, 12), (18, 12))
 buat pengikut = jalur.IkutiJalur([], kecepatan=200)
 
 # ===== Fixed timestep fisika =====
+# Catatan performa: update_fisika dipanggil 60x/detik, jadi hanya logika
+# fisika murni. Update tilemap/partikel (mahal) ditaruh di update_utama
+# yang dipanggil sekali per frame.
 fungsi update_fisika(fdt)
     bodi_pemain.tambah_gaya(0, 0)   # gravitasi dunia otomatis
     dunia.update(fdt)
+    # Tabrakan pemain vs lantai statis + batas layar
+    dunia.resolve_collision(bodi_pemain, lantai_fisika)
+    dunia.check_bounds(bodi_pemain, lebar_layar, tinggi_layar, bounce=salah)
     # Pemain mengikuti bodi fisik
     pemain.x = bodi_pemain.posisi.x - pemain.lebar / 2
     pemain.y = bodi_pemain.posisi.y - pemain.tinggi
     # Musuh sprite mengikuti patroli; bodi mengikuti sprite
     musuh.update(fdt)
     bodi_musuh.set_posisi(musuh.x + 18, musuh.y + 18)
-    # Tilemap animasi + emiter mengikuti pemain
-    peta_tile.update(fdt)
-    api.x = pemain.x + 17
-    api.y = pemain.y + 44
-    asap.x = musuh.x + 18
-    asap.y = musuh.y + 18
-    api.update(fdt)
-    asap.update(fdt)
 selesai
 
-game.atur_fisika(update_fisika, timestep=1/120)
+game.atur_fisika(update_fisika, timestep=1/60)
 
 # ===== Update per frame =====
 fungsi update_utama(dt)
@@ -181,7 +182,14 @@ fungsi update_utama(dt)
         tulis "Screenshot disimpan!"
     selesai
 
-    # Update efek
+    # Update efek (sekali per frame, bukan per langkah fisika)
+    peta_tile.update(dt)
+    api.x = pemain.x + 17
+    api.y = pemain.y + 44
+    asap.x = musuh.x + 18
+    asap.y = musuh.y + 18
+    api.update(dt)
+    asap.update(dt)
     kilat.update(dt)
     teks_damage.update(dt)
     pulsa_klik.update(dt)

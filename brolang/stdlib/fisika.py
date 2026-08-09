@@ -242,34 +242,59 @@ class FisikaWorld:
             x3, y3, x4, y4 = bodi2._rect()
             overlap_x = min(x2, x4) - max(x1, x3)
             overlap_y = min(y2, y4) - max(y1, y3)
-            total_massa = bodi1.massa + bodi2.massa
+            # Bodi massa 0 = statis (tidak terdorong). Yang lain didorong penuh.
+            m1 = bodi1.massa
+            m2 = bodi2.massa
+            total_massa = m1 + m2
             if total_massa <= 0:
                 return
+            # Bobot dorongan: statis (m=0) tidak bergerak, dinamis bergerak penuh
+            if m2 == 0:
+                w1, w2 = 1.0, 0.0
+            elif m1 == 0:
+                w1, w2 = 0.0, 1.0
+            else:
+                w1 = m2 / total_massa
+                w2 = m1 / total_massa
             if overlap_x < overlap_y:
                 arah = 1.0 if bodi1.posisi.x < bodi2.posisi.x else -1.0
                 dorong = overlap_x
-                bodi1.posisi.x -= arah * dorong * (bodi2.massa / total_massa)
-                bodi2.posisi.x += arah * dorong * (bodi1.massa / total_massa)
-                # Impulse di sumbu x
+                bodi1.posisi.x -= arah * dorong * w1
+                bodi2.posisi.x += arah * dorong * w2
+                # Impulse sumbu x: hanya jika relatif bergerak mendekat
+                # (arah * dv >= 0). Bodi statis (m=0) dihentikan dinamisnya.
                 dvx = bodi1.kecepatan.x - bodi2.kecepatan.x
-                if arah * dvx < 0:
+                if arah * dvx >= 0:
                     e = min(bodi1.elastisitas, bodi2.elastisitas)
-                    j = -(1 + e) * dvx * arah
-                    j /= 1 / bodi1.massa + 1 / bodi2.massa
-                    bodi1.kecepatan.x += j * arah / bodi1.massa
-                    bodi2.kecepatan.x -= j * arah / bodi2.massa
+                    if m2 == 0:
+                        bodi1.kecepatan.x = 0
+                    elif m1 == 0:
+                        bodi2.kecepatan.x = 0
+                    else:
+                        j = -(1 + e) * dvx * arah
+                        j /= 1 / m1 + 1 / m2
+                        bodi1.kecepatan.x += j * arah / m1
+                        bodi2.kecepatan.x -= j * arah / m2
             else:
                 arah = 1.0 if bodi1.posisi.y < bodi2.posisi.y else -1.0
                 dorong = overlap_y
-                bodi1.posisi.y -= arah * dorong * (bodi2.massa / total_massa)
-                bodi2.posisi.y += arah * dorong * (bodi1.massa / total_massa)
+                bodi1.posisi.y -= arah * dorong * w1
+                bodi2.posisi.y += arah * dorong * w2
                 dvy = bodi1.kecepatan.y - bodi2.kecepatan.y
-                if arah * dvy < 0:
+                if arah * dvy >= 0:
                     e = min(bodi1.elastisitas, bodi2.elastisitas)
-                    j = -(1 + e) * dvy * arah
-                    j /= 1 / bodi1.massa + 1 / bodi2.massa
-                    bodi1.kecepatan.y += j * arah / bodi1.massa
-                    bodi2.kecepatan.y -= j * arah / bodi2.massa
+                    if m2 == 0:
+                        # Pemain mendarat di lantai statis
+                        bodi1.kecepatan.y = 0
+                        bodi1.grounded = True
+                    elif m1 == 0:
+                        bodi2.kecepatan.y = 0
+                        bodi2.grounded = True
+                    else:
+                        j = -(1 + e) * dvy * arah
+                        j /= 1 / m1 + 1 / m2
+                        bodi1.kecepatan.y += j * arah / m1
+                        bodi2.kecepatan.y -= j * arah / m2
             return
 
         # ---- Lingkaran (atau campuran): normal dari pusat / titik terdekat
@@ -290,10 +315,44 @@ class FisikaWorld:
             total_massa = lingkaran.massa + persegi.massa
             if total_massa <= 0:
                 return
-            lingkaran.posisi.x += nx * overlap * (persegi.massa / total_massa)
-            lingkaran.posisi.y += ny * overlap * (persegi.massa / total_massa)
-            persegi.posisi.x -= nx * overlap * (lingkaran.massa / total_massa)
-            persegi.posisi.y -= ny * overlap * (lingkaran.massa / total_massa)
+            # Bodi massa 0 = statis (tidak bergerak)
+            m_ling = lingkaran.massa
+            m_pers = persegi.massa
+            if m_pers == 0:
+                w_ling, w_pers = 1.0, 0.0
+            elif m_ling == 0:
+                w_ling, w_pers = 0.0, 1.0
+            else:
+                w_ling = m_pers / total_massa
+                w_pers = m_ling / total_massa
+            lingkaran.posisi.x += nx * overlap * w_ling
+            lingkaran.posisi.y += ny * overlap * w_ling
+            persegi.posisi.x -= nx * overlap * w_pers
+            persegi.posisi.y -= ny * overlap * w_pers
+            # Impulse: hentikan komponen kecepatan yang menembus (normal
+            # menunjuk dari persegi ke lingkaran, jadi mendekat = dvn < 0)
+            dvx = lingkaran.kecepatan.x - persegi.kecepatan.x
+            dvy = lingkaran.kecepatan.y - persegi.kecepatan.y
+            dvn = dvx * nx + dvy * ny
+            if dvn < 0 and jarak > 0:
+                e = min(lingkaran.elastisitas, persegi.elastisitas)
+                if m_pers == 0:
+                    lingkaran.kecepatan.x -= (1 + e) * dvn * nx
+                    lingkaran.kecepatan.y -= (1 + e) * dvn * ny
+                    # Normal menunjuk dari permukaan ke pusat lingkaran:
+                    # bola DI ATAS lantai -> ny < 0
+                    if ny < -0.5:
+                        lingkaran.grounded = True
+                elif m_ling == 0:
+                    persegi.kecepatan.x += (1 + e) * dvn * nx
+                    persegi.kecepatan.y += (1 + e) * dvn * ny
+                else:
+                    j = -(1 + e) * dvn
+                    j /= 1 / m_ling + 1 / m_pers
+                    lingkaran.kecepatan.x += j * nx / m_ling
+                    lingkaran.kecepatan.y += j * ny / m_ling
+                    persegi.kecepatan.x -= j * nx / m_pers
+                    persegi.kecepatan.y -= j * ny / m_pers
             return
 
         # ---- Lingkaran vs lingkaran
