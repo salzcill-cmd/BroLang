@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-6.5-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-6.6-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v6.5</h1>
+<h1 align="center">BroLang v6.6</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/747-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/825-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/115+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/135+Token%20Types-purple?style=flat-square" alt="tokens"/>
   <img src="https://img.shields.io/badge/43+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
@@ -45,10 +45,72 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 6.5.0
+bro --version    # BroLang 6.6.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v6.6?
+
+### Upgrade Library Game Komprehensif 🎮
+**2 modul baru** + **8 modul ditingkatkan** — buat bikin game 2D makin gampang:
+
+**Modul baru `jalur`** — pathfinding A* + navigasi waypoint:
+```bro
+impor jalur
+
+buat rute = jalur.cari_jalur(denah, (1, 1), (10, 5))   # A* di tilemap
+jika rute maka
+    tulis jalur.panjang_jalur(rute)
+selesai
+
+buat penjaga = jalur.Patroli([(100, 100), (500, 100)], kecepatan=120,
+                             mode="bolak-balik")        # patroli waypoint
+penjaga.update(dt)
+```
+
+**Modul baru `efek`** — efek layar instan:
+```bro
+impor efek
+
+buat kilat = efek.buat_flash("putih", durasi=0.15)      # flash layar
+buat dmg = efek.TeksMelayang("-25", x, y, warna="merah")  # damage number
+buat vin = efek.Vignette(kekuatan=0.4)                   # vignette
+```
+
+**Fisika AABB + raycast:** collider persegi (`set_persegi`), tabrakan campuran,
+`dunia.raycast(x1, y1, x2, y2)`, `dunia.cari_bodi_di_area(...)`.
+
+**Partikel:** gradien warna seumur hidup (`warna_awal`/`warna_akhir`),
+tekstur partikel, emiter siap pakai `buat_trail` / `buat_asap` / `buat_bintang`.
+
+**Tilemap:** tile animasi (`atur_animasi` + `peta.update(dt)`), layer objek
+(`tambah_objek`, `cari_objek`), `cek_lantai` untuk platformer.
+
+**Kamera:** parallax layers (`screen_parallax`), deadzone follow
+(`set_target(pemain, deadzone=(120, 80))`), `set_lerp`.
+
+**Game loop:** fixed timestep fisika (`game.atur_fisika(fungsi, 1/120)`),
+screenshot (`tangkap_layar`), resize jendela.
+
+**Grafis:** gradien vertikal/horizontal, `glow_lingkaran`, perataan teks
+(`tengah`/`kanan`), `gambar_gambar_alpha`.
+
+**UI:** `Tooltip`, `Tombol` bergambar, `DaftarSkor` (high score persisten),
+navigasi fokus keyboard.
+
+**Sprite:** `ikuti_patroli`, `rotasi_ke_titik`, `tampilkan`/`sembunyikan`.
+
+Bonus: sintaks `buat (x, y) = fungsi()` yang selama ini ada di dokumentasi
+kini benar-benar berfungsi.
+
+```bash
+bro examples/game_v66.bro     # showcase lengkap semua fitur v6.6
+```
+
+Detail: `docs/GAME_V66.md`.
 
 ---
 
@@ -1001,6 +1063,8 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | `kripto` | Keamanan: md5/sha1/sha256/sha512, base64, password PBKDF2+salt, token (v6.4) |
 | `arsip` | Arsip: buat/tambah/ekstrak/daftar ZIP, kompresi teks (v6.4) |
 | `terminal` | UX CLI: warna ANSI, gaya teks, progress bar, prompt, pesan status (v6.4) |
+| `jalur` | Pathfinding A* + navigasi: cari_jalur, IkutiJalur, Patroli waypoint (v6.6) |
+| `efek` | Efek layar: Flash, Vignette, TeksMelayang (damage number), Pulsa (v6.6) |
 
 ---
 
@@ -1013,6 +1077,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | [Dasar Bahasa](docs/DASAR.md) | Tipe data, variabel, operator |
 | [Fungsi](docs/FUNGSI.md) | Fungsi, lambda, closures |
 | [Class & OOP](docs/OOP.md) | OOP & inheritance |
+| [Game Dev v6.6](docs/GAME_V66.md) | Pathfinding A*, efek layar, fisika AABB, parallax, fixed timestep, UI baru |
 | [Fitur v6.5](docs/FITUR_V65.md) | Konstanta, do-until loop, range for loop |
 | [Fitur v6.0](docs/FITUR_V60.md) | Type system, pattern matching modern, kelas_error, stdlib baru, package registry online |
 | [Fitur v5.0](docs/FITUR.md) | Semua fitur lengkap |
@@ -1043,10 +1108,11 @@ bro belajar            # Belajar coding interaktif untuk pemula 🎓
 bro pkg <cmd>          # Package manager (init/install/publish/dll)
 ```
 
-### Game Arena (showcase library game)
+### Game (showcase library game)
 
 ```bash
 pip install pygame-ce                  # sekali saja, untuk semua modul game
+bro examples/game_v66.bro              # showcase v6.6: pathfinding A*, efek, AABB, parallax, tooltip
 bro examples/game_arena.bro            # platformer: sprite + fisika + partikel + UI + tilemap + kamera
 ```
 
@@ -1102,7 +1168,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**654 test cases, semua passing!** (termasuk 61 test library game v5.4, output-consistency tests, suite v5.x, test visualisasi: ASCII, SVG, GUI, 45 test v6.0, 39 test ramah pemula: mode belajar, saran keyword, hint pemula, REPL, 43 test v6.2 game dev: scene lifecycle, transisi, tumpukan scene, UI komponen baru, dan 36 test modul stdlib baru: angka, sistem, sistem_operasi, web, database)
+**825 test cases, semua passing!** (termasuk 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
 
 ---
 
@@ -1126,7 +1192,7 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v6.2** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v6.6** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>

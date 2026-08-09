@@ -340,16 +340,25 @@ class Parser:
         """buat identifier (. identifier)? = expression | konstanta identifier = expression (v6.5)"""
         token = self._advance()  # buat / konstanta
 
-        # Destructuring assignment: buat [a, b] = list atau buat {x, y} = objek
-        if self._check(TokenType.TOKEN_LBRACKET) or self._check(TokenType.TOKEN_LBRACE):
+        # Destructuring assignment: buat [a, b] = list, buat {x, y} = objek,
+        # atau buat (a, b) = tuple (v6.6 — sintaks ini sudah didokumentasikan
+        # di docs/GAME.md tapi belum pernah berfungsi).
+        if self._check(TokenType.TOKEN_LBRACKET) or self._check(TokenType.TOKEN_LBRACE) \
+                or self._check(TokenType.TOKEN_LPAREN):
             if is_const:
                 raise self._error(
                     message="'konstanta' tidak mendukung destructuring.",
                     solution="Deklarasikan satu konstanta per baris, mis. konstanta A = 1.",
                     example="konstanta A = 1\nkonstanta B = 2",
                 )
+            if self._check(TokenType.TOKEN_LBRACKET):
+                buka, tutup, is_arr = TokenType.TOKEN_LBRACKET, TokenType.TOKEN_RBRACKET, True
+            elif self._check(TokenType.TOKEN_LBRACE):
+                buka, tutup, is_arr = TokenType.TOKEN_LBRACE, TokenType.TOKEN_RBRACE, False
+            else:
+                buka, tutup, is_arr = TokenType.TOKEN_LPAREN, TokenType.TOKEN_RPAREN, True
             return self._parse_destructuring_assignment(
-                token, is_array=self._check(TokenType.TOKEN_LBRACKET)
+                token, is_array=is_arr, buka_tok=buka, tutup_tok=tutup
             )
 
         id_token = self._expect(
@@ -394,27 +403,31 @@ class Parser:
             column=token.column,
         )
 
-    def _parse_destructuring_assignment(self, token: Token, is_array: bool) -> DestructuringAssignmentNode:
-        """Destructuring assignment: buat [a, b] = list atau buat {x, y} = objek"""
-        open_tok = self._advance()  # [ atau {
+    def _parse_destructuring_assignment(self, token: Token, is_array: bool,
+                                        buka_tok=None, tutup_tok=None) -> DestructuringAssignmentNode:
+        """Destructuring assignment: buat [a, b] = list / buat {x, y} = objek /
+        buat (a, b) = tuple (v6.6)."""
+        if buka_tok is None:
+            buka_tok = TokenType.TOKEN_LBRACKET if is_array else TokenType.TOKEN_LBRACE
+        if tutup_tok is None:
+            tutup_tok = TokenType.TOKEN_RBRACKET if is_array else TokenType.TOKEN_RBRACE
+        self._advance()  # buka ( [ / { / (
         targets = []
 
-        if not self._check(TokenType.TOKEN_RBRACKET if is_array else TokenType.TOKEN_RBRACE):
+        if not self._check(tutup_tok):
             id_token = self._expect(
                 TokenType.TOKEN_IDENTIFIER,
-                message=f"Setelah '{'[' if is_array else '{'}', harus ada nama variabel.",
+                message="Setelah 'buat', harus diikuti nama variabel di dalam kurung destructuring.",
+                solution="Gunakan: buat [a, b] = [1, 2] atau buat (x, y) = pasangan",
             )
             targets.append(id_token.value)
             while self._match(TokenType.TOKEN_COMMA):
-                if self._check(TokenType.TOKEN_RBRACKET if is_array else TokenType.TOKEN_RBRACE):
+                if self._check(tutup_tok):
                     break
                 id_token = self._expect(TokenType.TOKEN_IDENTIFIER)
                 targets.append(id_token.value)
 
-        if is_array:
-            self._expect(TokenType.TOKEN_RBRACKET, message="Destructuring list harus ditutup dengan ']'.")
-        else:
-            self._expect(TokenType.TOKEN_RBRACE, message="Destructuring objek harus ditutup dengan '}'.")
+        self._expect(tutup_tok, message="Destructuring harus ditutup dengan kurung yang benar.")
 
         self._expect(
             TokenType.TOKEN_ASSIGN,

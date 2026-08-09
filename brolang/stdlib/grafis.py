@@ -329,18 +329,25 @@ def _get_font(size: int):
     return _font_cache[size]
 
 
-def tulis_teks(teks: str, x: int, y: int, warna="putih", ukuran=24):
-    """Menggambar teks di layar.
+def tulis_teks(teks: str, x: int, y: int, warna="putih", ukuran=24,
+               tengah=False, kanan=False):
+    """Menggambar teks di layar (v6.6: opsi perataan).
 
     Contoh:
         grafis.tulis_teks("Skor: 100", 10, 10, "kuning", 32)
+        grafis.tulis_teks("MENU", 400, 100, "putih", 40, tengah=True)
     """
     _ensure_init()
     screen = _get_screen()
     color = _COLORS.get(warna, warna) if isinstance(warna, str) else warna
     font = _get_font(int(ukuran))
     surface = font.render(str(teks), True, color)
-    screen.blit(surface, (int(x), int(y)))
+    gx = int(x)
+    if kanan:
+        gx = int(x) - surface.get_width()
+    elif tengah:
+        gx = int(x) - surface.get_width() // 2
+    screen.blit(surface, (gx, int(y)))
 
 
 def dapatkan_ukuran_teks(teks: str, ukuran=24) -> tuple:
@@ -443,6 +450,93 @@ def gambar_surface(surface, x: int, y: int):
     screen.blit(surface, (int(x), int(y)))
 
 
+def gambar_gambar_alpha(gambar, x: int, y: int, alpha: int = 255):
+    """Menggambar gambar dengan tingkat transparansi 0..255 — v6.6.
+
+    Contoh:
+        grafis.gambar_gambar_alpha(logo, 100, 100, 128)
+    """
+    _ensure_init()
+    screen = _get_screen()
+    alpha = max(0, min(int(alpha), 255))
+    if alpha >= 255:
+        screen.blit(gambar, (int(x), int(y)))
+        return
+    try:
+        salinan = gambar.copy()
+        salinan.set_alpha(alpha)
+        screen.blit(salinan, (int(x), int(y)))
+    except (pygame.error, ValueError, TypeError):
+        screen.blit(gambar, (int(x), int(y)))
+
+
+# --- Gradien & Efek (v6.6) ---
+
+def gradien_vertikal(x, y, lebar, tinggi, warna_atas, warna_bawah):
+    """Gambar persegi panjang dengan gradien vertikal — v6.6.
+
+    Contoh:
+        grafis.gradien_vertikal(0, 0, 800, 600, "langit", "biru_gelap")
+    """
+    _ensure_init()
+    screen = _get_screen()
+    atas = _COLORS.get(warna_atas, warna_atas) if isinstance(warna_atas, str) else warna_atas
+    bawah = _COLORS.get(warna_bawah, warna_bawah) if isinstance(warna_bawah, str) else warna_bawah
+    lebar, tinggi = int(lebar), int(tinggi)
+    langkah = max(2, min(tinggi, 64))
+    for i in range(langkah):
+        t = i / max(langkah - 1, 1)
+        warna = (int(atas[0] + (bawah[0] - atas[0]) * t),
+                 int(atas[1] + (bawah[1] - atas[1]) * t),
+                 int(atas[2] + (bawah[2] - atas[2]) * t))
+        baris_y = int(y) + int(tinggi * i / langkah)
+        baris_tinggi = max(1, int(tinggi / langkah) + 1)
+        pygame.draw.rect(screen, warna,
+                         (int(x), baris_y, lebar, baris_tinggi))
+
+
+def gradien_horizontal(x, y, lebar, tinggi, warna_kiri, warna_kanan):
+    """Gambar persegi panjang dengan gradien horizontal — v6.6.
+
+    Contoh:
+        grafis.gradien_horizontal(100, 400, 300, 50, "merah", "kuning")
+    """
+    _ensure_init()
+    screen = _get_screen()
+    kiri = _COLORS.get(warna_kiri, warna_kiri) if isinstance(warna_kiri, str) else warna_kiri
+    kanan = _COLORS.get(warna_kanan, warna_kanan) if isinstance(warna_kanan, str) else warna_kanan
+    lebar, tinggi = int(lebar), int(tinggi)
+    langkah = max(2, min(lebar, 64))
+    for i in range(langkah):
+        t = i / max(langkah - 1, 1)
+        warna = (int(kiri[0] + (kanan[0] - kiri[0]) * t),
+                 int(kiri[1] + (kanan[1] - kiri[1]) * t),
+                 int(kiri[2] + (kanan[2] - kiri[2]) * t))
+        kolom_x = int(x) + int(lebar * i / langkah)
+        kolom_lebar = max(1, int(lebar / langkah) + 1)
+        pygame.draw.rect(screen, warna,
+                         (kolom_x, int(y), kolom_lebar, tinggi))
+
+
+def glow_lingkaran(x, y, radius, warna, lapisan=4):
+    """Gambar lingkaran dengan efek glow (beberapa lapisan) — v6.6.
+
+    Contoh:
+        grafis.glow_lingkaran(400, 300, 40, "emas")
+    """
+    _ensure_init()
+    screen = _get_screen()
+    warna = _COLORS.get(warna, warna) if isinstance(warna, str) else warna
+    cx, cy = int(x), int(y)
+    r = max(1, int(radius))
+    for i in range(int(lapisan), 0, -1):
+        lap = i / max(int(lapisan), 1)
+        pygame.draw.circle(screen,
+                           (int(warna[0] * lap), int(warna[1] * lap), int(warna[2] * lap)),
+                           (cx, cy), int(r * (1.0 + 0.5 * (1.0 - lap))))
+    pygame.draw.circle(screen, warna, (cx, cy), max(1, int(r * 0.6)))
+
+
 # --- Deteksi Tabrakan ---
 
 def tabrakan_segi_panjang(x1, y1, w1, h1, x2, y2, w2, h2) -> bool:
@@ -504,6 +598,10 @@ module = SimpleNamespace(
     gambar_gambar_scala=gambar_gambar_scala,
     buat_surface=buat_surface,
     gambar_surface=gambar_surface,
+    gambar_gambar_alpha=gambar_gambar_alpha,
+    gradien_vertikal=gradien_vertikal,
+    gradien_horizontal=gradien_horizontal,
+    glow_lingkaran=glow_lingkaran,
     tabrakan_segi_panjang=tabrakan_segi_panjang,
     tabrakan_lingkaran=tabrakan_lingkaran,
     tabrakan_titik_segi_panjang=tabrakan_titik_segi_panjang,

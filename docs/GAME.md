@@ -630,12 +630,82 @@ audio.mainkan_suara(suara_lompat)
 
 ---
 
+## 13. Pathfinding & AI (`jalur`) (v6.6) 🆕
+
+Pathfinding A* di grid tile + gerakan otomatis untuk NPC/musuh.
+
+```bro
+impor jalur
+
+# A* pathfinding: 1 = dinding, 0 = bisa dilalui
+buat peta = [[0,0,0],[1,1,0],[0,0,0]]
+buat rute = jalur.cari_jalur(peta, (0,0), (2,2))
+jika rute maka
+    tulis "Jalur ditemukan: " + rute
+lainnya
+    tulis "Tidak ada jalur!"
+selesai
+
+# NPC mengikuti jalur
+buat pengikut = jalur.IkutiJalur(rute, kecepatan=150, loop=benar)
+pengikut.update(dt)
+buat (x, y) = pengikut.posisi()
+
+# Penjaga patroli bolak-balik
+buat penjaga = jalur.Patroli([(100,0),(300,0),(300,200)],
+                             kecepatan=120, mode="bolak-balik")
+penjaga.update(dt)
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `cari_jalur(peta, mulai, tujuan)` | A* pathfinding → list `(x,y)` atau `kosong` |
+| `jalur_ke_pixel(jalur, ukuran_tile)` | Tile → pixel (tengah tile) |
+| `IkutiJalur(titik, kecepatan, loop?)` | Mengikuti polyline, `selesai` & `posisi()` |
+| `Patroli(waypoint, kecepatan, mode?)` | Mode `loop` / `bolak-balik` / `sekali` |
+
+---
+
+## 14. Efek Layar (`efek`) (v6.6) 🆕
+
+Efek visual instan tanpa setup rumit.
+
+```bro
+impor efek
+
+# Flash putih saat kena serangan
+buat flash = efek.Flash("putih", 0.3)
+flash.picu()
+# di loop:
+flash.update(dt)
+flash.gambar()
+
+# Damage number
+buat angka = efek.TeksMelayang("-25", 100, 100, "kuning")
+angka.update(dt)
+angka.gambar()
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `Flash(warna?, durasi?, layar?)` | Overlay layar penuh memudar |
+| `Vignette(warna?, intensitas?)` | Pinggiran layar gelap |
+| `TeksMelayang(teks, x, y, warna?, kecepatan?)` | Teks naik lalu pudar |
+| `Pulsa(min?, maks?, kecepatan?)` | Denyut sinus, `nilai()` → 0..1 |
+
+---
+
 ## Contoh Game Lengkap
 
 Lihat `examples/game_arena.bro` — game arena lengkap yang memakai hampir
 semua modul di atas: sprite, fisika, partikel ledakan, UI health bar,
 kamera shake, timer, FPS, dan input keyboard.
 
+Lihat `examples/game_v66.bro` — showcase semua fitur baru v6.6:
+pathfinding A*, patroli, deadzone kamera, parallax, tile animasi,
+raycast, efek layar, tooltip, dan daftar skor.
+
 ```bash
 bro examples/game_arena.bro
+bro examples/game_v66.bro
 ```

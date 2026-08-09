@@ -40,6 +40,10 @@ class Kamera:
         this.batas_atas = None
         this.batas_bawah = None
 
+        # v6.6: deadzone follow — kamera diam selama target di dalam area
+        this.deadzone = None  # (lebar, tinggi) atau None
+        this.deadzone_lerp = 8.0
+
         # Screen shake
         this.shake_intensity = 0
         this.shake_duration = 0
@@ -47,14 +51,30 @@ class Kamera:
         this.shake_offset_x = 0
         this.shake_offset_y = 0
 
-    def set_target(self, target):
-        """Set target kamera (objek yang diikuti)."""
+    def set_target(self, target, deadzone=None):
+        """Set target kamera (objek yang diikuti).
+
+        Args:
+            target: Objek dengan atribut .x dan .y.
+            deadzone: Opsional (lebar, tinggi) pixel. Kamera hanya bergerak
+                saat target keluar dari area deadzone di tengah layar —
+                membuat gerakan lebih stabil (v6.6).
+        """
         self.target = target
+        if deadzone is not None:
+            self.deadzone = (float(deadzone[0]), float(deadzone[1]))
+        return self
+
+    def set_lerp(self, kekuatan):
+        """Atur kekuatan smoothing follow (semakin besar semakin cepat nempel)."""
+        self.kecepatan_smooth = max(0.0, float(kekuatan))
+        return self
 
     def set_offset(self, x, y):
         """Set offset kamera."""
         self.offset_x = x
         self.offset_y = y
+        return self
 
     def set_posisi(self, x, y):
         """Set posisi kamera langsung (tanpa smoothing)."""
@@ -82,6 +102,7 @@ class Kamera:
         self.shake_waktu = 0
         self.shake_offset_x = 0
         self.shake_offset_y = 0
+        self.deadzone = None
 
     def set_batas_world(self, lebar_world, tinggi_world):
         """Set batas kamera otomatis dari ukuran world.
@@ -115,9 +136,23 @@ class Kamera:
             target_x = self.target.x + self.offset_x
             target_y = self.target.y + self.offset_y
 
-            # Smooth follow
-            self.x += (target_x - self.x) * self.kecepatan_smooth * dt
-            self.y += (target_y - self.y) * self.kecepatan_smooth * dt
+            if self.deadzone:
+                # Deadzone: kamera hanya mengejar saat target keluar area
+                dz_w, dz_h = self.deadzone
+                if abs(target_x - self.x) > dz_w / 2:
+                    tgt_x = target_x - math.copysign(dz_w / 2, target_x - self.x)
+                else:
+                    tgt_x = self.x
+                if abs(target_y - self.y) > dz_h / 2:
+                    tgt_y = target_y - math.copysign(dz_h / 2, target_y - self.y)
+                else:
+                    tgt_y = self.y
+                self.x += (tgt_x - self.x) * self.deadzone_lerp * dt
+                self.y += (tgt_y - self.y) * self.deadzone_lerp * dt
+            else:
+                # Smooth follow
+                self.x += (target_x - self.x) * self.kecepatan_smooth * dt
+                self.y += (target_y - self.y) * self.kecepatan_smooth * dt
 
         # Apply bounds
         if self.batas_kiri is not None:
@@ -149,6 +184,24 @@ class Kamera:
         """Mengkonversi koordinat world ke screen."""
         screen_x = (world_x - self.x) * self.zoom + self.shake_offset_x
         screen_y = (world_y - self.y) * self.zoom + self.shake_offset_y
+        return screen_x, screen_y
+
+    def screen_parallax(self, world_x, world_y, faktor=0.5):
+        """Konversi world ke screen dengan faktor parallax — v6.6.
+
+        Faktor:
+            1.0 = normal (ikut kamera penuh)
+            0.5 = setengah kecepatan (lapisan belakang)
+            0.0 = statis (tidak bergerak sama sekali)
+            2.0 = lebih cepat (lapisan depan)
+
+        Contoh (gambar latar di fungsi gambar):
+            buat (bx, by) = cam.screen_parallax(400, 300, 0.3)
+            grafis.gambar_gambar(latar_bukit, bx, by)
+        """
+        f = float(faktor)
+        screen_x = (world_x - self.x * f) * self.zoom + self.shake_offset_x
+        screen_y = (world_y - self.y * f) * self.zoom + self.shake_offset_y
         return screen_x, screen_y
 
     def screen_to_world(self, screen_x, screen_y):

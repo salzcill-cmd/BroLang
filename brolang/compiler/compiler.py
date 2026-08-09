@@ -38,6 +38,7 @@ from brolang.ast.nodes import (
     DecoratorNode, DecoratedFunctionNode, DecoratedClassNode,
     WalrusNode, WithNode, TypedExceptNode, MultiExceptNode,
     StarImportNode, ChainedCallNode, SwitchNode,
+    DestructuringAssignmentNode,
 )
 from brolang.optimizer import Optimizer
 
@@ -108,6 +109,10 @@ class PythonCodeGenerator(ASTVisitor):
         indent = "    " * self.indent_level
         self.output.append(f"{indent}{line}")
 
+    def _emit_line(self, line: str = "") -> None:
+        """Alias _emit (kompatibilitas)."""
+        self._emit(line)
+
     def _new_temp(self) -> str:
         """Membuat nama temporary variable."""
         self._temp_counter += 1
@@ -159,6 +164,18 @@ class PythonCodeGenerator(ASTVisitor):
             if node.value:
                 value_code = self._expr(node.value)
                 self._emit(f"{target_code} = {value_code}")
+
+    def visit_DestructuringAssignmentNode(self, node: DestructuringAssignmentNode) -> None:
+        """buat (x, y) = expr / buat [a, b] = expr / buat {x, y} = objek (v6.6)."""
+        targets = ", ".join(node.targets)
+        value = self._expr(node.value)
+        if node.is_array:
+            # Tuple/list: bongkar posisi (x, y = ...)
+            self._emit(f"{targets} = {value}")
+        else:
+            # Objek: bongkar per kunci, konsisten dengan interpreter
+            parts = ", ".join(f"{value}.get({t!r}, None)" for t in node.targets)
+            self._emit(f"{targets} = {parts}")
 
     def visit_BinaryOpNode(self, node: BinaryOpNode) -> str:
         left = self._expr(node.left)
@@ -281,15 +298,15 @@ class PythonCodeGenerator(ASTVisitor):
         else:
             self._emit(f"assert {cond}")
 
-    def visit_TupleNode(self, node: TupleNode) -> None:
+    def visit_TupleNode(self, node: TupleNode) -> str:
         elements = ", ".join(self._expr(e) for e in node.elements)
-        self._emit_line(f"({elements})")
+        return f"({elements})"
 
-    def visit_SetNode(self, node: SetNode) -> None:
+    def visit_SetNode(self, node: SetNode) -> str:
         elements = ", ".join(self._expr(e) for e in node.elements)
-        self._emit_line(f"{{{elements}}}")
+        return f"{{{elements}}}"
 
-    def visit_DictComprehensionNode(self, node: DictComprehensionNode) -> None:
+    def visit_DictComprehensionNode(self, node: DictComprehensionNode) -> str:
         key = self._expr(node.key_expr)
         val = self._expr(node.value_expr)
         var = node.key_var
@@ -297,14 +314,11 @@ class PythonCodeGenerator(ASTVisitor):
         if node.condition:
             cond = self._expr(node.condition)
             if node.value_var:
-                self._emit_line(f"{{{key}: {val} for {var}, {node.value_var} in {iterable} if {cond}}}")
-            else:
-                self._emit_line(f"{{{key}: {val} for {var} in {iterable} if {cond}}}")
-        else:
-            if node.value_var:
-                self._emit_line(f"{{{key}: {val} for {var}, {node.value_var} in {iterable}}}")
-            else:
-                self._emit_line(f"{{{key}: {val} for {var} in {iterable}}}")
+                return f"{{{key}: {val} for {var}, {node.value_var} in {iterable} if {cond}}}"
+            return f"{{{key}: {val} for {var} in {iterable} if {cond}}}"
+        if node.value_var:
+            return f"{{{key}: {val} for {var}, {node.value_var} in {iterable}}}"
+        return f"{{{key}: {val} for {var} in {iterable}}}"
 
     def visit_FunctionNode(self, node: FunctionNode) -> None:
         params = ", ".join(node.params)

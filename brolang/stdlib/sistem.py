@@ -7,7 +7,7 @@ Informasi sistem & lingkungan (OS, Python, hardware).
 Contoh:
     impor sistem
 
-    tulis sistem.versi()        # 6.5.0  (versi BroLang)
+    tulis sistem.versi()        # 6.6.0  (versi BroLang)
     tulis sistem.platform()     # linux / windows / darwin
     tulis sistem.nama()         # Linux
 """
@@ -24,7 +24,7 @@ def versi() -> str:
     """Versi BroLang yang sedang berjalan.
 
     Contoh:
-        tulis sistem.versi()    # 6.5.0
+        tulis sistem.versi()    # 6.6.0
     """
     return __version__
 

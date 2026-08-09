@@ -247,3 +247,12 @@ def _load_module(name: str) -> None:
         from brolang.stdlib.terminal import module as terminal_module
 
         register_module("terminal", terminal_module)
+    # v6.6 game dev modules
+    elif name == "jalur":
+        from brolang.stdlib.jalur import module as jalur_module
+
+        register_module("jalur", jalur_module)
+    elif name == "efek":
+        from brolang.stdlib.efek import module as efek_module
+
+        register_module("efek", efek_module)

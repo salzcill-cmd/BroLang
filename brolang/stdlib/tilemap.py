@@ -66,6 +66,24 @@ class Tileset:
         self.tiles = {}
         self.gambar = None
         self.warna = {}  # id -> warna fallback (jika tanpa gambar)
+        self.animasi = {}  # v6.6: tile_id -> {"urutan": [ids], "kecepatan": s}
+
+    def atur_animasi(self, tile_id, urutan, kecepatan=0.2):
+        """Buat tile animasi — tile_id berganti-ganti mengikuti `urutan` (v6.6).
+
+        Args:
+            tile_id: Tile id yang akan dianimasikan di peta.
+            urutan: List tile id yang ditampilkan bergantian, mis. [5, 6, 7].
+            kecepatan: Detik per frame animasi (default 0.2).
+
+        Contoh:
+            tileset.atur_animasi(9, [9, 10, 11], kecepatan=0.15)  # air mengalir
+        """
+        self.animasi[tile_id] = {
+            "urutan": list(urutan) or [tile_id],
+            "kecepatan": max(0.01, float(kecepatan)),
+        }
+        return self
 
     def tambah_tile(self, id, solid=False, warna=None):
         """Menambahkan tile type.
@@ -111,6 +129,10 @@ class Tilemap:
 
         # Collision layer
         self.solid_map = [[False] * lebar for _ in range(tinggi)]
+
+        # v6.6: animasi & objek
+        self._waktu_animasi = 0.0
+        self.objek = []  # layer objek: SimpleNamespace(nama, x, y, ...)
 
     def set_tileset(self, tileset):
         """Set tileset untuk tilemap."""
@@ -246,6 +268,71 @@ class Tilemap:
         tx, ty = self.pixel_ke_tile(px, py)
         return self.is_solid(tx, ty)
 
+    def cek_lantai(self, px, py):
+        """Cek apakah ada tile solid tepat di bawah titik (px, py) — v6.6.
+
+        Berguna untuk deteksi pijakan karakter (posisi kaki, 1 tile ke bawah).
+        """
+        tx, ty = self.pixel_ke_tile(px, py)
+        return self.is_solid(tx, ty + 1)
+
+    def update(self, dt):
+        """Majukan timer animasi tile — panggil tiap frame — v6.6."""
+        self._waktu_animasi += dt
+
+    def _frame_tile(self, tile_id):
+        """Tile id yang sedang tampil (memperhitungkan animasi)."""
+        if self.tileset and tile_id in getattr(self.tileset, "animasi", {}):
+            anim = self.tileset.animasi[tile_id]
+            urutan = anim["urutan"]
+            idx = int(self._waktu_animasi / anim["kecepatan"]) % len(urutan)
+            return urutan[idx]
+        return tile_id
+
+    # ================= Layer Objek (v6.6) =================
+
+    def tambah_objek(self, nama, x, y, **atribut):
+        """Tambah objek ke layer objek peta (spawn point, item, musuh...).
+
+        Args:
+            nama: Nama/jenis objek.
+            x, y: Posisi pixel objek.
+            atribut: Properti tambahan (mis. tipe="musuh", nyawa=3).
+
+        Returns:
+            Objek (SimpleNamespace) yang ditambahkan.
+
+        Contoh:
+            peta.tambah_objek("pemain", 64, 64, tipe="spawn")
+            peta.tambah_objek("musuh", 300, 64, kecepatan=50)
+        """
+        obj = SimpleNamespace(nama=nama, x=float(x), y=float(y))
+        for k, v in atribut.items():
+            setattr(obj, k, v)
+        self.objek.append(obj)
+        return obj
+
+    def cari_objek(self, nama):
+        """Cari objek pertama dengan nama tertentu, atau None."""
+        for o in self.objek:
+            if o.nama == nama:
+                return o
+        return None
+
+    def cari_semua_objek(self, nama):
+        """Cari semua objek dengan nama tertentu."""
+        return [o for o in self.objek if o.nama == nama]
+
+    def hapus_objek(self, nama):
+        """Hapus semua objek dengan nama tertentu. Kembalikan jumlah terhapus."""
+        before = len(self.objek)
+        self.objek = [o for o in self.objek if o.nama != nama]
+        return before - len(self.objek)
+
+    def bersihkan_objek(self):
+        """Hapus semua objek dari layer objek."""
+        self.objek.clear()
+
     def gambar(self, screen, kamera_x=0, kamera_y=0):
         """Menggambar tilemap (gambar tileset atau warna fallback)."""
         import math
@@ -264,6 +351,9 @@ class Tilemap:
                 tile_id = self.data[y][x]
                 if tile_id == 0:
                     continue
+
+                # Tile animasi: tampilkan frame sesuai waktu (v6.6)
+                tile_id = self._frame_tile(tile_id)
 
                 screen_x = x * self.ukuran_tile - kamera_x
                 screen_y = y * self.ukuran_tile - kamera_y

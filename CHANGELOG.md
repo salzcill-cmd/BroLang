@@ -4,6 +4,44 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [6.6.0] - 2026-08-09
+
+### Added — 2 Modul Baru
+
+- **`jalur` — Pathfinding & Gerakan AI**: `cari_jalur(peta, mulai, tujuan)`
+  (algoritma A* di grid tile), konversi tile→pixel, kelas `IkutiJalur`
+  (mengikuti polyline, bisa loop) dan `Patroli` (mode `loop` / `bolak-balik` /
+  `sekali`) untuk NPC & musuh.
+- **`efek` — Efek Layar & Teks Melayang**: `Flash` (overlay layar penuh yang
+  memudar), `Vignette` (pinggiran gelap), `TeksMelayang` (damage number naik
+  lalu pudar), dan `Pulsa` (denyut sinus 0..1).
+- **Parser: tuple destructuring `buat (x, y) = tikus.posisi()`** — sebelumnya
+  hanya didokumentasikan tapi tidak diimplementasikan. Sekarang bekerja di
+  interpreter, transpiler, compiler package, dan VM.
+
+### Changed — Upgrade Modul Game Dev
+
+- **`fisika`**: mode collider persegi (`set_persegi`), resolve campuran
+  lingkaran/persegi, `raycast`, `cari_bodi_di_area`.
+- **`partikel`**: gradien warna seumur hidup (`warna_awal`/`warna_akhir`),
+  `gambar_tekstur`, emiter bantu `buat_trail`, `buat_asap`, `buat_bintang`.
+- **`tilemap`**: tile animasi (`atur_animasi`), layer objek (`tambah_objek`,
+  `cari_objek`, `hapus_objek`), `cek_lantai`.
+- **`kamera`**: `set_lerp`, parallax (`screen_parallax`), deadzone follow
+  (`set_target` dengan `deadzone`).
+- **`game`**: `atur_fisika` (fixed timestep anti spiral-of-death),
+  `tangkap_layar` (screenshot), `atur_ukuran_jendela` (resize runtime).
+- **`grafis`**: `gradien_vertikal`/`gradien_horizontal`, `glow_lingkaran`,
+  `tulis_teks` dengan alignment `tengah`/`kanan`, `gambar_gambar_alpha`.
+- **`ui`**: `Tooltip`, `DaftarSkor` (highscore JSON), `navigasi_fokus`
+  (navigasi keyboard), `Tombol` dengan gambar.
+- **`sprite`**: `ikuti_patroli`, `rotasi_ke_titik`, `tampilkan`/`sembunyikan`.
+
+### Notes
+
+- Contoh lengkap: `examples/game_v66.bro`. Dokumentasi: `docs/GAME_V66.md`.
+- 825 test passing (760 + 65 baru).
+
 ## [6.5.0] - 2026-08-09
 
 ### Added

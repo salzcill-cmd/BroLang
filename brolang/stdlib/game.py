@@ -49,6 +49,11 @@ class _GameState:
         self.on_pause = None
         self.on_resume = None
         self.on_exit = None
+        # v6.6: fixed timestep fisika
+        self.fisika_fungsi = None
+        self.fisika_timestep = 1.0 / 60.0
+        self.fisika_akumulator = 0.0
+        self.fisika_maks_langkah = 5
 
 
 _state = _GameState()
@@ -120,6 +125,25 @@ def set_tampil_fps(aktif: bool = True):
 def set_esc_keluar(aktif: bool = True):
     """ESC langsung menutup game (default True)."""
     _state.esc_keluar = bool(aktif)
+
+
+def atur_fisika(fungsi, timestep=1.0 / 60.0):
+    """Set fungsi fisika dengan fixed timestep — v6.6.
+
+    `fungsi` dipanggil dengan dt TETAP (mis. 1/120 detik) beberapa kali
+    per frame sesuai akumulasi waktu — membuat simulasi fisika deterministik
+    dan tidak bergantung pada FPS rendering.
+
+    Args:
+        fungsi: Callback `fungsi(fisika_dt)` yang dipanggil tiap langkah.
+        timestep: Interval fisika dalam detik (default 1/60).
+
+    Contoh:
+        game.atur_fisika(update_fisika, timestep=1/120)
+    """
+    _state.fisika_fungsi = fungsi
+    _state.fisika_timestep = max(0.0001, float(timestep))
+    _state.fisika_akumulator = 0.0
 
 
 # --- Scene Management ---
@@ -431,6 +455,17 @@ def mulai():
             scene = _state.scenes.get(_state.current_scene)
             if scene and scene["update"]:
                 scene["update"](dt)
+            # Fixed timestep fisika (v6.6): akumulasi dt lalu langkah tetap
+            if _state.fisika_fungsi:
+                _state.fisika_akumulator += dt
+                langkah_fisika = 0
+                while (_state.fisika_akumulator >= _state.fisika_timestep
+                       and langkah_fisika < _state.fisika_maks_langkah):
+                    _state.fisika_fungsi(_state.fisika_timestep)
+                    _state.fisika_akumulator -= _state.fisika_timestep
+                    langkah_fisika += 1
+                if langkah_fisika >= _state.fisika_maks_langkah:
+                    _state.fisika_akumulator = 0.0
 
         # Gambar: scene bertumpuk (dari bawah ke atas), lalu scene aktif
         screen.fill(_state.latar_warna)
@@ -517,6 +552,36 @@ def dapatkan_ukuran() -> tuple:
     return (_state.lebar, _state.tinggi)
 
 
+def atur_ukuran_jendela(lebar: int, tinggi: int):
+    """Ubah ukuran jendela game — v6.6.
+
+    Contoh:
+        game.atur_ukuran_jendela(1280, 720)
+    """
+    _state.lebar = int(lebar)
+    _state.tinggi = int(tinggi)
+    if pygame is not None:
+        try:
+            pygame.display.set_mode((_state.lebar, _state.tinggi))
+        except (pygame.error, TypeError):
+            pass
+
+
+def tangkap_layar(path="screenshot.png"):
+    """Simpan screenshot layar saat ini ke file — v6.6.
+
+    Contoh:
+        game.tangkap_layar("skor_tinggi.png")
+    """
+    if pygame is None:
+        raise RuntimeError("Pygame tidak terinstal. Jalankan: pip install pygame")
+    screen = pygame.display.get_surface()
+    if screen is None:
+        raise RuntimeError("Jendela belum dibuat.")
+    pygame.image.save(screen, str(path))
+    return path
+
+
 module = SimpleNamespace(
     buat_jendela=buat_jendela,
     mulai=mulai,
@@ -546,6 +611,9 @@ module = SimpleNamespace(
     waktu_sekarang=waktu_sekarang,
     dapatkan_fps=dapatkan_fps,
     dapatkan_ukuran=dapatkan_ukuran,
+    atur_fisika=atur_fisika,
+    atur_ukuran_jendela=atur_ukuran_jendela,
+    tangkap_layar=tangkap_layar,
     _update_transisi=_update_transisi,
     _alpha_transisi=_alpha_transisi,
     _ganti_scene_langsung=_ganti_scene_langsung,

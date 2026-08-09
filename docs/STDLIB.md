@@ -147,7 +147,7 @@ Informasi sistem operasi & lingkungan.
 ```
 impor sistem
 
-tulis sistem.versi()        # 6.2.0 (Versi BroLang)
+tulis sistem.versi()        # 6.6.0 (Versi BroLang)
 tulis sistem.platform()     # linux / windows / darwin
 tulis sistem.nama()         # Linux
 tulis sistem.prosesor()     # x86_64
@@ -420,6 +420,77 @@ Contoh lengkap: `examples/terminal.bro`.
 
 ---
 
+## `jalur` — Pathfinding & Gerakan (v6.6)
+
+Pathfinding A* di grid tile, pengikut jalur otomatis, dan patroli waypoint
+untuk AI musuh / NPC.
+
+```
+impor jalur
+
+# A* pathfinding: 1 = dinding, 0 = bisa dilalui
+buat peta = [[0,0,0],[1,1,0],[0,0,0]]
+buat rute = jalur.cari_jalur(peta, (0,0), (2,2))  # list (x,y) atau kosong
+
+# NPC mengikuti jalur
+buat pengikut = jalur.IkutiJalur(rute, kecepatan=150)
+pengikut.update(dt)          # panggil tiap frame
+buat (x, y) = pengikut.posisi()
+
+# Patroli bolak-balik antar waypoint
+buat penjaga = jalur.Patroli([(100,0),(300,0)], kecepatan=120, mode="bolak-balik")
+penjaga.update(dt)
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `cari_jalur(peta, mulai, tujuan)` | A* pathfinding → list (x,y) atau `kosong` |
+| `jalur_ke_pixel(jalur, ukuran_tile)` | Konversi koordinat tile → pixel (tengah tile) |
+| `IkutiJalur(titik, kecepatan, loop?)` | Gerakkan objek sepanjang polyline |
+| `Patroli(waypoint, kecepatan, mode?)` | Patroli waypoint (`loop`/`bolak-balik`/`sekali`) |
+
+**IkutiJalur**: `update(dt)`, `posisi()`, `selesai` (bool), `loop=benar` untuk
+mengulang terus-menerus.
+
+**Patroli**: mode `"loop"` (kembali ke awal), `"bolak-balik"` (pantul), atau
+`"sekali"` (berhenti). Ada `indeks_sekarang()`, `arah()` (vektor unit), dan
+`selesai`.
+
+---
+
+## `efek` — Efek Layar & Partikel Teks (v6.6)
+
+Efek visual siap pakai: flash layar, vignette, teks melayang (damage number),
+dan efek denyut (pulse).
+
+```
+impor efek
+
+# Flash putih saat player kena
+buat flash = efek.Flash(warna="putih", durasi=0.3)
+flash.picu()
+# ...di loop update:
+flash.update(dt)
+flash.gambar()              # overlay layar penuh dengan alpha menurun
+
+# Damage number melayang naik lalu pudar
+buat teks = efek.TeksMelayang("25", 100, 100, warna="kuning")
+teks.update(dt)
+teks.gambar()
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `Flash(warna?, durasi?, layar?)` | Overlay layar penuh yang memudar |
+| `Vignette(warna?, intensitas?)` | Pinggiran layar gelap (statis) |
+| `TeksMelayang(teks, x, y, warna?, kecepatan?)` | Teks naik lalu memudar |
+| `Pulsa(min?, maks?, kecepatan?)` | Nilai denyut sinus 0..1 untuk efek berdenyut |
+
+Semua efek punya `update(dt)` & `gambar()` (butuh pygame aktif). `Pulsa`
+murni kalkulasi: `p.nilai()` mengembalikan 0..1.
+
+---
+
 ## Module List
 
 | Module | Fungsi |
@@ -429,6 +500,8 @@ Contoh lengkap: `examples/terminal.bro`.
 | `audio` | Sound effects |
 | `grafis` | Graphics rendering |
 | `game` | Game utilities |
+| `jalur` | Pathfinding A* & gerakan AI — cari_jalur, IkutiJalur, Patroli (v6.6) |
+| `efek` | Efek layar — Flash, Vignette, TeksMelayang, Pulsa (v6.6) |
 | `web` | HTTP requests (client) |
 | `sistem_operasi` | OS operations |
 | `sistem` | System info |

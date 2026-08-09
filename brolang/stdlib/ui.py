@@ -177,6 +177,7 @@ class Tombol:
         warna_hover="biru_gelap",
         warna_teks="putih",
         ukuran_teks=None,
+        gambar=None,  # v6.6: gambar latar tombol (path / Surface)
     ):
         self.teks = str(teks)
         self.x = float(x)
@@ -197,6 +198,23 @@ class Tombol:
         self.on_keluar = None  # callback saat mouse keluar
         self.on_klik_kanan = None
         self.ketuk_berat = None  # SimpleNamespace(on_klik=...) custom
+        # v6.6: gambar latar (path string / Surface). Jika diset, tombol
+        # digambar dari gambar (dengan overlay hover) bukan kotak warna.
+        self.gambar = gambar
+        self._gambar_dimuat = False
+
+    def _muat_gambar(self):
+        """Muat gambar latar (path / Surface) sekali saja."""
+        if self._gambar_dimuat:
+            return
+        self._gambar_dimuat = True
+        if self.gambar is None or pygame is None:
+            return
+        if isinstance(self.gambar, str):
+            try:
+                self.gambar = pygame.image.load(self.gambar).convert_alpha()
+            except (pygame.error, FileNotFoundError, OSError):
+                self.gambar = None
 
     def berisi(self, px, py):
         """Cek apakah titik berada di dalam tombol."""
@@ -244,12 +262,33 @@ class Tombol:
         if not self.terlihat or pygame is None:
             return
         warna = self.warna_hover if self.hover else self.warna
-        pygame.draw.rect(
-            screen,
-            warna,
-            (int(self.x), int(self.y), int(self.lebar), int(self.tinggi)),
-            border_radius=self.radius,
-        )
+        if self.gambar is not None:
+            # Tombol bergambar (v6.6): gambar discale ke ukuran tombol
+            self._muat_gambar()
+            if self.gambar is not None:
+                try:
+                    img = pygame.transform.smoothscale(
+                        self.gambar, (int(self.lebar), int(self.tinggi)))
+                    if self.hover:
+                        overlay = pygame.Surface((int(self.lebar), int(self.tinggi)),
+                                                 pygame.SRCALPHA)
+                        overlay.fill((*self.warna_hover, 70))
+                        img = img.copy()
+                        img.blit(overlay, (0, 0))
+                    screen.blit(img, (int(self.x), int(self.y)))
+                except (pygame.error, ValueError, TypeError):
+                    pygame.draw.rect(
+                        screen, warna,
+                        (int(self.x), int(self.y), int(self.lebar), int(self.tinggi)),
+                        border_radius=self.radius,
+                    )
+        else:
+            pygame.draw.rect(
+                screen,
+                warna,
+                (int(self.x), int(self.y), int(self.lebar), int(self.tinggi)),
+                border_radius=self.radius,
+            )
         if self.ditekan:
             pygame.draw.rect(
                 screen,
@@ -1049,6 +1088,208 @@ class DaftarPilih:
                     )
 
 
+class Tooltip:
+    """Tooltip yang muncul mengikuti mouse saat kursor hover target — v6.6.
+
+    Contoh:
+        buat tip = ui.Tooltip("Klik untuk mulai", warna="putih")
+
+        # Tiap frame:
+        tip.update(input.tikus_posisi()[0], input.tikus_posisi()[1],
+                   tombol.hover, dt)
+        tip.gambar(screen)
+    """
+
+    def __init__(self, teks, x=0, y=0, warna="putih", warna_bg="abu-abu_gelap",
+                 ukuran=18, delay=0.4, padding=8, offset=(16, 22),
+                 warna_batas="abu-abu_terang"):
+        self.teks = str(teks)
+        self.x = float(x)
+        self.y = float(y)
+        self.warna = _resolve_warna(warna)
+        self.warna_bg = _resolve_warna(warna_bg)
+        self.warna_batas = _resolve_warna(warna_batas)
+        self.ukuran = ukuran
+        self.delay = max(0.0, float(delay))
+        self.padding = max(2, int(padding))
+        self.offset_x, self.offset_y = float(offset[0]), float(offset[1])
+        self._waktu = 0.0
+        self._aktif = False
+        self.terlihat = True
+
+    def update(self, tikus_x, tikus_y, hover=False, dt=1 / 60):
+        """Update tooltip: muncul setelah `delay` detik hover, ikuti mouse.
+
+        Returns:
+            True jika tooltip sedang tampil.
+        """
+        if hover:
+            self._waktu += max(0.0, float(dt))
+        else:
+            self._waktu = 0.0
+        self.x = float(tikus_x) + self.offset_x
+        self.y = float(tikus_y) + self.offset_y
+        self._aktif = self._waktu >= self.delay
+        return self._aktif
+
+    def aktif(self):
+        """Cek apakah tooltip sedang tampil."""
+        return self._aktif
+
+    def set_teks(self, teks):
+        """Ubah isi tooltip."""
+        self.teks = str(teks)
+        return self
+
+    def gambar(self, screen):
+        """Gambar tooltip (panel membulat + teks)."""
+        if not self.terlihat or not self._aktif or pygame is None:
+            return
+        font = _get_font(int(self.ukuran))
+        if font is None:
+            return
+        surf = font.render(self.teks, True, self.warna)
+        w = surf.get_width() + self.padding * 2
+        h = surf.get_height() + self.padding * 2
+        gx, gy = int(self.x), int(self.y)
+        # Jaga tooltip tetap di dalam layar
+        try:
+            lw, lh = screen.get_size()
+            if gx + w > lw:
+                gx = lw - w - 4
+            if gy + h > lh:
+                gy = lh - h - 4
+        except Exception:
+            pass
+        pygame.draw.rect(screen, self.warna_bg, (gx, gy, w, h), border_radius=6)
+        pygame.draw.rect(screen, self.warna_batas, (gx, gy, w, h), 1, border_radius=6)
+        screen.blit(surf, (gx + self.padding, gy + self.padding))
+
+
+class DaftarSkor:
+    """Daftar skor tertinggi dengan penyimpanan file (JSON) — v6.6.
+
+    Contoh:
+        buat skor = ui.DaftarSkor("skor.json", maks_entri=10)
+        skor.tambah("Budi", 1200)
+        skor.tambah("Siti", 900)
+        tulis skor.skor_tertinggi()      # 1200
+        tulis skor.peringkat("Budi")     # 0
+        # Iterasi tabel (nama, skor) terurut turun:
+        untuk entri dalam skor.tabel() lakukan
+            tulis entri[0] + " - " + entri[1]
+        selesai
+    """
+
+    def __init__(self, path="skor.json", maks_entri=10):
+        self.path = str(path)
+        self.maks_entri = max(1, int(maks_entri))
+        self.entri = []  # list [nama, skor]
+        self._muat()
+
+    def _muat(self):
+        """Baca entri dari file (jika ada)."""
+        import json
+        import os
+        try:
+            if os.path.exists(self.path):
+                with open(self.path, encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, list):
+                    self.entri = [
+                        [str(n), int(s)] for n, s in data if isinstance(s, (int, float))
+                    ][:self.maks_entri]
+        except (OSError, ValueError, TypeError):
+            self.entri = []
+
+    def simpan(self):
+        """Simpan entri ke file (dipanggil otomatis saat tambah)."""
+        import json
+        try:
+            with open(self.path, "w", encoding="utf-8") as f:
+                json.dump(self.entri[:self.maks_entri], f, ensure_ascii=False)
+        except OSError:
+            pass
+        return self
+
+    def tambah(self, nama, skor):
+        """Tambah entri skor baru; pangkas ke maks_entri; simpan otomatis.
+
+        Returns:
+            True jika masuk daftar (skor cukup bagus), False jika tidak.
+        """
+        self.entri.append([str(nama), int(skor)])
+        self.entri.sort(key=lambda e: e[1], reverse=True)
+        if len(self.entri) > self.maks_entri:
+            self.entri = self.entri[:self.maks_entri]
+            return self.peringkat(str(nama)) is not None
+        self.simpan()
+        return True
+
+    def tabel(self):
+        """List (nama, skor) terurut dari skor tertinggi."""
+        return [tuple(e) for e in sorted(self.entri, key=lambda e: e[1], reverse=True)]
+
+    def skor_tertinggi(self):
+        """Skor tertinggi saat ini, atau 0."""
+        if not self.entri:
+            return 0
+        return max(s for _, s in self.entri)
+
+    def peringkat(self, nama):
+        """Posisi (0-based) nama di daftar, atau None jika tidak ada."""
+        for i, (n, _s) in enumerate(self.tabel()):
+            if n == str(nama):
+                return i
+        return None
+
+    def jumlah(self):
+        """Jumlah entri tersimpan."""
+        return len(self.entri)
+
+    def bersihkan(self):
+        """Kosongkan semua entri & simpan."""
+        self.entri = []
+        self.simpan()
+        return self
+
+
+def navigasi_fokus(komponen, arah, daftar):
+    """Pindahkan fokus antar komponen (keyboard) — v6.6.
+
+    Args:
+        komponen: Komponen yang sedang fokus (atau None).
+        arah: "atas", "bawah", "kiri", atau "kanan".
+        daftar: List komponen yang bisa menerima fokus (KotakTeks, Tombol...).
+
+    Returns:
+        Komponen yang sekarang menerima fokus.
+
+    Contoh:
+        # Dari kode game, saat tombol panah/Enter ditekan:
+        buat baru = ui.navigasi_fokus(nama, "bawah", [nama, email, umur])
+    """
+    if not daftar:
+        return komponen
+    if komponen is None or komponen not in daftar:
+        baru = daftar[0]
+    else:
+        idx = daftar.index(komponen)
+        if arah in ("bawah", "kanan"):
+            idx = (idx + 1) % len(daftar)
+        elif arah in ("atas", "kiri"):
+            idx = (idx - 1) % len(daftar)
+        else:
+            return komponen
+        baru = daftar[idx]
+    if baru is not komponen:
+        if hasattr(komponen, "fokus_set"):
+            komponen.fokus_set(False)
+        if hasattr(baru, "fokus_set"):
+            baru.fokus_set(True)
+    return baru
+
+
 module = SimpleNamespace(
     Label=Label,
     Panel=Panel,
@@ -1058,4 +1299,7 @@ module = SimpleNamespace(
     Slider=Slider,
     KotakCentang=KotakCentang,
     DaftarPilih=DaftarPilih,
+    Tooltip=Tooltip,
+    DaftarSkor=DaftarSkor,
+    navigasi_fokus=navigasi_fokus,
 )

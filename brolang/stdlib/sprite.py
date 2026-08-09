@@ -93,6 +93,9 @@ class Sprite:
         self.offset_x = 0.0
         self.offset_y = 0.0
 
+        # v6.6: patroli waypoint (dipakai ikuti_patroli)
+        self._patroli = None
+
     # ---------------- Frame / Animasi ----------------
 
     def _region_frame(self, frame):
@@ -189,6 +192,11 @@ class Sprite:
         if self.batasan is not None:
             self.x = max(0.0, min(float(self.batasan.lebar) - self.lebar, self.x))
             self.y = max(0.0, min(float(self.batasan.tinggi) - self.tinggi, self.y))
+
+        # Patroli waypoint (v6.6): posisi sprite ikut bergerak
+        if self._patroli is not None:
+            self._patroli.update(dt)
+            self.x, self.y = self._patroli.posisi()
 
         # Animasi
         if self._animasi_saat_ini and self._animasi_saat_ini in self._animasi:
@@ -331,6 +339,50 @@ class Sprite:
         self.y = float(y)
         self.kecepatan_x = 0.0
         self.kecepatan_y = 0.0
+        return self
+
+    # ---------------- Patroli Waypoint (v6.6) ----------------
+
+    def ikuti_patroli(self, titik_titik, kecepatan=100.0, mode="loop"):
+        """Mulai patroli antar waypoint — posisi sprite mengikuti jalur.
+
+        Args:
+            titik_titik: List koordinat (x, y) yang dilewati berurutan.
+            kecepatan: Kecepatan gerak (pixel/detik).
+            mode: "loop" (ulang), "bolak-balik" (ping-pong), atau "sekali".
+
+        Contoh:
+            penjaga.ikuti_patroli([(100, 100), (500, 100), (500, 400)],
+                                  kecepatan=120, mode="bolak-balik")
+        """
+        from brolang.stdlib.jalur import Patroli
+
+        self._patroli = Patroli(titik_titik, kecepatan=kecepatan, mode=mode)
+        self.x, self.y = self._patroli.posisi()
+        return self
+
+    def berhenti_patroli(self):
+        """Hentikan patroli (posisi tetap di tempat)."""
+        self._patroli = None
+        return self
+
+    def patroli_aktif(self):
+        """Cek apakah sprite sedang patroli."""
+        return self._patroli is not None
+
+    def rotasi_ke_titik(self, x, y):
+        """Putar sprite menghadap titik (x, y) — set sudut derajat (v6.6)."""
+        self.sudut = math.degrees(math.atan2(y - self.y, x - self.x))
+        return self
+
+    def tampilkan(self):
+        """Tampilkan sprite (terlihat=True)."""
+        self.terlihat = True
+        return self
+
+    def sembunyikan(self):
+        """Sembunyikan sprite (terlihat=False)."""
+        self.terlihat = False
         return self
 
 

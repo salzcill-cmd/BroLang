@@ -11,6 +11,16 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v6.6 (Upgrade Game Dev):
+- Modul baru `jalur` (pathfinding A* + patroli waypoint)
+- Modul baru `efek` (flash, vignette, teks melayang, pulsa)
+- Fisika AABB (persegi), raycast, query area
+- Partikel gradien warna + emiter trail/asap/bintang
+- Tilemap tile animasi + layer objek
+- Kamera parallax + deadzone follow
+- Game fixed timestep + screenshot
+- UI Tooltip, DaftarSkor, navigasi fokus
+
 Fitur v6.5 (Fitur Bahasa):
 - Konstanta: variabel immutable `konstanta PI = 3.14`
 - Do-until loop: `ulangi ... sampai kondisi` (body jalan minimal sekali)
@@ -58,7 +68,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "6.5.0"
+__version__ = "6.6.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

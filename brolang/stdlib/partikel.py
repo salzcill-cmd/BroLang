@@ -55,7 +55,8 @@ class Partikel:
 
     __slots__ = ('x', 'y', 'vx', 'vy', 'umur', 'umur_max',
                  'ukuran', 'ukuran_awal', 'warna', 'gravitasi',
-                 'gesekan', 'memudar', 'mengecil', 'aktif')
+                 'gesekan', 'memudar', 'mengecil', 'aktif',
+                 'gambar', 'warna_awal', 'warna_akhir')
 
     def __init__(self, x, y, vx, vy, umur, ukuran, warna,
                  gravitasi=0.0, gesekan=0.0):
@@ -73,6 +74,21 @@ class Partikel:
         self.memudar = True
         self.mengecil = True
         self.aktif = True
+        # v6.6: tekstur & gradien warna seumur hidup
+        self.gambar = None
+        self.warna_awal = None   # tuple RGB untuk gradien
+        self.warna_akhir = None  # tuple RGB untuk gradien
+
+    def warna_sekarang(self):
+        """Warna saat ini (interpolasi gradien jika warna_awal/akhir diset)."""
+        if self.warna_awal is not None and self.warna_akhir is not None:
+            t = min(max(self.umur / self.umur_max, 0.0), 1.0)
+            a = self.warna_awal
+            b = self.warna_akhir
+            return (int(a[0] + (b[0] - a[0]) * t),
+                    int(a[1] + (b[1] - a[1]) * t),
+                    int(a[2] + (b[2] - a[2]) * t))
+        return self.warna
 
     def update(self, dt):
         """Update posisi partikel."""
@@ -131,6 +147,10 @@ class PartikelEmiter:
         self.sudut_rentang = 360.0   # lebar sudut emisi (360 = semua arah)
         self.memudar = True
         self.mengecil = True
+        # v6.6: tekstur & gradien warna
+        self.gambar_tekstur = None   # Surface / path gambar
+        self.warna_awal = None       # tuple RGB (gradien mulai)
+        self.warna_akhir = None      # tuple RGB (gradien selesai)
 
     # ---------------- Emisi ----------------
 
@@ -153,6 +173,12 @@ class PartikelEmiter:
                      self.gravitasi, self.gesekan)
         p.memudar = self.memudar
         p.mengecil = self.mengecil
+        if self.gambar_tekstur is not None:
+            p.gambar = self.gambar_tekstur
+        if self.warna_awal is not None:
+            p.warna_awal = _resolve_warna(self.warna_awal)
+        if self.warna_akhir is not None:
+            p.warna_akhir = _resolve_warna(self.warna_akhir)
         return p
 
     def emitir(self, jumlah=None):
@@ -217,7 +243,7 @@ class PartikelEmiter:
         return len(self.partikel)
 
     def gambar(self, screen, kamera=None):
-        """Gambar semua partikel.
+        """Gambar semua partikel (tekstur atau lingkaran berwarna).
 
         Fade diterapkan dengan blend ke warna gelap (bukan alpha) karena
         pygame.draw.circle mengabaikan alpha pada display surface biasa.
@@ -231,14 +257,27 @@ class PartikelEmiter:
             ukuran = p.ukuran_sekarang()
             if ukuran < 1:
                 continue
-            warna = p.warna
+            warna = p.warna_sekarang()
             if p.memudar:
                 sisa = p.alpha_sekarang() / 255.0
                 # Blend ke hitam agar memudar terlihat di surface biasa
                 warna = (int(warna[0] * sisa),
                          int(warna[1] * sisa),
                          int(warna[2] * sisa))
-            pygame.draw.circle(screen, warna, (int(gx), int(gy)), int(ukuran))
+            if p.gambar is not None:
+                try:
+                    surf = p.gambar
+                    w = max(1, int(surf.get_width() * ukuran / max(p.ukuran_awal, 1)))
+                    h = max(1, int(surf.get_height() * ukuran / max(p.ukuran_awal, 1)))
+                    if w != surf.get_width() or h != surf.get_height():
+                        surf = pygame.transform.smoothscale(surf, (w, h))
+                    if p.memudar and sisa < 1.0:
+                        surf.set_alpha(max(0, min(255, int(sisa * 255))))
+                    screen.blit(surf, (int(gx - w / 2), int(gy - h / 2)))
+                except (pygame.error, ValueError, TypeError):
+                    pygame.draw.circle(screen, warna, (int(gx), int(gy)), int(ukuran))
+            else:
+                pygame.draw.circle(screen, warna, (int(gx), int(gy)), int(ukuran))
 
     def jumlah_aktif(self):
         """Jumlah partikel yang masih hidup."""
@@ -280,10 +319,74 @@ def buat_hujan(lebar_layar, jumlah=50, warna="biru"):
     return e
 
 
+def buat_trail(x=0, y=0, warna="cyan", umur=0.4):
+    """Emiter trail: partikel kecil memudar yang mengikuti posisi emiter — v6.6.
+
+    Gerakkan emiter lewat atribut x/y (atau set ke posisi objek tiap frame),
+    lalu update + gambar seperti biasa.
+    """
+    e = PartikelEmiter(x, y)
+    e.jumlah = 3
+    e.kecepatan = 5
+    e.kecepatan_bervariasi = 0.5
+    e.umur = umur
+    e.ukuran = 6
+    e.ukuran_bervariasi = 0.4
+    e.warna = warna
+    e.gravitasi = 0
+    e.gesekan = 0
+    e.emisi_per_detik = 40
+    e.memudar = True
+    e.mengecil = True
+    return e
+
+
+def buat_asap(x=0, y=0, warna="abu-abu", umur=1.4):
+    """Emiter asap: naik pelan, membesar, memudar — v6.6."""
+    e = PartikelEmiter(x, y)
+    e.jumlah = 2
+    e.kecepatan = 25
+    e.kecepatan_bervariasi = 0.6
+    e.umur = umur
+    e.umur_bervariasi = 0.3
+    e.ukuran = 10
+    e.ukuran_bervariasi = 0.5
+    e.warna = warna
+    e.gravitasi = -30          # naik ke atas
+    e.gesekan = 0.5
+    e.sudut_mulai = 270        # ke atas
+    e.sudut_rentang = 40
+    e.emisi_per_detik = 15
+    e.warna_awal = (170, 170, 170)
+    e.warna_akhir = (90, 90, 90)
+    return e
+
+
+def buat_bintang(x=0, y=0, warna="emas"):
+    """Emiter percikan bintang (sparkle) — v6.6."""
+    e = PartikelEmiter(x, y)
+    e.jumlah = 12
+    e.kecepatan = 160
+    e.kecepatan_bervariasi = 0.7
+    e.umur = 0.7
+    e.umur_bervariasi = 0.4
+    e.ukuran = 3
+    e.ukuran_bervariasi = 0.5
+    e.warna = warna
+    e.gravitasi = 40
+    e.gesekan = 0.3
+    e.emisi_per_detik = 0
+    e.ledak(x, y, 12)
+    return e
+
+
 module = SimpleNamespace(
     Partikel=Partikel,
     PartikelEmiter=PartikelEmiter,
     buat_emiter=buat_emiter,
     buat_ledakan=buat_ledakan,
     buat_hujan=buat_hujan,
+    buat_trail=buat_trail,
+    buat_asap=buat_asap,
+    buat_bintang=buat_bintang,
 )
