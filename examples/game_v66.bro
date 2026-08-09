@@ -228,9 +228,9 @@ fungsi gambar_utama(screen)
     teks_damage.gambar(screen)
 
     # UI
-    grafis.tulis_teks("Skor: " + skor, 12, 10, "putih", 26)
-    grafis.tulis_teks("Tembakan: " + tembakan, 12, 44, "kuning", 20)
-    grafis.tulis_teks("Skor tertinggi: " + skor_tinggi.skor_tertinggi(),
+    grafis.tulis_teks("Skor: " + teks(skor), 12, 10, "putih", 26)
+    grafis.tulis_teks("Tembakan: " + teks(tembakan), 12, 44, "kuning", 20)
+    grafis.tulis_teks("Skor tertinggi: " + teks(skor_tinggi.skor_tertinggi()),
                       12, 72, "emas", 18)
     tip.gambar(screen)
     kilat.gambar(screen)

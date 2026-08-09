@@ -464,6 +464,19 @@ class TestKameraV66:
         cam.update(0.1)
         assert cam.x > 0.0
 
+    def test_follow_bodi_fisika_regresi(self):
+        """Regresi: set_target dengan Bodi fisika (punya .posisi bukan .x)
+        harus bekerja — error 'Bodi' object has no attribute 'x'."""
+        fisika = _mod("fisika")
+        kamera = _mod("kamera")
+        bodi = fisika.buat_bodi(150, 80, massa=1)
+        cam = kamera.buat_kamera(800, 600)
+        cam.kecepatan_smooth = 10.0
+        cam.set_target(bodi, deadzone=(120, 80))
+        cam.update(0.1)
+        assert cam.x > 0.0  # tidak crash
+        assert cam.deadzone == (120.0, 80.0)
+
 
 # ============================================================
 # 7. game — fixed timestep, screenshot, resize
@@ -651,6 +664,20 @@ class TestTombolGambar:
         tb = ui.Tombol("MULAI", 10, 10, 100, 40, gambar="/tmp/ga_ada.png")
         assert tb.update(50, 30, diklik=True)
         assert tb.ditekan
+
+    def test_gambar_tetap_method_regresi(self):
+        """Regresi: atribut `gambar` (v6.6) sempat menimpa method `gambar()`
+        sehingga tombol tidak bisa digambar ("Objek tidak memiliki method
+        'gambar'"). Sekarang gambar latar disimpan di `gambar_latar`."""
+        ui = _mod("ui")
+        tb = ui.Tombol("MULAI", 10, 10, 100, 40)
+        assert callable(tb.gambar)  # method, bukan atribut None
+        assert tb.gambar_latar is None
+        assert callable(tb.update)
+        # Tombol bergambar juga tetap punya method gambar()
+        tb2 = ui.Tombol("OK", 0, 0, 50, 20, gambar="/tmp/ga_ada2.png")
+        assert callable(tb2.gambar)
+        assert tb2.gambar_latar == "/tmp/ga_ada2.png"
 
 
 # ============================================================

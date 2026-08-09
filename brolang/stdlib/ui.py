@@ -200,7 +200,10 @@ class Tombol:
         self.ketuk_berat = None  # SimpleNamespace(on_klik=...) custom
         # v6.6: gambar latar (path string / Surface). Jika diset, tombol
         # digambar dari gambar (dengan overlay hover) bukan kotak warna.
-        self.gambar = gambar
+        # Catatan: dinamai `gambar_latar` (BUKAN `gambar`) supaya tidak
+        # menimpa method gambar() — bug yang bikin tombol.kosong.gambar
+        # dilaporkan "Objek tidak memiliki method 'gambar'".
+        self.gambar_latar = gambar
         self._gambar_dimuat = False
 
     def _muat_gambar(self):
@@ -208,13 +211,13 @@ class Tombol:
         if self._gambar_dimuat:
             return
         self._gambar_dimuat = True
-        if self.gambar is None or pygame is None:
+        if self.gambar_latar is None or pygame is None:
             return
-        if isinstance(self.gambar, str):
+        if isinstance(self.gambar_latar, str):
             try:
-                self.gambar = pygame.image.load(self.gambar).convert_alpha()
+                self.gambar_latar = pygame.image.load(self.gambar_latar).convert_alpha()
             except (pygame.error, FileNotFoundError, OSError):
-                self.gambar = None
+                self.gambar_latar = None
 
     def berisi(self, px, py):
         """Cek apakah titik berada di dalam tombol."""
@@ -262,13 +265,13 @@ class Tombol:
         if not self.terlihat or pygame is None:
             return
         warna = self.warna_hover if self.hover else self.warna
-        if self.gambar is not None:
+        if self.gambar_latar is not None:
             # Tombol bergambar (v6.6): gambar discale ke ukuran tombol
             self._muat_gambar()
-            if self.gambar is not None:
+            if self.gambar_latar is not None:
                 try:
                     img = pygame.transform.smoothscale(
-                        self.gambar, (int(self.lebar), int(self.tinggi)))
+                        self.gambar_latar, (int(self.lebar), int(self.tinggi)))
                     if self.hover:
                         overlay = pygame.Surface((int(self.lebar), int(self.tinggi)),
                                                  pygame.SRCALPHA)

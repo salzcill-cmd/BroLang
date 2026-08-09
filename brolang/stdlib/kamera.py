@@ -55,7 +55,8 @@ class Kamera:
         """Set target kamera (objek yang diikuti).
 
         Args:
-            target: Objek dengan atribut .x dan .y.
+            target: Objek dengan atribut .x dan .y (Sprite, SimpleNamespace,
+                dsb) ATAU .posisi.x dan .posisi.y (Bodi dari modul fisika).
             deadzone: Opsional (lebar, tinggi) pixel. Kamera hanya bergerak
                 saat target keluar dari area deadzone di tengah layar —
                 membuat gerakan lebih stabil (v6.6).
@@ -64,6 +65,16 @@ class Kamera:
         if deadzone is not None:
             self.deadzone = (float(deadzone[0]), float(deadzone[1]))
         return self
+
+    def _target_xy(self):
+        """Koordinat (x, y) target — dukung .x/.y langsung atau .posisi (Bodi)."""
+        t = self.target
+        if t is None:
+            return None
+        posisi = getattr(t, "posisi", None)
+        if posisi is not None and hasattr(posisi, "x"):
+            return posisi.x, posisi.y
+        return t.x, t.y
 
     def set_lerp(self, kekuatan):
         """Atur kekuatan smoothing follow (semakin besar semakin cepat nempel)."""
@@ -133,8 +144,9 @@ class Kamera:
         """Update kamera."""
         # Follow target
         if self.target:
-            target_x = self.target.x + self.offset_x
-            target_y = self.target.y + self.offset_y
+            tx, ty = self._target_xy()
+            target_x = tx + self.offset_x
+            target_y = ty + self.offset_y
 
             if self.deadzone:
                 # Deadzone: kamera hanya mengejar saat target keluar area
@@ -276,13 +288,14 @@ class KameraSideScroll(Kamera):
 
     def update(self, dt):
         if self.target:
-            target_x = self.target.x + self.offset_x
+            tx, ty = self._target_xy()
+            target_x = tx + self.offset_x
             target_y = self.y
 
             if self.follow_x:
                 self.x += (target_x - self.x) * self.kecepatan_smooth * dt
             if self.follow_y:
-                target_y = self.target.y + self.offset_y
+                target_y = ty + self.offset_y
                 self.y += (target_y - self.y) * self.kecepatan_smooth * dt
 
         # Bounds check
