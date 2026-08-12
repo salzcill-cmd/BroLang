@@ -4,6 +4,70 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [6.9.0] - 2026-08-12
+
+### Added — Guard Clause untuk Semua Statement
+
+Guard clause (v6.8) diperluas dari `kembali`/`hentikan`/`lanjutkan` ke
+**semua statement sederhana** — statement hanya dijalankan saat kondisi
+benar:
+
+```bro
+fungsi cek(x)
+    tulis x jika x > 0            # print bersyarat
+    kembali x * 2 jika x > 0      # early return ber-guard (v6.8)
+selesai
+
+buat skor = 0
+skor = 100 jika benar            # reassignment bersyarat
+skor += 10 jika menang           # augmented bersyarat
+
+kelas Akun
+    fungsi beri_bonus(self, n)
+        self.bonus += n jika n > 0   # atribut objek ber-guard
+        kembali self.bonus
+    selesai
+selesai
+
+buat data = [1, 2, 3]
+data[1] += 10 jika benar          # index list ber-guard
+
+lempar "stok habis" jika stok <= 0   # raise bersyarat
+log(pesan) jika mode_debug           # panggilan fungsi bersyarat
+hapus cache jika basi                # delete bersyarat
+
+fungsi gen()
+    hasilkan v jika v > 0            # yield bersyarat di generator
+selesai
+```
+
+Statement yang didukung: `tulis`, `buat` (deklarasi + destructuring),
+reassignment (`x = v`), augmented (`x += v`), atribut objek
+(`self.x = v`), index list (`data[i] += v`), `lempar`, `hapus`,
+pemanggilan fungsi, dan `hasilkan`/`hasilkandari`. Bekerja di dalam loop,
+blok `jika`, dan single-line block.
+
+- **Tidak ambigu dengan ternary** — `a jika b lainnya c` tetap ternary
+  (`buat x = 5 jika benar lainnya 99` → `5`), `a jika b` di akhir
+  statement adalah guard. Ternary di dalam kurung/panggilan tetap normal.
+- **Nilai tidak dievaluasi saat guard salah** — konsisten di
+  interpreter, transpiler, dan VM.
+- **Desain**: statement ber-guard dibungkus menjadi `jika` biasa di level
+  AST, sehingga semua mesin mendukungnya tanpa perubahan tambahan.
+
+### Fixed — VM
+
+- **Kompilasi ternary di bytecode VM rusak** — `_emit_expr(TernaryNode)`
+  mengakses `node.body`/`node.else_body` (field yang tidak ada) sehingga
+  `buat x = a jika b lainnya c` melempar `AttributeError` di `bro build`.
+  Kini memakai `true_value`/`false_value` dan hasil konsisten dengan
+  interpreter & transpiler.
+
+### Notes
+
+- 43 test baru (`tests/unit/test_v69_language.py`) — total **997 test passing**.
+- Dokumentasi: `docs/FITUR_V69.md`, contoh `examples/fitur_v69.bro`.
+
 ## [6.8.0] - 2026-08-12
 
 ### Added — Fitur Bahasa Baru

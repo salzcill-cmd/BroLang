@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-6.8-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-6.9-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v6.8</h1>
+<h1 align="center">BroLang v6.9</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/954-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/997-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/115+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/135+Token%20Types-purple?style=flat-square" alt="tokens"/>
   <img src="https://img.shields.io/badge/43+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
@@ -45,10 +45,55 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 6.8.0
+bro --version    # BroLang 6.9.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v6.9?
+
+### Guard Clause untuk Semua Statement 🧩
+
+Guard clause (v6.8) diperluas ke **semua statement sederhana** — statement hanya dijalankan saat kondisi benar:
+
+```bro
+fungsi cek(x)
+    tulis x jika x > 0           # print bersyarat
+    kembali x * 2 jika x > 0     # early return (v6.8)
+selesai
+
+buat skor = 0
+skor = 100 jika benar           # reassignment bersyarat
+skor += 10 jika menang          # augmented bersyarat
+
+kelas Akun
+    fungsi beri_bonus(self, n)
+        self.bonus += n jika n > 0   # atribut objek ber-guard
+        kembali self.bonus
+    selesai
+selesai
+
+buat data = [1, 2, 3]
+data[1] += 10 jika benar        # index list ber-guard
+
+lempar "stok habis" jika stok <= 0   # raise bersyarat
+log(pesan) jika mode_debug           # panggilan fungsi bersyarat
+hapus cache jika basi                # delete bersyarat
+```
+
+Statement yang didukung: `tulis`, `buat` (deklarasi + destructuring),
+reassignment, augmented assignment, atribut objek, index list, `lempar`,
+`hapus`, pemanggilan fungsi, dan `hasilkan` (yield). Tidak ambigu dengan
+ternary — `a jika b lainnya c` tetap ternary:
+
+```bro
+buat a = 5 jika benar lainnya 99   # ternary → a = 5
+buat b = 5 jika salah lainnya 99   # ternary → b = 99
+```
+
+Detail: `docs/FITUR_V69.md`.
 
 ---
 
@@ -1203,6 +1248,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | [Dasar Bahasa](docs/DASAR.md) | Tipe data, variabel, operator |
 | [Fungsi](docs/FUNGSI.md) | Fungsi, lambda, closures |
 | [Class & OOP](docs/OOP.md) | OOP & inheritance |
+| [Fitur v6.9](docs/FITUR_V69.md) | Guard clause untuk semua statement (tulis, assignment, lempar, dst) |
 | [Fitur v6.8](docs/FITUR_V68.md) | Guard clause, floor division //, augmented pada atribut/index, BGM prosedural |
 | [Fitur v6.7](docs/FITUR_V67.md) | Rest/spread parameter, multiple return, VM lengkap, screen shake, synth audio |
 | [Game Dev v6.6](docs/GAME_V66.md) | Pathfinding A*, efek layar, fisika AABB, parallax, fixed timestep, UI baru |
@@ -1296,7 +1342,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**954 test cases, semua passing!** (termasuk 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
+**997 test cases, semua passing!** (termasuk 43 test v6.9: guard clause statement umum; 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
 
 ---
 
@@ -1320,7 +1366,7 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v6.8** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v6.9** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>

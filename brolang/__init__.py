@@ -11,6 +11,15 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v6.9 (Fitur Bahasa):
+- Guard clause diperluas ke SEMUA statement sederhana: `tulis x jika c`,
+  `buat x = v jika c`, `x = 99 jika c`, `x += 5 jika c`, `self.x = v jika c`,
+  `data[i] += v jika c`, `lempar e jika c`, `hapus x jika c`, `f() jika c`,
+  `hasilkan x jika c` — statement hanya dijalankan saat kondisi benar
+- Tidak ambigu dengan ternary: `a jika b lainnya c` tetap ternary
+- Nilai statement tidak dievaluasi saat guard salah (konsisten antar mesin)
+- Perbaikan VM: kompilasi ternary (TernaryNode) kini benar di bytecode VM
+
 Fitur v6.8 (Fitur Bahasa + Bug Fix + Game Dev):
 - Guard clause: `kembali x jika c`, `hentikan jika c`, `lanjutkan jika c`
 - Floor division: `//` dan `//=` (17 // 5 = 3, -17 // 5 = -4)
@@ -81,7 +90,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "6.8.0"
+__version__ = "6.9.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

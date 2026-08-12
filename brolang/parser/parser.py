@@ -217,11 +217,11 @@ class Parser:
             return self._parse_decorated()
 
         if token_type == TokenType.TOKEN_BUAT:
-            return self._parse_assignment()
+            return self._maybe_guard(self._parse_assignment())
         elif token_type == TokenType.TOKEN_KONSTANTA:
-            return self._parse_assignment(is_const=True)
+            return self._maybe_guard(self._parse_assignment(is_const=True))
         elif token_type == TokenType.TOKEN_TULIS:
-            return self._parse_print()
+            return self._maybe_guard(self._parse_print())
         elif token_type == TokenType.TOKEN_JIKA:
             return self._parse_if()
         elif token_type == TokenType.TOKEN_SELAMA:
@@ -258,11 +258,11 @@ class Parser:
         elif token_type == TokenType.TOKEN_KEMBALI:
             return self._parse_return()
         elif token_type == TokenType.TOKEN_HASILKAN:
-            return self._parse_yield()
+            return self._maybe_guard(self._parse_yield())
         elif token_type == TokenType.TOKEN_HASILKANDARI:
-            return self._parse_yield_from()
+            return self._maybe_guard(self._parse_yield_from())
         elif token_type == TokenType.TOKEN_LEMPAR:
-            return self._parse_raise()
+            return self._maybe_guard(self._parse_raise())
         elif token_type == TokenType.TOKEN_GLOBAL:
             return self._parse_global()
         elif token_type == TokenType.TOKEN_NONLOKAL:
@@ -285,7 +285,7 @@ class Parser:
             self._advance()
             return PassNode(line=self.current_token.line, column=self.current_token.column)
         elif token_type == TokenType.TOKEN_HAPUS:
-            return self._parse_del()
+            return self._maybe_guard(self._parse_del())
         elif token_type == TokenType.TOKEN_PASTIKAN:
             return self._parse_assert()
         # v5.0 Keywords
@@ -321,37 +321,40 @@ class Parser:
             # Could be reassignment, augmented assignment, method call, or expression
             # Peek ahead to see if it's assignment
             if self._peek(1) == TokenType.TOKEN_ASSIGN:
-                return self._parse_reassignment()
+                return self._maybe_guard(self._parse_reassignment())
             elif self._peek(1) in Parser.AUGMENTED_OPS:
-                return self._parse_augmented_assignment()
+                return self._maybe_guard(self._parse_augmented_assignment())
             elif self._peek(1) == TokenType.TOKEN_DOT:
                 # Could be self.attr = value atau self.attr += 1 (v6.8)
-                # Parse the full expression first
-                expr = self._parse_expression()
+                # Parse target ekspresi (v6.9: guard-aware supaya
+                # `self.x = 5 jika c` dan `obj.m() jika c` terbaca benar)
+                expr = self._parse_value_with_guard()
                 if self._check(TokenType.TOKEN_ASSIGN):
                     # It's an assignment to a dotted target
                     self._advance()  # =
-                    value = self._parse_expression()
-                    return AssignmentNode(target=expr, value=value, is_declaration=False,
-                                          line=expr.line, column=expr.column)
+                    value = self._parse_value_with_guard()
+                    return self._maybe_guard(AssignmentNode(
+                        target=expr, value=value, is_declaration=False,
+                        line=expr.line, column=expr.column))
                 if self._check(*Parser.AUGMENTED_OPS):
                     # self.attr += 1 (v6.8: augmented pada atribut objek)
-                    return self._parse_augmented_from_target(expr)
-                return expr
+                    return self._maybe_guard(self._parse_augmented_from_target(expr))
+                return self._maybe_guard(expr)
             else:
-                expr = self._parse_expression()
+                expr = self._parse_value_with_guard()
                 if self._check(TokenType.TOKEN_ASSIGN):
                     # Assignment ke index/ekspresi: d[1] = 99 (target IndexNode)
                     self._advance()  # =
-                    value = self._parse_expression()
-                    return AssignmentNode(target=expr, value=value, is_declaration=False,
-                                          line=expr.line, column=expr.column)
+                    value = self._parse_value_with_guard()
+                    return self._maybe_guard(AssignmentNode(
+                        target=expr, value=value, is_declaration=False,
+                        line=expr.line, column=expr.column))
                 if self._check(*Parser.AUGMENTED_OPS):
                     # data[i] += 1 (v6.8: augmented pada index list)
-                    return self._parse_augmented_from_target(expr)
-                return expr
+                    return self._maybe_guard(self._parse_augmented_from_target(expr))
+                return self._maybe_guard(expr)
         else:
-            return self._parse_expression()
+            return self._maybe_guard(self._parse_value_with_guard())
 
     # ============= Assignment =============
 
@@ -408,7 +411,8 @@ class Parser:
 
         value = None
         if self._match(TokenType.TOKEN_ASSIGN):
-            value = self._parse_expression()
+            # v6.9: guard-aware agar `buat x = 5 jika c` terbaca benar
+            value = self._parse_value_with_guard()
         else:
             value = KosongNode(line=self.current_token.line, column=self.current_token.column)
 
@@ -454,7 +458,7 @@ class Parser:
             solution="Gunakan: buat [a, b] = [1, 2]",
             example="buat [x, y] = [10, 20]",
         )
-        value = self._parse_expression()
+        value = self._parse_value_with_guard()
 
         return DestructuringAssignmentNode(
             targets=targets,
@@ -470,7 +474,7 @@ class Parser:
         target = IdentifierNode(name=id_token.value, line=id_token.line, column=id_token.column)
         self._expect(TokenType.TOKEN_ASSIGN,
                      message=f"Setelah variabel, harus ada '='.")
-        value = self._parse_expression()
+        value = self._parse_value_with_guard()
         return AssignmentNode(
             target=target,
             value=value,
@@ -500,7 +504,7 @@ class Parser:
         }
         operator = op_map[op_token.type]
 
-        value = self._parse_expression()
+        value = self._parse_value_with_guard()
         return AugmentedAssignmentNode(
             target=target,
             operator=operator,
@@ -512,7 +516,7 @@ class Parser:
     def _parse_raise(self) -> RaiseNode:
         """lempar expression"""
         token = self._advance()  # lempar
-        value = self._parse_expression()
+        value = self._parse_value_with_guard()
         return RaiseNode(value=value, line=token.line, column=token.column)
 
     def _parse_global(self) -> GlobalNode:
@@ -542,7 +546,7 @@ class Parser:
     def _parse_del(self) -> DelNode:
         """hapus target"""
         token = self._advance()  # hapus
-        target = self._parse_expression()
+        target = self._parse_value_with_guard()
         return DelNode(target=target, line=token.line, column=token.column)
 
     def _parse_assert(self) -> AssertNode:
@@ -567,13 +571,13 @@ class Parser:
     # ============= Print =============
 
     def _parse_print(self) -> PrintNode:
-        """tulis expression ("," expression)*"""
+        """tulis expression ("," expression)* (v6.9: dukung guard `tulis x jika c`)"""
         token = self._advance()  # tulis
-        expr = self._parse_expression()
+        expr = self._parse_value_with_guard()
         args = [expr]
 
         while self._match(TokenType.TOKEN_COMMA):
-            args.append(self._parse_expression())
+            args.append(self._parse_value_with_guard())
 
         return PrintNode(
             expression=args[0],
@@ -1465,13 +1469,13 @@ class Parser:
         guard = None
         if not self._check(TokenType.TOKEN_NEWLINE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF, TokenType.TOKEN_SELESAI):
             # Ambigu: `kembali x jika c lainnya y` = ternary, sedangkan
-            # `kembali x jika c` = guard clause. Kalau `jika` di level paling
-            # luar tidak diikuti `lainnya`, nilai di-parse dengan `_parse_or`
-            # (ternary ada DI ATAS _parse_or di rantai precedence), sehingga
-            # token `jika` tersisa untuk dibaca sebagai guard — dan ternary
-            # di dalam kurung/panggilan fungsi tetap berfungsi normal.
+            # `kembali x jika c` = guard clause. `_parse_value_with_guard`
+            # (v6.9) membedakannya: kalau `jika` di level paling luar tidak
+            # diikuti `lainnya`, nilai di-parse tanpa ternary sehingga token
+            # `jika` tersisa untuk dibaca sebagai guard — pipeline &
+            # null-coalescing tetap diproses (`kembali x |> f jika c`).
             guard_mode = not self._baris_ada_ternary()
-            first = self._parse_or() if guard_mode else self._parse_expression()
+            first = self._parse_value_with_guard()
             # Multiple return: kembali a, b -> tuple (untuk destructuring di pemanggil)
             if self._match(TokenType.TOKEN_COMMA):
                 elements = [first]
@@ -1481,7 +1485,7 @@ class Parser:
                         break
                     # Di guard mode, elemen tuple juga di-parse tanpa ternary
                     # supaya `kembali a, b jika c` tetap berfungsi.
-                    elements.append(self._parse_or() if guard_mode else self._parse_expression())
+                    elements.append(self._parse_value_with_guard())
                     if not self._match(TokenType.TOKEN_COMMA):
                         break
                 value = TupleNode(elements=elements, line=token.line, column=token.column)
@@ -1492,6 +1496,55 @@ class Parser:
                 guard = self._parse_expression()
 
         return ReturnNode(value=value, guard=guard, line=token.line, column=token.column)
+
+    # ============= V6.9: Guard Clause pada Statement Umum =============
+
+    def _parse_value_with_guard(self) -> ASTNode:
+        """Parse nilai statement yang bisa diakhiri guard clause (v6.9).
+
+        Kalau sisa baris punya `jika` di kedalaman 0 yang BUKAN ternary
+        (tidak diikuti `lainnya`), ekspresi di-parse tanpa ternary sehingga
+        token `jika` tersisa untuk dibaca statement sebagai guard:
+            tulis x jika c     -> guard (statement dibungkus jika)
+            tulis x jika c lainnya d  -> ternary (ekspresi)
+
+        Pipeline & null-coalescing tetap diproses agar
+        `tulis x |> f jika c` tetap berfungsi.
+        """
+        if self._baris_ada_ternary():
+            return self._parse_expression()
+        left = self._parse_or()
+        while self._check(TokenType.TOKEN_QUESTION):
+            self._advance()
+            right = self._parse_or()
+            left = NullCoalescingNode(left=left, right=right,
+                                      line=left.line, column=left.column)
+        while self._check(TokenType.TOKEN_PIPE_GREATER):
+            self._advance()
+            right = self._parse_or()
+            left = PipelineNode(left=left, right=right,
+                                line=left.line, column=left.column)
+        return left
+
+    def _maybe_guard(self, stmt: ASTNode) -> ASTNode:
+        """Guard clause statement umum (v6.9): `tulis x jika c`, `x = 5 jika c`,
+        `lempar e jika c`, dst.
+
+        Statement dibungkus menjadi IfNode (`jika c maka <stmt> selesai`)
+        sehingga semua mesin (interpreter, transpiler, VM bytecode, compiler
+        `bro build`) otomatis mendukungnya tanpa perubahan tambahan.
+
+        Dipanggil hanya dari _parse_statement — bukan untuk `kembali`/
+        `hentikan`/`lanjutkan` yang sudah menangani guard sendiri, dan bukan
+        untuk statement blok (jika/selama/fungsi/...) yang punya `selesai`.
+        """
+        if self._check(TokenType.TOKEN_JIKA):
+            token = self._advance()  # jika
+            guard = self._parse_expression()
+            return IfNode(condition=guard, body=[stmt],
+                          line=getattr(stmt, "line", token.line),
+                          column=getattr(stmt, "column", token.column))
+        return stmt
 
     def _baris_ada_ternary(self) -> bool:
         """Scan token sisa baris (v6.8): apakah ada `jika` di kedalaman 0 yang
@@ -2257,18 +2310,18 @@ class Parser:
     # ============= V4: Yield =============
 
     def _parse_yield(self) -> YieldNode:
-        """hasilkan expression?"""
+        """hasilkan expression? (v6.9: dukung guard `hasilkan x jika c`)"""
         token = self._advance()  # hasilkan
         value = None
         if not self._check(TokenType.TOKEN_NEWLINE, TokenType.TOKEN_DEDENT,
                            TokenType.TOKEN_EOF, TokenType.TOKEN_SELESAI):
-            value = self._parse_expression()
+            value = self._parse_value_with_guard()
         return YieldNode(value=value, line=token.line, column=token.column)
 
     def _parse_yield_from(self) -> YieldFromNode:
-        """hasilkandari expression"""
+        """hasilkandari expression (v6.9: dukung guard `hasilkandari x jika c`)"""
         token = self._advance()  # hasilkandari
-        value = self._parse_expression()
+        value = self._parse_value_with_guard()
         return YieldFromNode(value=value, line=token.line, column=token.column)
 
     # ============= V4: Walrus Operator =============

@@ -1121,11 +1121,11 @@ class Compiler:
             self._emit_expr(node.condition)
             jump_else = len(self.bytecode.instructions)
             self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0)
-            self._emit_expr(node.body)
+            self._emit_expr(node.true_value)
             jump_end = len(self.bytecode.instructions)
             self.bytecode.add(Op.JUMP, 0)
             self.bytecode.instructions[jump_else].arg = len(self.bytecode.instructions)
-            self._emit_expr(node.else_body)
+            self._emit_expr(node.false_value)
             self.bytecode.instructions[jump_end].arg = len(self.bytecode.instructions)
 
         elif isinstance(node, StructInstanceNode):
