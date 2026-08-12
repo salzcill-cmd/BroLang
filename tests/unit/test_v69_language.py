@@ -530,6 +530,54 @@ tulis hasil
         assert interp_out == transp_out, f"interp={interp_out} transp={transp_out}"
         assert interp_out == ["[1, 2, 3, 1, 2, 9]"], interp_out
 
+    def test_yield_di_coba_konsisten_interpreter_vs_transpiler(self):
+        # Fix v6.9: yield di dalam blok coba/tangkap di interpreter kini
+        # konsisten dengan transpiler (Python yield + try/except)
+        code = '''
+fungsi gen()
+    coba
+        hasilkan 1
+        hasilkan 2
+        lempar "boom"
+    tangkap e
+        hasilkan 99
+    selesai
+    hasilkandari [7, 8]
+selesai
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis hasil
+'''
+        interp_out = [o for o in run_code(code) if o.strip()]
+        transp_out = self._run_full(code)
+        assert interp_out == transp_out, f"interp={interp_out} transp={transp_out}"
+        assert interp_out == ["[1, 2, 99, 7, 8]"], interp_out
+
+    def test_yield_di_catch_konsisten_interpreter_vs_transpiler(self):
+        # Yield hanya di handler tangkap — fungsi harus tetap terdeteksi
+        # sebagai generator (fix _has_yield_in_body) dan konsisten
+        code = '''
+fungsi gen()
+    coba
+        lempar "boom"
+    tangkap e
+        hasilkan 7
+        hasilkan 8
+    selesai
+selesai
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis hasil
+'''
+        interp_out = [o for o in run_code(code) if o.strip()]
+        transp_out = self._run_full(code)
+        assert interp_out == transp_out, f"interp={interp_out} transp={transp_out}"
+        assert interp_out == ["[7, 8]"], interp_out
+
 
 # ============= Semantic Analyzer =============
 

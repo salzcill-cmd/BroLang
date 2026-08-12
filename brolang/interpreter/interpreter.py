@@ -236,22 +236,41 @@ def _struct_init(instance, fields, args):
 
 
 def _has_yield_in_body(body):
-    """Cek apakah ada yield atau yield-from di dalam fungsi."""
+    """Cek apakah ada yield atau yield-from di dalam fungsi.
+
+    Rekursif ke semua sub-block: if/elif/else, loop, try/catch/finally,
+    match/switch, with, dst. (v6.9: kini menjangkau catch_body,
+    finally_body, elif_bodies, dan except_clauses — sebelumnya yield di
+    cabang tersebut tidak terdeteksi sehingga fungsi tidak didaftarkan
+    sebagai generator dan yield berakhir sebagai error runtime.)
+    """
     for stmt in body:
         if isinstance(stmt, (YieldNode, YieldFromNode)):
             return True
-        if hasattr(stmt, "body") and _has_yield_in_body(stmt.body):
+        # Atribut berisi list statement langsung
+        for attr in ("body", "else_body", "catch_body", "finally_body"):
+            sub = getattr(stmt, attr, None)
+            if sub and _has_yield_in_body(sub):
+                return True
+        # IfNode.elif_bodies: list of list statement
+        for sub in getattr(stmt, "elif_bodies", None) or []:
+            if _has_yield_in_body(sub):
+                return True
+        # if_branches: list of (kondisi, blok)
+        for _cond, block in getattr(stmt, "if_branches", None) or []:
+            if _has_yield_in_body(block):
+                return True
+        # MultiExceptNode.except_clauses: list TypedExceptNode (punya .body)
+        for clause in getattr(stmt, "except_clauses", None) or []:
+            if hasattr(clause, "body") and _has_yield_in_body(clause.body):
+                return True
+        # MatchNode/SwitchNode: cases [(pattern, body)] atau [(pattern, body, guard)]
+        for case in getattr(stmt, "cases", None) or []:
+            if len(case) >= 2 and _has_yield_in_body(case[1]):
+                return True
+        dflt = getattr(stmt, "default_case", None)
+        if dflt and _has_yield_in_body(dflt):
             return True
-        if hasattr(stmt, "else_body") and stmt.else_body and _has_yield_in_body(stmt.else_body):
-            return True
-        if hasattr(stmt, "if_branches") and stmt.if_branches:
-            for cond, block in stmt.if_branches:
-                if _has_yield_in_body(block):
-                    return True
-        if hasattr(stmt, "except_handlers") and stmt.except_handlers:
-            for handler in stmt.except_handlers:
-                if hasattr(handler, "body") and _has_yield_in_body(handler.body):
-                    return True
     return False
 
 
@@ -2798,8 +2817,21 @@ class Interpreter(ASTVisitor):
     # ============= V4: Generators =============
 
     def visit_YieldNode(self, node: YieldNode) -> Any:
-        """Yield statement — suspend generator dan return value."""
+        """Yield statement — kumpulkan nilai ke generator aktif (v6.9).
+
+        Sebelumnya selalu raise YieldException — yang tertangkap
+        `except Exception` di visit_TryNode, sehingga yield di dalam blok
+        `coba` menghentikan blok dan malah menjalankan handler catch
+        (atau error jika tidak ada catch). Kini nilai ditambahkan langsung
+        ke koleksi generator aktif (konsisten dengan hasilkandari), dan
+        eksekusi blok berlanjut seperti `yield` Python.
+        """
         value = self.visit(node.value) if node.value else None
+        gen = getattr(self, "_active_generator", None)
+        if gen is not None and hasattr(gen, "_values"):
+            gen._values.append(value)
+            return None
+        # Fallback: yield di luar konteks generator aktif
         raise YieldException(value)
 
     def visit_YieldFromNode(self, node: YieldFromNode) -> Any:

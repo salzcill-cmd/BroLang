@@ -77,11 +77,25 @@ blok `jika`, dan single-line block.
   baru menangani statement if/elif/else per-statement seperti loop,
   sehingga `hasilkan` berurutan di dalam blok if kini semuanya dikoleksi
   (sebelumnya hanya yield pertama yang tercapai).
+- **Yield di dalam blok `coba`/`tangkap` salah atau error** — `hasilkan`
+  melempar `YieldException`, dan `visit_TryNode` menangkap `except
+  Exception`, sehingga yield di dalam blok try (1) menghentikan blok dan
+  memicu handler catch (output `[99]` alih-alih `[1, 2]`), atau (2) error
+  runtime bila yield hanya ada di handler `tangkap` (fungsi tidak
+  terdeteksi sebagai generator karena `_has_yield_in_body` tidak
+  menjangkau `catch_body`). Kini `visit_YieldNode` menambahkan nilai
+  langsung ke koleksi generator aktif (konsisten dengan `hasilkandari`),
+  dan `_has_yield_in_body` menjangkau semua sub-block:
+  `catch_body`/`finally_body` (TryNode), `elif_bodies` (IfNode),
+  `except_clauses` (MultiExceptNode), dan `cases`/`default_case`
+  (MatchNode/SwitchNode). Hasil konsisten dengan transpiler — mis.
+  `coba: hasilkan 1, hasilkan 2, lempar; tangkap: hasilkan 99` →
+  `[1, 2, 99]`, yield di `tangkap` → `[7, 8]`.
 
 ### Notes
 
-- 45 test baru (`tests/unit/test_v69_language.py`) + 6 test regresi generator
-  (`tests/unit/test_v5_language.py`) — total **1005 test passing**.
+- 47 test baru (`tests/unit/test_v69_language.py`) + 14 test regresi generator
+  (`tests/unit/test_v5_language.py`) — total **1015 test passing**.
 - Dokumentasi: `docs/FITUR_V69.md`, contoh `examples/fitur_v69.bro`.
 
 ## [6.8.0] - 2026-08-12

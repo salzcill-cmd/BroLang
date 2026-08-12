@@ -601,6 +601,188 @@ tulis(hasil)
         output = run_code(code)
         assert "[2, 3]" in output[0]
 
+    # ============= Yield di dalam coba/tangkap — fix v6.9 =============
+
+    def test_generator_yield_di_blok_coba_tanpa_error(self):
+        """Regresi v6.9: yield di dalam blok coba tidak lagi menghentikan blok
+        (sebelumnya YieldException tertangkap `except Exception` di
+        visit_TryNode, sehingga catch dieksekusi dan yield hilang)."""
+        code = '''
+fungsi gen()
+    coba
+        hasilkan 1
+        hasilkan 2
+    tangkap e
+        hasilkan 99
+    selesai
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[1, 2]" in output[0]
+
+    def test_generator_yield_di_coba_dan_error_setelahnya(self):
+        """Yield terkumpul sebelum error; catch tetap menangkap error dan
+        menghasilkan nilai berikutnya (konsisten dengan Python)."""
+        code = '''
+fungsi gen()
+    coba
+        hasilkan 1
+        hasilkan 2
+        lempar "boom"
+    tangkap e
+        hasilkan 99
+    selesai
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[1, 2, 99]" in output[0]
+
+    def test_generator_yield_di_catch_handler(self):
+        """Yield di dalam handler tangkap tetap dikoleksi (fungsi terdeteksi
+        sebagai generator berkat _has_yield_in_body yang menjangkau
+        catch_body)."""
+        code = '''
+fungsi gen()
+    coba
+        lempar "boom"
+    tangkap e
+        hasilkan 7
+        hasilkan 8
+    selesai
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[7, 8]" in output[0]
+
+    def test_generator_yield_from_di_coba_error_setelahnya(self):
+        """hasilkandari di dalam coba + error setelahnya: semua item dari
+        hasilkandari terkumpul, catch tetap berjalan."""
+        code = '''
+fungsi gen()
+    coba
+        hasilkandari [1, 2, 3]
+        lempar "boom"
+    tangkap e
+        hasilkan 9
+    selesai
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[1, 2, 3, 9]" in output[0]
+
+    def test_generator_yield_di_finally(self):
+        """Yield di blok akhirnya (finally) tetap dikoleksi setelah try sukses."""
+        code = '''
+fungsi gen()
+    coba
+        hasilkan 1
+    tangkap e
+        hasilkan 99
+    akhirnya
+        hasilkan 5
+    selesai
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[1, 5]" in output[0]
+
+    def test_generator_yield_di_elif(self):
+        """Yield di cabang lainnya jika (elif) dikoleksi — _has_yield_in_body
+        kini menjangkau elif_bodies."""
+        code = '''
+fungsi gen(x)
+    jika x == 1 maka
+        hasilkan 10
+    lainnya jika x == 2 maka
+        hasilkan 20
+        hasilkan 21
+    lainnya
+        hasilkan 30
+    selesai
+selesai
+
+buat hasil = []
+untuk x dalam gen(2) lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[20, 21]" in output[0]
+
+    def test_generator_yield_di_kecuali_modern(self):
+        """Yield di handler kecuali (MultiExceptNode modern) dikoleksi."""
+        code = '''
+fungsi gen()
+    coba
+        lempar "boom"
+    kecuali
+        hasilkan 7
+        hasilkan 8
+    selesai
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[7, 8]" in output[0]
+
+    def test_generator_error_sebelum_yield(self):
+        """Error sebelum yield: catch berjalan, yield di catch dikoleksi,
+        yield di try (tidak terjangkau) tidak muncul."""
+        code = '''
+fungsi gen()
+    coba
+        lempar "boom"
+        hasilkan 1
+    tangkap e
+        hasilkan 2
+    selesai
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[2]" in output[0]
+
 
 # ============= Iterator Protocol =============
 

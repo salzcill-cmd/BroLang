@@ -20,8 +20,11 @@ Fitur v6.9 (Fitur Bahasa):
 - Nilai statement tidak dievaluasi saat guard salah (konsisten antar mesin)
 - Perbaikan VM: kompilasi ternary (TernaryNode) kini benar di bytecode VM
 - Perbaikan generator: `hasilkandari` (yield from) kini menghasilkan SEMUA
-  item (sebelumnya hanya elemen pertama), dan yield di dalam blok `jika`
-  tidak lagi memotong sisa statement blok
+  item (sebelumnya hanya elemen pertama), yield di dalam blok `jika`
+  tidak lagi memotong sisa statement blok, dan yield di dalam blok
+  `coba`/`tangkap`/`akhirnya` kini berfungsi & konsisten dengan transpiler
+  (sebelumnya yield di try memicu handler catch; yield hanya di `tangkap`
+  error karena fungsi tidak terdeteksi sebagai generator)
 
 Fitur v6.8 (Fitur Bahasa + Bug Fix + Game Dev):
 - Guard clause: `kembali x jika c`, `hentikan jika c`, `lanjutkan jika c`
