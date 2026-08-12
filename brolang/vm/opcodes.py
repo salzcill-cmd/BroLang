@@ -35,6 +35,7 @@ class Op(IntEnum):
     SUB = auto()
     MUL = auto()
     DIV = auto()
+    FLOOR_DIV = auto()  # v6.8: //
     MOD = auto()
     POW = auto()
     NEG = auto()
@@ -102,6 +103,9 @@ class Op(IntEnum):
     MAKE_DICT = auto()      # Create dict from N key-value pairs
     INDEX_GET = auto()      # Get index: obj[key]
     INDEX_SET = auto()      # Set index: obj[key] = value
+    DICT_GET = auto()       # dict.get(key) dengan default None (v6.7 destructuring objek)
+    BUILD_LIST_SPREAD = auto()  # Buat list dari pasangan (is_spread, value) (v6.7)
+    CALL_SPREAD = auto()    # Panggil fungsi dengan list argumen (v6.7)
     SLICE = auto()          # Slice operation
     ASSERT = auto()         # Assert statement
     DEL_VAR = auto()        # Delete variable
@@ -121,6 +125,9 @@ class Op(IntEnum):
     AUG_SUB = auto()        # x -= y
     AUG_MUL = auto()        # x *= y
     AUG_DIV = auto()        # x /= y
+    AUG_FLOOR_DIV = auto()  # v6.8: x //= y
+    AUG_MOD = auto()        # x %= y
+    AUG_POW = auto()        # x **= y
 
 
 @dataclass(slots=True)

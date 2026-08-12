@@ -542,6 +542,37 @@ class TestTilemapV66:
         p.bersihkan_objek()
         assert len(p.objek) == 0
 
+    def test_dari_file_kosong_tidak_crash(self, tmp_path):
+        """Regresi: `dari_file` pada file kosong / hanya baris kosong harus
+        mengembalikan peta kosong, bukan ValueError: max() iterable argument
+        is empty."""
+        tilemap = _mod("tilemap")
+        # File benar-benar kosong
+        path = tmp_path / "kosong.txt"
+        path.write_text("", encoding="utf-8")
+        peta = tilemap.dari_file(str(path))
+        assert peta.lebar >= 1 and peta.tinggi >= 1
+        assert peta.banyak_tile(0) >= 1  # peta valid, bisa dipakai
+        # File hanya baris kosong/spasi
+        path2 = tmp_path / "blank.txt"
+        path2.write_text("\n\n  \n", encoding="utf-8")
+        peta2 = tilemap.dari_file(str(path2))
+        assert peta2.lebar >= 1 and peta2.tinggi >= 1
+
+    def test_ukuran_tile_nol_tidak_crash(self):
+        """Regresi: ukuran_tile 0 / negatif harus di-guard ke minimum 1,
+        bukan ZeroDivisionError di pixel_ke_tile / check_collision."""
+        tilemap = _mod("tilemap")
+        p = tilemap.buat_peta(5, 5, 0)
+        assert p.ukuran_tile == 1
+        assert p.pixel_ke_tile(10, 10) == (10, 10)
+        # Area kecil di dalam peta: tidak crash, tidak solid (peta kosong)
+        assert p.check_collision(0, 0, 2, 2) is False
+        p_neg = tilemap.buat_peta(5, 5, -10)
+        assert p_neg.ukuran_tile == 1
+        p_kecil = tilemap.buat_peta(0, 0, 32)
+        assert p_kecil.lebar >= 1 and p_kecil.tinggi >= 1
+
 
 # ============================================================
 # 6. kamera — parallax, lerp, deadzone

@@ -535,25 +535,25 @@ tulis kali2(5)
         out = self._run_vm(code)
         assert out == ["10"], out
 
-    def test_vm_pipeline_raises_clear_error(self):
-        """Pipeline di VM harus error jelas, bukan silent wrong result."""
-        from brolang.vm.compiler import Compiler
+    def test_vm_pipeline_works(self):
+        """Pipeline di VM (v6.7) harus berfungsi, bukan error."""
         code = '''
 buat hasil = 5 |> lalu(x) x * 2
+tulis hasil
 '''
-        ast = Parser(Lexer(code).tokenize()).parse()
-        with pytest.raises(NotImplementedError, match="Pipeline"):
-            Compiler().compile(ast)
+        out = self._run_vm(code)
+        assert out == ["10"], out
 
-    def test_vm_destructuring_raises_clear_error(self):
-        """Destructuring di VM harus error jelas, bukan silent no-op."""
-        from brolang.vm.compiler import Compiler
+    def test_vm_destructuring_works(self):
+        """Destructuring di VM (v6.7) harus berfungsi, bukan error."""
         code = '''
 buat [a, b] = [1, 2]
+tulis a + b
+buat {x, y} = {"x": 10, "y": 20}
+tulis x + y
 '''
-        ast = Parser(Lexer(code).tokenize()).parse()
-        with pytest.raises(NotImplementedError, match="Destructuring"):
-            Compiler().compile(ast)
+        out = self._run_vm(code)
+        assert out == ["3", "30"], out
 
 
 # ============= Regression: Konsistensi Interpreter vs Transpiler =============

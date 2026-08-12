@@ -31,6 +31,7 @@ from brolang.ast.nodes import (
     TypedExceptNode, MultiExceptNode,
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
+    ForEachNode,
     LambdaNode, ComprehensionNode, FStringNode,
     EnumNode, StructNode, StructInstanceNode,
     MatchNode, WildcardNode,
@@ -39,9 +40,13 @@ from brolang.ast.nodes import (
     PassNode, DelNode, AssertNode,
     TupleNode, SetNode, DictComprehensionNode,
     PipelineNode, DestructuringAssignmentNode,
+    # V4 Nodes
+    DecoratedFunctionNode,
     # V6.0 Nodes
     KelasErrorNode, ObjectPatternNode, BindingPatternNode,
     DestructuringPatternNode, TypeAliasNode,
+    # V6.7 Nodes
+    SpreadNode,
 )
 from brolang.exceptions import SemanticError
 from brolang.suggestions import saran_keyword
@@ -362,8 +367,8 @@ class SemanticAnalyzer(ASTVisitor):
         if left_type is None or right_type is None:
             return None
 
-        # Numerical operations
-        if op in ("+", "-", "*", "/", "%", "**"):
+        # Numerical operations (v6.8: // floor division)
+        if op in ("+", "-", "*", "/", "//", "%", "**"):
             if left_type in ("angka", "desimal") and right_type in ("angka", "desimal"):
                 if left_type == "desimal" or right_type == "desimal":
                     return "desimal"
@@ -491,6 +496,32 @@ class SemanticAnalyzer(ASTVisitor):
         self._exit_scope()
         self._loop_depth -= 1
 
+    def visit_ForEachNode(self, node: ForEachNode) -> None:
+        """Memeriksa for-each: untuk setiap item dalam iterable (v6.7 fix)."""
+        self.visit(node.iterable)
+
+        self._loop_depth += 1
+        self._enter_scope("for_each")
+        self.current_scope.define(
+            name=node.variable,
+            kind="variable",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+        if node.index_variable:
+            self.current_scope.define(
+                name=node.index_variable,
+                kind="variable",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
+        for stmt in node.body:
+            self.visit(stmt)
+        self._exit_scope()
+        self._loop_depth -= 1
+
     def visit_DoUntilNode(self, node: DoUntilNode) -> None:
         """Memeriksa do-until loop (v6.5): ulangi ... sampai kondisi."""
         self._loop_depth += 1
@@ -526,7 +557,7 @@ class SemanticAnalyzer(ASTVisitor):
         self._loop_depth -= 1
 
     def visit_BreakNode(self, node: BreakNode) -> None:
-        """Memeriksa break dalam loop."""
+        """Memeriksa break dalam loop. (v6.8: guard `hentikan jika x`)"""
         if self._loop_depth == 0:
             raise self._error(
                 message="'hentikan' harus digunakan di dalam loop.",
@@ -535,15 +566,21 @@ class SemanticAnalyzer(ASTVisitor):
                 solution="Gunakan 'hentikan' hanya di dalam 'untuk' atau 'selama'.",
                 example="selama x < 10 lakukan\n    jika x == 5 maka\n        hentikan\n    selesai\nselesai",
             )
+        guard = getattr(node, "guard", None)
+        if guard is not None:
+            self.visit(guard)
 
     def visit_ContinueNode(self, node: ContinueNode) -> None:
-        """Memeriksa continue dalam loop."""
+        """Memeriksa continue dalam loop. (v6.8: guard `lanjutkan jika x`)"""
         if self._loop_depth == 0:
             raise self._error(
                 message="'lanjutkan' harus digunakan di dalam loop.",
                 line=node.line,
                 column=node.column,
             )
+        guard = getattr(node, "guard", None)
+        if guard is not None:
+            self.visit(guard)
 
     def visit_PassNode(self, node: PassNode) -> None:
         """Pass statement - no-op."""
@@ -618,6 +655,17 @@ class SemanticAnalyzer(ASTVisitor):
                 type_hint=type_hint,
             )
 
+        # v6.7: rest parameter `...sisa` — tangkap argumen tambahan sebagai list
+        rest_param = getattr(node, 'rest_param', None)
+        if rest_param:
+            self.current_scope.define(
+                name=rest_param,
+                kind="parameter",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
+
         # v6.0: return type `fungsi f() -> Angka` — cek di visit_ReturnNode
         old_return_type = self._current_return_type
         self._current_return_type = getattr(node, 'return_type', None)
@@ -645,8 +693,17 @@ class SemanticAnalyzer(ASTVisitor):
         self.current_function = old_function
         self._current_return_type = old_return_type
 
+    def visit_DecoratedFunctionNode(self, node: DecoratedFunctionNode) -> None:
+        """Fungsi berdekorator: cek decorator lalu periksa seperti fungsi
+        biasa (v6.7 — sebelumnya analyzer tidak mengenali ini sebagai
+        konteks fungsi, sehingga 'kembali' di dalamnya ditolak)."""
+        for dec in node.decorators:
+            self.visit(dec)
+        self.visit_FunctionNode(node)
+
     def visit_ReturnNode(self, node: ReturnNode) -> None:
-        """Memeriksa return statement (v6.0: cek cocok dengan `-> Tipe`)."""
+        """Memeriksa return statement (v6.0: cek cocok dengan `-> Tipe`).
+        v6.8: guard `kembali x jika c` — kondisi ikut diperiksa."""
         if self.current_function is None and self.current_class is None:
             raise self._error(
                 message="'kembali' harus digunakan di dalam fungsi.",
@@ -654,6 +711,9 @@ class SemanticAnalyzer(ASTVisitor):
                 column=node.column,
                 solution="Gunakan 'kembali' hanya di dalam blok 'fungsi'.",
             )
+        guard = getattr(node, "guard", None)
+        if guard is not None:
+            self.visit(guard)
         if node.value:
             nilai_type = self.visit(node.value)
             if not self._anotasi_cocok(nilai_type, self._current_return_type):
@@ -793,12 +853,20 @@ class SemanticAnalyzer(ASTVisitor):
         self.current_class = old_class
 
     def visit_MethodNode(self, node: MethodNode) -> None:
-        """Memeriksa method dalam kelas."""
+        """Memeriksa method dalam kelas (v6.7: dukung rest param)."""
         self._enter_scope(f"method:{node.name}")
 
         for param in node.params:
             self.current_scope.define(
                 name=param,
+                kind="parameter",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
+        if node.rest_param:
+            self.current_scope.define(
+                name=node.rest_param,
                 kind="parameter",
                 line=node.line,
                 column=node.column,
@@ -969,11 +1037,19 @@ class SemanticAnalyzer(ASTVisitor):
     # ============= V2: Lambda =============
 
     def visit_LambdaNode(self, node: LambdaNode) -> str:
-        """Memeriksa lambda expression."""
+        """Memeriksa lambda expression (v6.7: dukung rest param)."""
         self._enter_scope("lambda")
         for param in node.params:
             self.current_scope.define(
                 name=param,
+                kind="parameter",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
+        if node.rest_param:
+            self.current_scope.define(
+                name=node.rest_param,
                 kind="parameter",
                 line=node.line,
                 column=node.column,
@@ -1194,6 +1270,13 @@ class SemanticAnalyzer(ASTVisitor):
         self.visit(node.left)
         self.visit(node.right)
         return None
+
+    # ============= V6.7: Spread Operator =============
+
+    def visit_SpreadNode(self, node: SpreadNode) -> str:
+        """Memeriksa spread operator (v6.7): ...nilai."""
+        self.visit(node.value)
+        return "list"
 
     def visit_DestructuringAssignmentNode(self, node: DestructuringAssignmentNode) -> None:
         """Memeriksa destructuring assignment: buat [a, b] = list / buat {x, y} = objek."""

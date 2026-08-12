@@ -122,6 +122,8 @@ from brolang.ast.nodes import (
     DestructuringAssignmentNode,
     # V6.0 Nodes
     KelasErrorNode,
+    # V6.7 Nodes
+    SpreadNode,
 )
 from brolang.exceptions import (
     RuntimeError_,
@@ -619,8 +621,10 @@ class Interpreter(ASTVisitor):
         if self.current_env.parent is not None:
             self.current_env = self.current_env.parent
 
-    def _bind_params(self, params, defaults, args, kwargs, node=None):
+    def _bind_params(self, params, defaults, args, kwargs, node=None, rest_param=None):
         """Gabungkan argumen posisi + keyword arguments sesuai urutan params.
+
+        v6.7: rest_param menangkap semua argumen tambahan sebagai list.
 
         Returns:
             List[(nama_param, nilai)]
@@ -647,6 +651,11 @@ class Interpreter(ASTVisitor):
                 bound.append((param, self.visit(defaults[i])))
             else:
                 bound.append((param, None))
+
+        # v6.7: rest parameter — semua argumen yang tidak terikat ke param
+        # biasa (indeks >= jumlah params) dikumpulkan menjadi list.
+        if rest_param:
+            bound.append((rest_param, values[len(params):]))
 
         # Type enforcement v6.0 pada parameter fungsi ber-tipe
         param_types = getattr(node, "param_types", None) or []
@@ -995,6 +1004,15 @@ class Interpreter(ASTVisitor):
                     solution="Pastikan pembagi tidak bernilai 0.",
                 )
             return left / right
+        elif op == "//":  # v6.8: floor division
+            if right == 0:
+                raise ZeroDivisionError_(
+                    message="Tidak bisa membagi dengan nol.",
+                    line=node.line,
+                    column=node.column,
+                    solution="Pastikan pembagi tidak bernilai 0.",
+                )
+            return left // right
         elif op == "%":
             if right == 0:
                 raise ZeroDivisionError_(
@@ -1272,11 +1290,17 @@ class Interpreter(ASTVisitor):
             self._pop_env()
 
     def visit_BreakNode(self, node: BreakNode) -> None:
-        """Break statement."""
+        """Break statement. (v6.8: guard `hentikan jika x` — lewati jika x salah)"""
+        guard = getattr(node, "guard", None)
+        if guard is not None and not self.visit(guard):
+            return None
         raise BreakException()
 
     def visit_ContinueNode(self, node: ContinueNode) -> None:
-        """Continue statement."""
+        """Continue statement. (v6.8: guard `lanjutkan jika x` — lewati jika x salah)"""
+        guard = getattr(node, "guard", None)
+        if guard is not None and not self.visit(guard):
+            return None
         raise ContinueException()
 
     def visit_PassNode(self, node: PassNode) -> None:
@@ -1365,7 +1389,9 @@ class Interpreter(ASTVisitor):
             self._push_env()
             self.current_env.parent = closure_env
 
-            for param, val in self._bind_params(node.params, node.defaults, args, kwargs, node):
+            for param, val in self._bind_params(
+                node.params, node.defaults, args, kwargs, node, node.rest_param
+            ):
                 self.current_env.define_variable(param, val)
 
             try:
@@ -1384,7 +1410,9 @@ class Interpreter(ASTVisitor):
                 return e.value
 
         def generator_func(*args, **kwargs):
-            bound = self._bind_params(node.params, node.defaults, args, kwargs, node)
+            bound = self._bind_params(
+                node.params, node.defaults, args, kwargs, node, node.rest_param
+            )
             return BroLangGenerator(
                 body=node.body,
                 params=[p for p, _ in bound],
@@ -1405,15 +1433,23 @@ class Interpreter(ASTVisitor):
             self.current_env.functions[node.name] = bro_function
 
     def visit_ReturnNode(self, node: ReturnNode) -> None:
-        """Return statement."""
+        """Return statement. (v6.8: guard `kembali x jika c` — lewati jika c salah)"""
+        guard = getattr(node, "guard", None)
+        if guard is not None and not self.visit(guard):
+            return None
         value = self.visit(node.value) if node.value else None
         self.current_env.should_return = True
         self.current_env.return_value = value
         raise ReturnException(value)
 
     def visit_CallNode(self, node: CallNode) -> Any:
-        """Function/method call."""
-        args = [self.visit(arg) for arg in node.args]
+        """Function/method call (v6.7: dukung spread call f(...daftar))."""
+        args = []
+        for arg in node.args:
+            if isinstance(arg, SpreadNode):
+                args.extend(self.visit(arg))
+            else:
+                args.append(self.visit(arg))
         kwargs = {name: self.visit(val) for name, val in node.kwargs}
 
         # Method call
@@ -1688,7 +1724,9 @@ class Interpreter(ASTVisitor):
                 self._current_class_name = owner_class_name
                 self._push_env()
 
-                for param, val in self._bind_params(node.params, node.defaults, args, kwargs, node):
+                for param, val in self._bind_params(
+                    node.params, node.defaults, args, kwargs, node, node.rest_param
+                ):
                     self.current_env.define_variable(param, val)
 
                 try:
@@ -1727,7 +1765,9 @@ class Interpreter(ASTVisitor):
                     idx = node.params.index(p)
                     real_defaults.append(node.defaults[idx] if idx < len(node.defaults) else None)
 
-            for param, val in self._bind_params(real_params, real_defaults, args, kwargs, node):
+            for param, val in self._bind_params(
+                real_params, real_defaults, args, kwargs, node, node.rest_param
+            ):
                 self.current_env.define_variable(param, val)
 
             try:
@@ -1982,13 +2022,42 @@ class Interpreter(ASTVisitor):
                 self._pop_env()
             return result
 
+    def visit_SpreadNode(self, node: SpreadNode) -> Any:
+        """Spread operator (v6.7): ...nilai.
+
+        Nilai harus iterable; hasilnya didorong ke konteks pemakai
+        (list literal, tuple, atau argumen pemanggilan).
+        """
+        value = self.visit(node.value)
+        if not hasattr(value, "__iter__") or isinstance(value, (str, dict)):
+            raise TypeError_(
+                message=f"Spread (...) membutuhkan list/tuple, tapi mendapat {self._type_name_of(value)}.",
+                line=node.line,
+                column=node.column,
+                solution="Berikan list atau tuple untuk di-spread.",
+                example="buat a = [1, 2]\nbuat b = [...a, 3]  # [1, 2, 3]",
+            )
+        return list(value)
+
     def visit_ListNode(self, node: ListNode) -> List[Any]:
-        """List literal."""
-        return [self.visit(elem) for elem in node.elements]
+        """List literal (v6.7: dukung spread [...a, 1])."""
+        result = []
+        for elem in node.elements:
+            if isinstance(elem, SpreadNode):
+                result.extend(self.visit(elem))
+            else:
+                result.append(self.visit(elem))
+        return result
 
     def visit_TupleNode(self, node: TupleNode) -> tuple:
-        """Tuple literal."""
-        return tuple(self.visit(elem) for elem in node.elements)
+        """Tuple literal (v6.7: dukung spread (...a))."""
+        result = []
+        for elem in node.elements:
+            if isinstance(elem, SpreadNode):
+                result.extend(self.visit(elem))
+            else:
+                result.append(self.visit(elem))
+        return tuple(result)
 
     def visit_SetNode(self, node: SetNode) -> set:
         """Set literal."""
@@ -2132,7 +2201,7 @@ class Interpreter(ASTVisitor):
             # Create new env with captured closure env as parent
             self._push_env()
             self.current_env.parent = closure_env
-            for param, val in self._bind_params(node.params, [], args, kwargs, node):
+            for param, val in self._bind_params(node.params, [], args, kwargs, node, node.rest_param):
                 self.current_env.define_variable(param, val)
             try:
                 result = self.visit(node.body)
@@ -2321,31 +2390,52 @@ class Interpreter(ASTVisitor):
     # ============= V3: Augmented Assignment =============
 
     def visit_AugmentedAssignmentNode(self, node: AugmentedAssignmentNode) -> Any:
-        """Augmented assignment: x += 1, x -= 2, dll. (v6.5: konstanta ditolak)"""
-        if not isinstance(node.target, IdentifierNode):
+        """Augmented assignment: x += 1, self.x += 1, data[i] //= 2, dll.
+
+        v6.5: konstanta ditolak.
+        v6.8: target atribut objek & index list didukung.
+        """
+        target = node.target
+        obj = None
+        index = None
+        name = None
+
+        # Baca nilai target saat ini
+        if isinstance(target, IdentifierNode):
+            name = target.name
+            # v6.5: konstanta tidak bisa diubah lewat augmented assignment
+            env = self.current_env
+            while env is not None:
+                if name in env.variables:
+                    if name in env.constants:
+                        raise RuntimeError_(
+                            message=f"Konstanta '{name}' tidak bisa diubah.",
+                            line=node.line,
+                            column=node.column,
+                            solution=f"Hapus assignment ke '{name}' atau ubah deklarasi menjadi 'buat {name} = ...'.",
+                        )
+                    break
+                env = env.parent
+            current = self.current_env.get_variable(name)
+        elif isinstance(target, ObjectAccessNode):
+            obj = self.visit(target.object)
+            prop = target.property
+            if isinstance(obj, BroLangInstance):
+                current = obj.get(prop, caller_class=self._current_class_name)
+            else:
+                current = getattr(obj, prop)
+        elif isinstance(target, IndexNode):
+            obj = self.visit(target.target)
+            index = self.visit(target.index)
+            current = obj[index]
+        else:
             raise RuntimeError_(
-                message="Target augmented assignment harus berupa variabel.",
+                message="Target augmented assignment harus berupa variabel, atribut, atau index.",
                 line=node.line,
                 column=node.column,
             )
 
-        name = node.target.name
-        # v6.5: konstanta tidak bisa diubah lewat augmented assignment
-        env = self.current_env
-        while env is not None:
-            if name in env.variables:
-                if name in env.constants:
-                    raise RuntimeError_(
-                        message=f"Konstanta '{name}' tidak bisa diubah.",
-                        line=node.line,
-                        column=node.column,
-                        solution=f"Hapus assignment ke '{name}' atau ubah deklarasi menjadi 'buat {name} = ...'.",
-                    )
-                break
-            env = env.parent
-        current = self.current_env.get_variable(name)
         right = self.visit(node.value)
-
         op = node.operator
         if op == "+=":
             result = current + right
@@ -2361,6 +2451,14 @@ class Interpreter(ASTVisitor):
                     column=node.column,
                 )
             result = current / right
+        elif op == "//=":
+            if right == 0:
+                raise ZeroDivisionError_(
+                    message="Tidak bisa membagi dengan nol.",
+                    line=node.line,
+                    column=node.column,
+                )
+            result = current // right
         elif op == "%=":
             if right == 0:
                 raise ZeroDivisionError_(
@@ -2378,7 +2476,16 @@ class Interpreter(ASTVisitor):
                 column=node.column,
             )
 
-        self.current_env.set_variable(name, result)
+        # Simpan hasil
+        if isinstance(target, IdentifierNode):
+            self.current_env.set_variable(name, result)
+        elif isinstance(target, ObjectAccessNode):
+            if isinstance(obj, BroLangInstance):
+                obj.set(target.property, result)
+            else:
+                setattr(obj, target.property, result)
+        elif isinstance(target, IndexNode):
+            obj[index] = result
         return result
 
     # ============= V3: Ternary Expression =============
@@ -2619,7 +2726,9 @@ class Interpreter(ASTVisitor):
             self._push_env()
             self.current_env.parent = closure_env
 
-            for param, val in self._bind_params(node.params, node.defaults, args, kwargs, node):
+            for param, val in self._bind_params(
+                node.params, node.defaults, args, kwargs, node, node.rest_param
+            ):
                 self.current_env.define_variable(param, val)
 
             try:
@@ -2684,7 +2793,9 @@ class Interpreter(ASTVisitor):
             self._push_env()
             self.current_env.parent = closure_env
 
-            for param, val in self._bind_params(node.params, node.defaults, args, kwargs, node):
+            for param, val in self._bind_params(
+                node.params, node.defaults, args, kwargs, node, node.rest_param
+            ):
                 self.current_env.define_variable(param, val)
 
             try:

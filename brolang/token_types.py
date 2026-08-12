@@ -227,6 +227,13 @@ class TokenType(Enum):
     TOKEN_KONSTANTA = auto()   # konstanta (immutable variable)
     TOKEN_ULANGI = auto()      # ulangi (do-until loop)
     TOKEN_SAMPAI = auto()      # sampai (range for / do-until condition)
+
+    # v6.7 — Spread/Rest Operator
+    TOKEN_ELLIPSIS = auto()    # ... (spread & rest parameter)
+
+    # v6.8 — Floor Division
+    TOKEN_FLOOR_DIV = auto()          # //
+    TOKEN_FLOOR_DIV_ASSIGN = auto()   # //=
     # CATATAN: 'langkah' (range for step) sengaja BUKAN keyword agar nama
     # variabel/kelas 'langkah' (dipakai program lama, mis. test v5) tetap
     # valid — parser mengenalinya sebagai soft keyword dalam konteks
@@ -367,6 +374,7 @@ PRECEDENCE: dict[TokenType, int] = {
     TokenType.TOKEN_MINUS: 5,
     TokenType.TOKEN_MULTIPLY: 6,
     TokenType.TOKEN_DIVIDE: 6,
+    TokenType.TOKEN_FLOOR_DIV: 6,
     TokenType.TOKEN_MODULO: 6,
     TokenType.TOKEN_POW: 7,
 }

@@ -44,6 +44,7 @@ from brolang.ast.nodes import (
     GlobalNode, NonlocalNode,
     PassNode, DelNode, AssertNode,
     TupleNode, SetNode, DictComprehensionNode,
+    SpreadNode,
 )
 
 
@@ -142,6 +143,14 @@ class Optimizer(ASTVisitor):
                     if right.value != 0:
                         return DecimalNode(value=left.value / right.value, line=left.line, column=left.column)
 
+            elif operator == "//":  # v6.8: floor division
+                if isinstance(left, NumberNode) and isinstance(right, NumberNode):
+                    if right.value != 0:
+                        return NumberNode(value=left.value // right.value, line=left.line, column=left.column)
+                if isinstance(left, DecimalNode) and isinstance(right, DecimalNode):
+                    if right.value != 0:
+                        return DecimalNode(value=left.value // right.value, line=left.line, column=left.column)
+
             elif operator == "%":
                 if isinstance(left, NumberNode) and isinstance(right, NumberNode):
                     if right.value != 0:
@@ -215,6 +224,9 @@ class Optimizer(ASTVisitor):
             return left
         # x / 1 → x
         if operator == "/" and isinstance(right, (NumberNode, DecimalNode)) and right.value == 1:
+            return left
+        # x // 1 → x (v6.8)
+        if operator == "//" and isinstance(right, (NumberNode, DecimalNode)) and right.value == 1:
             return left
 
         return None
@@ -370,12 +382,20 @@ class Optimizer(ASTVisitor):
 
     def visit_FunctionNode(self, node: FunctionNode) -> FunctionNode:
         body = [self.visit(stmt) for stmt in node.body]
-        return FunctionNode(name=node.name, params=node.params, defaults=node.defaults, body=body,
-                            line=node.line, column=node.column)
+        return FunctionNode(
+            name=node.name, params=node.params, defaults=node.defaults,
+            body=body, is_static=node.is_static,
+            param_types=node.param_types, return_type=node.return_type,
+            rest_param=node.rest_param,
+            line=node.line, column=node.column,
+        )
 
     def visit_ReturnNode(self, node: ReturnNode) -> ReturnNode:
         value = self.visit(node.value) if node.value else None
-        return ReturnNode(value=value if value else node.value,
+        guard = None
+        if getattr(node, "guard", None) is not None:
+            guard = self.visit(node.guard)
+        return ReturnNode(value=value if value else node.value, guard=guard,
                           line=node.line, column=node.column)
 
     def visit_PrintNode(self, node: PrintNode) -> PrintNode:
@@ -456,3 +476,8 @@ class Optimizer(ASTVisitor):
         return CallNode(function=func, args=args, kwargs=kwargs,
                         is_method=node.is_method,
                         object_name=node.object_name, line=node.line, column=node.column)
+
+    def visit_SpreadNode(self, node: SpreadNode) -> SpreadNode:
+        """Optimasi spread operator (v6.7)."""
+        value = self.visit(node.value)
+        return SpreadNode(value=value, line=node.line, column=node.column)

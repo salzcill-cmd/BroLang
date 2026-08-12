@@ -185,6 +185,7 @@ class PythonCodeGenerator(ASTVisitor):
             ">=": ">=", "<=": "<=",
             "dan": "and", "atau": "or",
             "+": "+", "-": "-", "*": "*", "/": "/",
+            "//": "//",  # v6.8: floor division
             "%": "%", "**": "**",
         }
         py_op = op_map.get(node.operator, node.operator)
@@ -278,10 +279,26 @@ class PythonCodeGenerator(ASTVisitor):
         self.indent_level -= 1
 
     def visit_BreakNode(self, node: BreakNode) -> None:
-        self._emit("break")
+        guard = getattr(node, "guard", None)
+        if guard is not None:
+            # hentikan jika x (v6.8)
+            self._emit(f"if {self._expr(guard)}: break")
+        else:
+            self._emit("break")
 
     def visit_ContinueNode(self, node: ContinueNode) -> None:
-        self._emit("continue")
+        guard = getattr(node, "guard", None)
+        if guard is not None:
+            # lanjutkan jika x (v6.8)
+            self._emit(f"if {self._expr(guard)}: continue")
+        else:
+            self._emit("continue")
+
+    def visit_AugmentedAssignmentNode(self, node: AugmentedAssignmentNode) -> None:
+        """Augmented assignment: x += 1, self.x += 1, data[i] //= 2 (v6.8)."""
+        target = self._expr(node.target)
+        value = self._expr(node.value)
+        self._emit(f"{target} {node.operator} {value}")
 
     def visit_PassNode(self, node: PassNode) -> None:
         self._emit("pass")
@@ -330,6 +347,16 @@ class PythonCodeGenerator(ASTVisitor):
         self._emit()
 
     def visit_ReturnNode(self, node: ReturnNode) -> None:
+        guard = getattr(node, "guard", None)
+        if guard is not None:
+            # kembali x jika c (v6.8) -> if c: return x
+            g = self._expr(guard)
+            if node.value:
+                val = self._expr(node.value)
+                self._emit(f"if {g}: return {val}")
+            else:
+                self._emit(f"if {g}: return")
+            return
         if node.value:
             val = self._expr(node.value)
             self._emit(f"return {val}")
@@ -490,8 +517,14 @@ class PythonCodeGenerator(ASTVisitor):
         for decorator in node.decorators:
             self.visit(DecoratorNode(decorator_expr=decorator))
         params = ", ".join(node.params)
+        rest_param = getattr(node, "rest_param", None)
+        if rest_param:
+            params = f'*{rest_param}' if not params else f'{params}, *{rest_param}'
         self._emit(f"def {node.name}({params}):")
         self.indent_level += 1
+        if rest_param:
+            # Konsisten dengan interpreter (list, bukan tuple dari *args)
+            self._emit(f"{rest_param} = list({rest_param})")
         for stmt in node.body:
             self.visit(stmt)
         self.indent_level -= 1

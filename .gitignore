@@ -13,3 +13,6 @@ venv/
 # File runtime game (DaftarSkor dll)
 skor_*.json
 screenshot_*.png
+
+# File audio yang dihasilkan contoh fitur_v68.bro
+bgm_*.wav

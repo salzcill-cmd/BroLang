@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-6.6-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-6.8-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v6.6</h1>
+<h1 align="center">BroLang v6.8</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/825-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/954-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/115+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/135+Token%20Types-purple?style=flat-square" alt="tokens"/>
   <img src="https://img.shields.io/badge/43+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
@@ -45,10 +45,136 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 6.6.0
+bro --version    # BroLang 6.8.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v6.8?
+
+### Fitur Bahasa Baru 🧩
+
+**Guard clause** — `kembali`, `hentikan`, dan `lanjutkan` bisa diberi kondisi:
+
+```bro
+fungsi cek(x)
+    kembali "negatif" jika x < 0
+    kembali "nol" jika x == 0
+    kembali "positif"
+selesai
+
+tulis cek(-5), cek(0), cek(7)   # negatif nol positif
+
+untuk i dari 1 sampai 10 lakukan
+    lanjutkan jika i % 2 == 0   # skip genap
+    hentikan jika i > 5         # break bersyarat
+    tulis i                     # 1 3 5
+selesai
+```
+Tidak ambigu dengan ternary: `kembali a jika b lainnya c` tetap ternary.
+
+**Floor division `//`** — pembagian dibulatkan ke bawah:
+
+```bro
+tulis 17 // 5      # 3
+buat x = 10
+x //= 3
+tulis x            # 3
+```
+
+**Augmented assignment pada atribut & index:**
+
+```bro
+kelas Akun
+    fungsi __init__(self)
+        self.total = 0
+    selesai
+    fungsi naik(self, n)
+        self.total += n        # atribut objek
+        kembali self.total
+    selesai
+selesai
+
+buat data = [1, 2, 3]
+data[1] += 10                  # index list → [1, 12, 3]
+```
+
+### Game Dev 🎮
+**`audio` BGM prosedural** — musik latar tanpa file eksternal:
+
+```bro
+impor audio
+
+buat bgm = audio.buat_bgm(audio.pola_arcade)   # pola siap pakai
+audio.mainkan_bgm(audio.pola_epik, 120)        # putar loop (butuh pygame)
+audio.hentikan_bgm()
+```
+Pola bisa pakai nama not (`"C4"`, `"A#3"`), frekuensi, tuple `(nada, ketukan)`, atau jeda `0`.
+
+### Perbaikan VM ⚙️
+`x %= y` dan `x **= y` yang tadinya diam-diam menjadi `x = y` di VM kini benar; loop dengan guard `hentikan jika` tidak lagi memotong body.
+
+Detail: `docs/FITUR_V68.md`.
+
+---
+
+## Apa yang Baru di v6.7?
+
+### Fitur Bahasa Modern 🧩
+
+**Rest parameter `...nama`** — fungsi menampung semua sisa argumen:
+
+```bro
+fungsi jumlahkan(...angka)
+    buat total = 0
+    untuk setiap n dalam angka lakukan
+        total = total + n
+    selesai
+    kembali total
+selesai
+
+tulis jumlahkan(1, 2, 3, 4, 5)   # 15
+```
+
+**Spread call `f(...args)`** — bongkar list jadi argumen:
+
+```bro
+fungsi kali3(a, b, c)
+    kembali a * b * c
+selesai
+
+buat nilai = [2, 3, 4]
+tulis kali3(...nilai)            # 24
+```
+
+**Spread list `[...a, 1]`** — gabungkan list di literal:
+
+```bro
+buat gabung = [...dasar, 3, 4]   # [1, 2, 3, 4]
+```
+
+**Multiple return `kembali a, b`** — beberapa nilai sekaligus:
+
+```bro
+fungsi bagi_dan_sisa(a, b)
+    kembali a / b, a % b
+selesai
+
+buat [hasil, sisa] = bagi_dan_sisa(17, 5)   # 3.4 2
+```
+
+### Bytecode VM kini lengkap ⚙️
+Range-for, destructuring, pipeline, dan for-each (`untuk setiap`) yang
+sebelumnya `NotImplementedError` / diam-diam dilewati di VM bytecode kini
+berfungsi penuh — konsisten dengan interpreter & transpiler.
+
+### Game Dev 🎮
+- **`efek.Guncangan`** — screen shake trauma-based (memudar alami, testable tanpa pygame)
+- **`audio` synth** — `nada()` / `laser()` / `ledakan()` / `blip()` buat WAV procedural tanpa file eksternal
+
+Detail: `docs/FITUR_V67.md`.
 
 ---
 
@@ -1064,7 +1190,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | `arsip` | Arsip: buat/tambah/ekstrak/daftar ZIP, kompresi teks (v6.4) |
 | `terminal` | UX CLI: warna ANSI, gaya teks, progress bar, prompt, pesan status (v6.4) |
 | `jalur` | Pathfinding A* + navigasi: cari_jalur, IkutiJalur, Patroli waypoint (v6.6) |
-| `efek` | Efek layar: Flash, Vignette, TeksMelayang (damage number), Pulsa (v6.6) |
+| `efek` | Efek layar: Flash, Vignette, TeksMelayang, Pulsa (v6.6) + Guncangan screen shake (v6.7) |
 
 ---
 
@@ -1077,6 +1203,8 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | [Dasar Bahasa](docs/DASAR.md) | Tipe data, variabel, operator |
 | [Fungsi](docs/FUNGSI.md) | Fungsi, lambda, closures |
 | [Class & OOP](docs/OOP.md) | OOP & inheritance |
+| [Fitur v6.8](docs/FITUR_V68.md) | Guard clause, floor division //, augmented pada atribut/index, BGM prosedural |
+| [Fitur v6.7](docs/FITUR_V67.md) | Rest/spread parameter, multiple return, VM lengkap, screen shake, synth audio |
 | [Game Dev v6.6](docs/GAME_V66.md) | Pathfinding A*, efek layar, fisika AABB, parallax, fixed timestep, UI baru |
 | [Fitur v6.5](docs/FITUR_V65.md) | Konstanta, do-until loop, range for loop |
 | [Fitur v6.0](docs/FITUR_V60.md) | Type system, pattern matching modern, kelas_error, stdlib baru, package registry online |
@@ -1168,7 +1296,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**825 test cases, semua passing!** (termasuk 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
+**954 test cases, semua passing!** (termasuk 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
 
 ---
 
@@ -1192,7 +1320,7 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v6.6** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v6.8** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>

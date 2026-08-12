@@ -268,14 +268,24 @@ class ForNode(ASTNode):
 
 @dataclass
 class BreakNode(ASTNode):
-    """Node untuk break: hentikan"""
-    pass
+    """Node untuk break: hentikan (v6.8: dukungan guard `hentikan jika x`)"""
+    guard: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        if self.guard is not None:
+            return [self.guard]
+        return []
 
 
 @dataclass
 class ContinueNode(ASTNode):
-    """Node untuk continue: lanjutkan"""
-    pass
+    """Node untuk continue: lanjutkan (v6.8: dukungan guard `lanjutkan jika x`)"""
+    guard: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        if self.guard is not None:
+            return [self.guard]
+        return []
 
 
 # ============= V3.1: Pass Statement =============
@@ -368,17 +378,39 @@ class FunctionNode(ASTNode):
     is_static: bool = False
     param_types: List[Optional[str]] = field(default_factory=list)  # v6.0
     return_type: Optional[str] = None  # v6.0: 'fungsi f() -> Angka'
+    rest_param: Optional[str] = None  # v6.7: 'fungsi f(a, ...sisa)' — menangkap sisa argumen
 
     def get_children(self) -> List[Any]:
         return self.body
 
 
+# ============= V6.7: Spread Operator =============
+
 @dataclass
-class ReturnNode(ASTNode):
-    """Node untuk return: kembali nilai"""
-    value: ASTNode = field(default_factory=lambda: KosongNode())
+class SpreadNode(ASTNode):
+    """Node untuk spread operator (v6.7): ...ekspresi
+
+    Dipakai di 3 konteks:
+    - Rest parameter: fungsi f(a, ...sisa) — parameter terakhir menangkap
+      semua argumen tambahan sebagai list.
+    - Spread call: f(...args) — list di-unpack menjadi argumen posisi.
+    - Spread list: [...a, 1, 2] — elemen list di-unpack.
+    """
+    value: ASTNode = field(default_factory=lambda: IdentifierNode(""))
 
     def get_children(self) -> List[Any]:
+        return [self.value]
+
+
+@dataclass
+class ReturnNode(ASTNode):
+    """Node untuk return: kembali nilai (v6.8: dukungan guard `kembali x jika c`)"""
+    value: ASTNode = field(default_factory=lambda: KosongNode())
+    guard: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        if self.guard is not None:
+            return [self.value, self.guard]
         return [self.value]
 
 
@@ -458,6 +490,7 @@ class MethodNode(ASTNode):
     params: List[str] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
     is_static: bool = False
+    rest_param: Optional[str] = None  # v6.7: 'fungsi f(a, ...sisa)'
 
     def get_children(self) -> List[Any]:
         return self.body
@@ -624,6 +657,7 @@ class LambdaNode(ASTNode):
     """Node untuk lambda: lalu(x) x + 1"""
     params: List[str] = field(default_factory=list)
     body: ASTNode = field(default_factory=lambda: NumberNode(0))
+    rest_param: Optional[str] = None  # v6.7: lalu(...sisa) ekspresi
 
     def get_children(self) -> List[Any]:
         return [self.body]
@@ -791,6 +825,7 @@ class AsyncFunctionDefNode(ASTNode):
     defaults: List[Optional[ASTNode]] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
     decorators: List[ASTNode] = field(default_factory=list)
+    rest_param: Optional[str] = None  # v6.7
 
     def get_children(self) -> List[Any]:
         return self.body
@@ -834,6 +869,7 @@ class GeneratorFunctionNode(ASTNode):
     params: List[str] = field(default_factory=list)
     defaults: List[Optional[ASTNode]] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
+    rest_param: Optional[str] = None  # v6.7
 
     def get_children(self) -> List[Any]:
         return self.body
@@ -859,6 +895,9 @@ class DecoratedFunctionNode(ASTNode):
     defaults: List[Optional[ASTNode]] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
     decorators: List[ASTNode] = field(default_factory=list)
+    rest_param: Optional[str] = None  # v6.7
+    param_types: List[Optional[str]] = field(default_factory=list)  # v6.7
+    return_type: Optional[str] = None  # v6.7
 
     def get_children(self) -> List[Any]:
         return self.body

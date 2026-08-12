@@ -468,6 +468,13 @@ class Lexer:
         if char == "*" and self._current() == "=":
             self._advance()
             return Token(TokenType.TOKEN_MULTIPLY_ASSIGN, "*=", start_line, start_col)
+        if char == "/" and self._current() == "/":
+            # Floor division (v6.8): // dan //=
+            self._advance()
+            if self._current() == "=":
+                self._advance()
+                return Token(TokenType.TOKEN_FLOOR_DIV_ASSIGN, "//=", start_line, start_col)
+            return Token(TokenType.TOKEN_FLOOR_DIV, "//", start_line, start_col)
         if char == "/" and self._current() == "=":
             self._advance()
             return Token(TokenType.TOKEN_DIVIDE_ASSIGN, "/=", start_line, start_col)
@@ -514,6 +521,11 @@ class Lexer:
             return Token(TokenType.TOKEN_QUESTION, "?", start_line, start_col)
         if char == "@":
             return Token(TokenType.TOKEN_AT, "@", start_line, start_col)
+        if char == "." and self._current() == "." and self._peek() == ".":
+            # Spread/rest operator: ... (v6.7)
+            self._advance()  # titik ke-2
+            self._advance()  # titik ke-3
+            return Token(TokenType.TOKEN_ELLIPSIS, "...", start_line, start_col)
 
         operator_map = {
             "+": TokenType.TOKEN_PLUS,

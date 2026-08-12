@@ -175,6 +175,10 @@ class VM:
                 right = _pop()
                 _append(_pop() / right)
 
+            elif op == _Op.FLOOR_DIV:  # v6.8: //
+                right = _pop()
+                _append(_pop() // right)
+
             elif op == _Op.MOD:
                 right = _pop()
                 _append(_pop() % right)
@@ -250,9 +254,11 @@ class VM:
                 stack[-1], stack[-2] = stack[-2], stack[-1]
 
             elif op == _Op.CLOSURE:
-                func_bc_idx, param_count, has_defaults = arg
+                func_bc_idx, param_count, has_defaults, rest_pos = arg
                 func_bc = constants[func_bc_idx]
-                closure = VMFunction(func_bc, param_count, has_defaults, _locals[: len(_locals)])
+                closure = VMFunction(
+                    func_bc, param_count, has_defaults, _locals[: len(_locals)], rest_pos
+                )
                 _append(closure)
 
             elif op == _Op.CALL:
@@ -335,6 +341,38 @@ class VM:
             elif op == _Op.MAKE_LIST:
                 _append([_pop() for _ in range(arg)][::-1])
 
+            elif op == _Op.BUILD_LIST_SPREAD:
+                # arg = jumlah pasangan (is_spread, value) di stack.
+                # Stack: [..., is_spread, value] per pasangan (teratas = terakhir).
+                # Kumpulkan lalu balik supaya urutan elemen benar.
+                pairs = []
+                for _ in range(arg):
+                    value = _pop()
+                    is_spread = _pop()
+                    pairs.append((is_spread, value))
+                pairs.reverse()
+                result = []
+                for is_spread, value in pairs:
+                    if is_spread:
+                        result.extend(value)
+                    else:
+                        result.append(value)
+                _append(result)
+
+            elif op == _Op.CALL_SPREAD:
+                # Stack: [..., arg_list, func]
+                func = _pop()
+                args_list = _pop()
+                if isinstance(func, VMClass):
+                    instance = VMInstance(func)
+                    init_method = self._find_method_on_class(func, "__init__")
+                    if init_method:
+                        self._call_function(init_method, [instance] + args_list, None)
+                    _append(instance)
+                else:
+                    result = self._call_function(func, args_list, None)
+                    _append(result)
+
             elif op == _Op.MAKE_TUPLE:
                 _append(tuple([_pop() for _ in range(arg)][::-1]))
 
@@ -351,6 +389,13 @@ class VM:
             elif op == _Op.INDEX_GET:
                 index = _pop()
                 _append(_pop()[index])
+
+            elif op == _Op.DICT_GET:
+                # dict.get(key) dengan default None — dipakai destructuring
+                # objek `buat {x, y} = objek` agar kunci yang tidak ada
+                # menghasilkan None (konsisten dengan interpreter).
+                key = _pop()
+                _append(_pop().get(key))
 
             elif op == _Op.INDEX_SET:
                 val = _pop()
@@ -421,6 +466,18 @@ class VM:
                 right = _pop()
                 _append(_pop() / right)
 
+            elif op == _Op.AUG_FLOOR_DIV:  # v6.8: x //= y
+                right = _pop()
+                _append(_pop() // right)
+
+            elif op == _Op.AUG_MOD:
+                right = _pop()
+                _append(_pop() % right)
+
+            elif op == _Op.AUG_POW:
+                right = _pop()
+                _append(_pop() ** right)
+
             elif op == _Op.NOP:
                 pass
 
@@ -457,6 +514,11 @@ class VM:
         for i in range(func.param_count):
             if i < len(args):
                 new_frame.locals[i] = args[i]
+
+        # v6.7: rest parameter — semua argumen yang tidak terikat ke param
+        # biasa (indeks >= jumlah param regular) dikumpulkan menjadi list.
+        if func.rest_pos >= 0:
+            new_frame.locals[func.rest_pos] = list(args[func.rest_pos:])
 
         # Execute
         old_frame = self._frame
@@ -524,10 +586,14 @@ class VM:
             # Check class methods
             if name in obj.klass.methods:
                 method = obj.klass.methods[name]
+                if isinstance(method, VMFunction):
+                    return method
                 if isinstance(method, tuple):
-                    # (bytecode, is_static)
-                    bc, is_static = method
-                    func = VMFunction(bc, len(self._get_params(bc)), False, [])
+                    # (bytecode, is_static, param_count, rest_pos)
+                    bc, is_static = method[0], method[1]
+                    param_count = method[2] if len(method) > 2 else 0
+                    rest_pos = method[3] if len(method) > 3 else -1
+                    func = VMFunction(bc, param_count, False, [], rest_pos)
                     if not is_static:
                         return lambda *a: self._call_function(func, [obj] + list(a))
                     return lambda *a: self._call_function(func, list(a))
@@ -622,13 +688,14 @@ class VM:
 class VMFunction:
     """Bytecode function object."""
 
-    __slots__ = ("bytecode", "param_count", "has_defaults", "closure")
+    __slots__ = ("bytecode", "param_count", "has_defaults", "closure", "rest_pos")
 
-    def __init__(self, bytecode, param_count, has_defaults, closure):
+    def __init__(self, bytecode, param_count, has_defaults, closure, rest_pos=-1):
         self.bytecode = bytecode
         self.param_count = param_count
         self.has_defaults = has_defaults
         self.closure = closure
+        self.rest_pos = rest_pos  # v6.7: indeks slot rest parameter (-1 = tidak ada)
 
     def param_names(self):
         """Extract param names from bytecode."""
@@ -658,7 +725,8 @@ class VMClass:
         for method_name, method_data in methods_data.items():
             bc, is_static = method_data[0], method_data[1]
             param_count = method_data[2] if len(method_data) > 2 else 0
-            self.methods[method_name] = VMFunction(bc, param_count, False, [])
+            rest_pos = method_data[3] if len(method_data) > 3 else -1
+            self.methods[method_name] = VMFunction(bc, param_count, False, [], rest_pos)
 
     def __repr__(self):
         return f"<VMClass {self.name}>"

@@ -86,6 +86,8 @@ from brolang.ast.nodes import (
     KelasErrorNode,
     # V6.5 Nodes
     DoUntilNode, RangeForNode,
+    # V6.7 Nodes
+    SpreadNode,
 )
 from brolang.exceptions import ParserError
 from brolang.suggestions import saran_keyword
@@ -99,6 +101,14 @@ class Parser:
         pos: Posisi token saat ini
         current_token: Token saat ini
     """
+
+    # Operator augmented assignment (v6.8: + //=)
+    AUGMENTED_OPS = (
+        TokenType.TOKEN_PLUS_ASSIGN, TokenType.TOKEN_MINUS_ASSIGN,
+        TokenType.TOKEN_MULTIPLY_ASSIGN, TokenType.TOKEN_DIVIDE_ASSIGN,
+        TokenType.TOKEN_MODULO_ASSIGN, TokenType.TOKEN_POWER_ASSIGN,
+        TokenType.TOKEN_FLOOR_DIV_ASSIGN,
+    )
 
     def __init__(self, tokens: List[Token], file_path: str = ""):
         self.tokens: List[Token] = tokens
@@ -258,11 +268,19 @@ class Parser:
         elif token_type == TokenType.TOKEN_NONLOKAL:
             return self._parse_nonlocal()
         elif token_type == TokenType.TOKEN_BREAK:
-            self._advance()
-            return BreakNode(line=self.current_token.line, column=self.current_token.column)
+            token = self._advance()
+            guard = None
+            if self._check(TokenType.TOKEN_JIKA):
+                self._advance()  # jika
+                guard = self._parse_expression()
+            return BreakNode(guard=guard, line=token.line, column=token.column)
         elif token_type == TokenType.TOKEN_CONTINUE:
-            self._advance()
-            return ContinueNode(line=self.current_token.line, column=self.current_token.column)
+            token = self._advance()
+            guard = None
+            if self._check(TokenType.TOKEN_JIKA):
+                self._advance()  # jika
+                guard = self._parse_expression()
+            return ContinueNode(guard=guard, line=token.line, column=token.column)
         elif token_type == TokenType.TOKEN_PASS:
             self._advance()
             return PassNode(line=self.current_token.line, column=self.current_token.column)
@@ -304,16 +322,11 @@ class Parser:
             # Peek ahead to see if it's assignment
             if self._peek(1) == TokenType.TOKEN_ASSIGN:
                 return self._parse_reassignment()
-            elif self._peek(1) in (
-                TokenType.TOKEN_PLUS_ASSIGN, TokenType.TOKEN_MINUS_ASSIGN,
-                TokenType.TOKEN_MULTIPLY_ASSIGN, TokenType.TOKEN_DIVIDE_ASSIGN,
-                TokenType.TOKEN_MODULO_ASSIGN, TokenType.TOKEN_POWER_ASSIGN,
-            ):
+            elif self._peek(1) in Parser.AUGMENTED_OPS:
                 return self._parse_augmented_assignment()
             elif self._peek(1) == TokenType.TOKEN_DOT:
-                # Could be self.attr = value
+                # Could be self.attr = value atau self.attr += 1 (v6.8)
                 # Parse the full expression first
-                saved_pos = self.pos
                 expr = self._parse_expression()
                 if self._check(TokenType.TOKEN_ASSIGN):
                     # It's an assignment to a dotted target
@@ -321,6 +334,9 @@ class Parser:
                     value = self._parse_expression()
                     return AssignmentNode(target=expr, value=value, is_declaration=False,
                                           line=expr.line, column=expr.column)
+                if self._check(*Parser.AUGMENTED_OPS):
+                    # self.attr += 1 (v6.8: augmented pada atribut objek)
+                    return self._parse_augmented_from_target(expr)
                 return expr
             else:
                 expr = self._parse_expression()
@@ -330,6 +346,9 @@ class Parser:
                     value = self._parse_expression()
                     return AssignmentNode(target=expr, value=value, is_declaration=False,
                                           line=expr.line, column=expr.column)
+                if self._check(*Parser.AUGMENTED_OPS):
+                    # data[i] += 1 (v6.8: augmented pada index list)
+                    return self._parse_augmented_from_target(expr)
                 return expr
         else:
             return self._parse_expression()
@@ -461,11 +480,15 @@ class Parser:
         )
 
     def _parse_augmented_assignment(self) -> AugmentedAssignmentNode:
-        """Augmented assignment: x += 1, x -= 2, x *= 3, dll."""
+        """Augmented assignment: x += 1, x -= 2, x *= 3, x //= 2, dll."""
         id_token = self._advance()  # identifier
         target = IdentifierNode(name=id_token.value, line=id_token.line, column=id_token.column)
+        return self._parse_augmented_from_target(target)
 
-        op_token = self._advance()  # +=, -=, *=, /=, %=, **=
+    def _parse_augmented_from_target(self, target: ASTNode) -> AugmentedAssignmentNode:
+        """Augmented assignment dengan target yang sudah di-parse:
+        self.x += 1, data[i] //= 2 (v6.8)."""
+        op_token = self._advance()  # +=, -=, *=, /=, %=, **=, //=
         op_map = {
             TokenType.TOKEN_PLUS_ASSIGN: "+=",
             TokenType.TOKEN_MINUS_ASSIGN: "-=",
@@ -473,6 +496,7 @@ class Parser:
             TokenType.TOKEN_DIVIDE_ASSIGN: "/=",
             TokenType.TOKEN_MODULO_ASSIGN: "%=",
             TokenType.TOKEN_POWER_ASSIGN: "**=",
+            TokenType.TOKEN_FLOOR_DIV_ASSIGN: "//=",
         }
         operator = op_map[op_token.type]
 
@@ -481,8 +505,8 @@ class Parser:
             target=target,
             operator=operator,
             value=value,
-            line=id_token.line,
-            column=id_token.column,
+            line=getattr(target, "line", op_token.line),
+            column=getattr(target, "column", op_token.column),
         )
 
     def _parse_raise(self) -> RaiseNode:
@@ -830,7 +854,7 @@ class Parser:
             message="Setelah nama fungsi, harus ada '('.",
         )
 
-        params, defaults, param_types = self._parse_parameter_list()
+        params, defaults, param_types, rest_param = self._parse_parameter_list()
 
         self._expect(
             TokenType.TOKEN_RPAREN,
@@ -857,20 +881,23 @@ class Parser:
             defaults=defaults,
             param_types=param_types,
             return_type=return_type,
+            rest_param=rest_param,
             body=body,
             line=token.line,
             column=token.column,
         )
 
     def _parse_parameter_list(self) -> tuple:
-        """Mem-parse daftar parameter dengan default values & tipe (v6.0).
+        """Mem-parse daftar parameter dengan default values & tipe (v6.0)
+        dan rest parameter (v6.7).
 
         Returns:
-            Tuple of (params, defaults, param_types)
+            Tuple of (params, defaults, param_types, rest_param)
         """
         params = []
         defaults = []
         param_types = []
+        rest_param = None
         if self._check(TokenType.TOKEN_IDENTIFIER):
             token = self._advance()
             params.append(token.value)
@@ -885,6 +912,28 @@ class Parser:
             defaults.append(default_val)
 
             while self._match(TokenType.TOKEN_COMMA):
+                # Rest parameter (v6.7): fungsi f(a, ...sisa) — harus terakhir
+                if self._check(TokenType.TOKEN_ELLIPSIS):
+                    if rest_param is not None:
+                        raise self._error(
+                            message="Hanya satu rest parameter (...) yang diizinkan.",
+                            solution="Gunakan satu rest parameter di posisi terakhir.",
+                        )
+                    self._advance()  # ...
+                    rest_token = self._expect(
+                        TokenType.TOKEN_IDENTIFIER,
+                        message="Setelah '...', harus ada nama parameter.",
+                        solution="Gunakan: fungsi f(a, ...sisa)",
+                        example="fungsi jumlahkan(...angka)\n    kembali angka\nselesai",
+                    )
+                    rest_param = rest_token.value
+                    # Rest parameter tidak boleh punya default/tipe lanjutan
+                    if self._match(TokenType.TOKEN_COMMA):
+                        raise self._error(
+                            message="Rest parameter (...) harus menjadi parameter terakhir.",
+                            solution="Letakkan '...nama' di posisi terakhir daftar parameter.",
+                        )
+                    break
                 token = self._expect(
                     TokenType.TOKEN_IDENTIFIER,
                     message="Setelah koma, harus ada nama parameter.",
@@ -899,7 +948,22 @@ class Parser:
                 if self._match(TokenType.TOKEN_ASSIGN):
                     default_val = self._parse_expression()
                 defaults.append(default_val)
-        return params, defaults, param_types
+        elif self._check(TokenType.TOKEN_ELLIPSIS):
+            # fungsi f(...sisa) — hanya rest parameter
+            self._advance()  # ...
+            rest_token = self._expect(
+                TokenType.TOKEN_IDENTIFIER,
+                message="Setelah '...', harus ada nama parameter.",
+                solution="Gunakan: fungsi f(...sisa)",
+                example="fungsi jumlahkan(...angka)\n    kembali angka\nselesai",
+            )
+            rest_param = rest_token.value
+            if self._match(TokenType.TOKEN_COMMA):
+                raise self._error(
+                    message="Rest parameter (...) harus menjadi parameter terakhir.",
+                    solution="Letakkan '...nama' di posisi terakhir daftar parameter.",
+                )
+        return params, defaults, param_types, rest_param
 
     def _parse_type_name(self) -> str:
         """Parse nama tipe v6.0: Angka | Daftar<Angka> | Angka | Teks | alias.
@@ -973,6 +1037,7 @@ class Parser:
                         params=stmt.params,
                         body=stmt.body,
                         is_static=stmt.is_static,
+                        rest_param=stmt.rest_param,
                         line=stmt.line,
                         column=stmt.column,
                     )
@@ -1031,6 +1096,7 @@ class Parser:
                         params=stmt.params,
                         body=stmt.body,
                         is_static=stmt.is_static,
+                        rest_param=stmt.rest_param,
                         line=stmt.line,
                         column=stmt.column,
                     )
@@ -1372,26 +1438,99 @@ class Parser:
         """lalu(params) expr"""
         token = self._advance()  # lalu
         self._expect(TokenType.TOKEN_LPAREN, message="Setelah 'lalu', harus ada '('.")
-        params, _, _ = self._parse_parameter_list()
+        params, _, _, rest_param = self._parse_parameter_list()
         self._expect(TokenType.TOKEN_RPAREN, message="Parameter lambda tidak ditutup.")
 
         # Single expression body (no block)
         body = self._parse_expression()
 
-        return LambdaNode(params=params, body=body,
+        return LambdaNode(params=params, body=body, rest_param=rest_param,
                           line=token.line, column=token.column)
 
     # ============= Return =============
 
     def _parse_return(self) -> ReturnNode:
-        """kembali expression?"""
+        """kembali expression? | kembali a, b (multiple return, v6.7) |
+        kembali x jika kondisi (guard clause, v6.8)"""
         token = self._advance()  # kembali
 
-        value = KosongNode(line=token.line, column=token.column)
-        if not self._check(TokenType.TOKEN_NEWLINE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF, TokenType.TOKEN_SELESAI):
-            value = self._parse_expression()
+        # Guard tanpa nilai: `kembali jika x`
+        if self._check(TokenType.TOKEN_JIKA):
+            self._advance()  # jika
+            guard = self._parse_expression()
+            return ReturnNode(value=KosongNode(line=token.line, column=token.column),
+                              guard=guard, line=token.line, column=token.column)
 
-        return ReturnNode(value=value, line=token.line, column=token.column)
+        value = KosongNode(line=token.line, column=token.column)
+        guard = None
+        if not self._check(TokenType.TOKEN_NEWLINE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF, TokenType.TOKEN_SELESAI):
+            # Ambigu: `kembali x jika c lainnya y` = ternary, sedangkan
+            # `kembali x jika c` = guard clause. Kalau `jika` di level paling
+            # luar tidak diikuti `lainnya`, nilai di-parse dengan `_parse_or`
+            # (ternary ada DI ATAS _parse_or di rantai precedence), sehingga
+            # token `jika` tersisa untuk dibaca sebagai guard — dan ternary
+            # di dalam kurung/panggilan fungsi tetap berfungsi normal.
+            guard_mode = not self._baris_ada_ternary()
+            first = self._parse_or() if guard_mode else self._parse_expression()
+            # Multiple return: kembali a, b -> tuple (untuk destructuring di pemanggil)
+            if self._match(TokenType.TOKEN_COMMA):
+                elements = [first]
+                while True:
+                    if self._check(TokenType.TOKEN_NEWLINE, TokenType.TOKEN_DEDENT,
+                                  TokenType.TOKEN_EOF, TokenType.TOKEN_SELESAI):
+                        break
+                    # Di guard mode, elemen tuple juga di-parse tanpa ternary
+                    # supaya `kembali a, b jika c` tetap berfungsi.
+                    elements.append(self._parse_or() if guard_mode else self._parse_expression())
+                    if not self._match(TokenType.TOKEN_COMMA):
+                        break
+                value = TupleNode(elements=elements, line=token.line, column=token.column)
+            else:
+                value = first
+
+            if guard_mode and self._match(TokenType.TOKEN_JIKA):
+                guard = self._parse_expression()
+
+        return ReturnNode(value=value, guard=guard, line=token.line, column=token.column)
+
+    def _baris_ada_ternary(self) -> bool:
+        """Scan token sisa baris (v6.8): apakah ada `jika` di kedalaman 0 yang
+        diikuti `lainnya` sebelum akhir baris?
+
+        Dipakai membedakan ternary `kembali a jika b lainnya c` dari guard
+        clause `kembali a jika b`.
+        """
+        n = len(self.tokens)
+        i = self.pos
+        depth = 0
+        while i < n:
+            t = self.tokens[i].type
+            if t in (TokenType.TOKEN_NEWLINE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF,
+                     TokenType.TOKEN_SELESAI):
+                return False
+            if t in (TokenType.TOKEN_LPAREN, TokenType.TOKEN_LBRACKET, TokenType.TOKEN_LBRACE):
+                depth += 1
+            elif t in (TokenType.TOKEN_RPAREN, TokenType.TOKEN_RBRACKET, TokenType.TOKEN_RBRACE):
+                depth -= 1
+            elif t == TokenType.TOKEN_JIKA and depth == 0:
+                # Cari 'lainnya' setelah 'jika' ini (level 0, sebelum akhir baris)
+                j = i + 1
+                d = 0
+                while j < n:
+                    tj = self.tokens[j].type
+                    if tj in (TokenType.TOKEN_NEWLINE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF,
+                              TokenType.TOKEN_SELESAI):
+                        return False
+                    if tj in (TokenType.TOKEN_LPAREN, TokenType.TOKEN_LBRACKET, TokenType.TOKEN_LBRACE):
+                        d += 1
+                    elif tj in (TokenType.TOKEN_RPAREN, TokenType.TOKEN_RBRACKET, TokenType.TOKEN_RBRACE):
+                        d -= 1
+                    elif tj == TokenType.TOKEN_LAINNYA and d == 0:
+                        return True
+                    j += 1
+                return False
+            i += 1
+        return False
 
     # ============= Block Parsing =============
 
@@ -1567,12 +1706,14 @@ class Parser:
 
     def _parse_term(self) -> ASTNode:
         left = self._parse_unary()
-        while self._check(TokenType.TOKEN_MULTIPLY, TokenType.TOKEN_DIVIDE, TokenType.TOKEN_MODULO):
+        while self._check(TokenType.TOKEN_MULTIPLY, TokenType.TOKEN_DIVIDE, TokenType.TOKEN_MODULO,
+                          TokenType.TOKEN_FLOOR_DIV):
             op_token = self._advance()
             op_map = {
                 TokenType.TOKEN_MULTIPLY: "*",
                 TokenType.TOKEN_DIVIDE: "/",
                 TokenType.TOKEN_MODULO: "%",
+                TokenType.TOKEN_FLOOR_DIV: "//",
             }
             op = op_map[op_token.type]
             right = self._parse_unary()
@@ -1845,11 +1986,12 @@ class Parser:
         return node
 
     def _parse_argument_list(self) -> List[ASTNode]:
-        """Mem-parse daftar argumen fungsi (termasuk keyword arguments)."""
+        """Mem-parse daftar argumen fungsi (termasuk keyword arguments)
+        dan spread call `f(...daftar)` (v6.7)."""
         args = []
         kwargs = []
         if not self._check(TokenType.TOKEN_RPAREN):
-            first = self._parse_expression()
+            first = self._parse_call_argument()
             # Keyword argument: nama = nilai
             if self._check(TokenType.TOKEN_ASSIGN) and isinstance(first, IdentifierNode):
                 self._advance()  # =
@@ -1858,7 +2000,9 @@ class Parser:
             else:
                 args.append(first)
             while self._match(TokenType.TOKEN_COMMA):
-                expr = self._parse_expression()
+                if self._check(TokenType.TOKEN_RPAREN):
+                    break  # trailing comma: f(a, b,) (v6.8)
+                expr = self._parse_call_argument()
                 if self._check(TokenType.TOKEN_ASSIGN) and isinstance(expr, IdentifierNode):
                     self._advance()  # =
                     value = self._parse_expression()
@@ -1867,12 +2011,21 @@ class Parser:
                     args.append(expr)
         return args, kwargs
 
+    def _parse_call_argument(self) -> ASTNode:
+        """Parse satu argumen pemanggilan — dukung spread `f(...daftar)` (v6.7)."""
+        if self._check(TokenType.TOKEN_ELLIPSIS):
+            ell = self._advance()  # ...
+            value = self._parse_expression()
+            return SpreadNode(value=value, line=ell.line, column=ell.column)
+        return self._parse_expression()
+
     def _parse_list_literal(self) -> ASTNode:
-        """[expression (, expression)*] atau [expr lalu var dalam iterable]"""
+        """[expression (, expression)*] atau [expr lalu var dalam iterable]
+        atau [...a, 1] spread list (v6.7)."""
         token = self._advance()  # [
         elements = []
         if not self._check(TokenType.TOKEN_RBRACKET):
-            first_expr = self._parse_expression()
+            first_expr = self._parse_list_element()
 
             # Check if this is a comprehension: [expr lalu var dalam iterable]
             if self._check(TokenType.TOKEN_LALU):
@@ -1908,12 +2061,22 @@ class Parser:
 
             elements.append(first_expr)
             while self._match(TokenType.TOKEN_COMMA):
-                elements.append(self._parse_expression())
+                if self._check(TokenType.TOKEN_RBRACKET):
+                    break  # trailing comma
+                elements.append(self._parse_list_element())
         self._expect(TokenType.TOKEN_RBRACKET,
                      message="List literal tidak ditutup.",
                      solution="Tambahkan ']' setelah elemen list.",
                      example="[1, 2, 3]")
         return ListNode(elements=elements, line=token.line, column=token.column)
+
+    def _parse_list_element(self) -> ASTNode:
+        """Parse satu elemen list — dukung spread `[...a, 1]` (v6.7)."""
+        if self._check(TokenType.TOKEN_ELLIPSIS):
+            ell = self._advance()  # ...
+            value = self._parse_expression()
+            return SpreadNode(value=value, line=ell.line, column=ell.column)
+        return self._parse_expression()
 
     def _parse_comprehension_iterable(self) -> ASTNode:
         """Parse iterable list comprehension tanpa ternary di level teratas.
@@ -2026,6 +2189,9 @@ class Parser:
                 defaults=func.defaults,
                 body=func.body,
                 decorators=decorators,
+                rest_param=getattr(func, "rest_param", None),
+                param_types=getattr(func, "param_types", []),
+                return_type=getattr(func, "return_type", None),
                 line=func.line,
                 column=func.column,
             )
@@ -2048,6 +2214,9 @@ class Parser:
                 defaults=func.defaults,
                 body=func.body,
                 decorators=decorators,
+                rest_param=getattr(func, "rest_param", None),
+                param_types=getattr(func, "param_types", []),
+                return_type=getattr(func, "return_type", None),
                 line=func.line,
                 column=func.column,
             )
@@ -2072,7 +2241,7 @@ class Parser:
         name = id_token.value
 
         self._expect(TokenType.TOKEN_LPAREN)
-        params, defaults, _ = self._parse_parameter_list()
+        params, defaults, _, rest_param = self._parse_parameter_list()
         self._expect(TokenType.TOKEN_RPAREN)
 
         body = self._parse_block()
@@ -2081,6 +2250,7 @@ class Parser:
 
         return AsyncFunctionDefNode(
             name=name, params=params, defaults=defaults, body=body,
+            rest_param=rest_param,
             line=token.line, column=token.column,
         )
 
@@ -2241,7 +2411,7 @@ class Parser:
         name = id_token.value
 
         self._expect(TokenType.TOKEN_LPAREN)
-        params, defaults, _ = self._parse_parameter_list()
+        params, defaults, _, rest_param = self._parse_parameter_list()
         self._expect(TokenType.TOKEN_RPAREN)
 
         body = self._parse_block()
@@ -2249,6 +2419,7 @@ class Parser:
 
         return GeneratorFunctionNode(
             name=name, params=params, defaults=defaults, body=body,
+            rest_param=rest_param,
             line=token.line, column=token.column,
         )
 

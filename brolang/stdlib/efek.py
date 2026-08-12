@@ -263,6 +263,95 @@ class Pulsa:
             pass
 
 
+class Guncangan:
+    """Screen shake berbasis trauma (v6.7).
+
+    Menggunakan model trauma klasik ala game: tiap guncangan menambah
+    trauma, lalu trauma memudar eksponensial seiring waktu. Offset kamera
+    dihitung dari trauma * acak(searah waktu). Makin sering diguncang,
+    makin keras getarannya — lalu reda sendiri.
+
+    Contoh:
+        buat getar = efek.Guncangan(kekuatan_maks=20)
+
+        # tiap frame:
+        getar.update(dt)
+        ox, oy = getar.offset()
+        kamera.gerak(ox, oy)          # geser kamera
+        # atau gambar semua di offset manual
+
+        # saat pemain kena damage:
+        getar.guncang(0.8)            # kuat
+        getar.guncang(0.3)            # getar tambahan (menumpuk)
+
+        # cek apakah sudah reda:
+        jika getar.selesai() maka ...
+    """
+
+    def __init__(self, kekuatan_maks=16, peluruhan=1.8, durasi=1.0):
+        """
+        Args:
+            kekuatan_maks: Offset pixel maksimum (dipengaruhi trauma).
+            peluruhan: Kecepatan trauma memudar (semakin besar makin cepat reda).
+            durasi: Lama getaran maksimum dalam detik (keamanan anti-takberujung).
+        """
+        self.kekuatan_maks = max(0.0, float(kekuatan_maks))
+        self.peluruhan = max(0.1, float(peluruhan))
+        self.durasi = max(0.05, float(durasi))
+        self.trauma = 0.0
+        self.waktu = 0.0
+        self.terlihat = True
+        self._seed = random.random() * 1000
+
+    def guncang(self, kekuatan=1.0):
+        """Tambahkan guncangan. kekuatan 0.0..1.0 (boleh > 1 untuk keras)."""
+        self.trauma = min(1.0, self.trauma + max(0.0, float(kekuatan)))
+        self.waktu = 0.0
+        return self
+
+    def update(self, dt):
+        """Kurangi trauma seiring waktu.
+
+        Returns:
+            False jika sudah reda total, True jika masih bergetar.
+        """
+        if self.trauma <= 0:
+            return False
+        self.waktu += dt
+        # Peluruhan eksponensial: trauma *= e^(-peluruhan*dt)
+        self.trauma = max(0.0, self.trauma * math.exp(-self.peluruhan * dt))
+        if self.waktu >= self.durasi or self.trauma <= 0.001:
+            self.trauma = 0.0
+            return False
+        return True
+
+    def offset(self):
+        """Offset (x, y) yang harus digeserkan — konsisten dalam satu frame."""
+        if self.trauma <= 0:
+            return (0.0, 0.0)
+        # Trauma dikuadratkan agar getaran terasa "keras lalu cepat reda"
+        # (rasa getaran tidak linear).
+        kekuatan = self.trauma * self.trauma * self.kekuatan_maks
+        # Noise 1D deterministik per frame — hindari jitter acak murni yang
+        # membuat gambar "melompat-lompat" tanpa arah.
+        t = self.waktu * 40.0 + self._seed
+        x = math.sin(t) * kekuatan
+        y = math.cos(t * 1.3) * kekuatan
+        return (x, y)
+
+    def selesai(self):
+        """Cek apakah getaran sudah reda total."""
+        return self.trauma <= 0.001
+
+    def kekuatan_sekarang(self):
+        """Trauma saat ini 0.0..1.0."""
+        return self.trauma
+
+    def gambar(self, screen):
+        """Placeholder agar konsisten dengan efek lain (tidak menggambar apa-apa)."""
+        pass
+
+
 def buat_flash(warna="putih", durasi=0.2, kekuatan=180):
     """Buat flash instan yang langsung menyala."""
     return Flash(warna, durasi, kekuatan)
@@ -278,12 +367,19 @@ def buat_pulsa(x, y, radius_akhir=80, durasi=0.6, warna="cyan"):
     return Pulsa(x, y, radius_akhir, durasi, warna)
 
 
+def buat_guncangan(kekuatan_maks=16, peluruhan=1.8, durasi=1.0):
+    """Buat screen shake (getaran kamera) — Guncangan (v6.7)."""
+    return Guncangan(kekuatan_maks, peluruhan, durasi)
+
+
 module = SimpleNamespace(
     Flash=Flash,
     Vignette=Vignette,
     TeksMelayang=TeksMelayang,
     Pulsa=Pulsa,
+    Guncangan=Guncangan,
     buat_flash=buat_flash,
     buat_teks_melayang=buat_teks_melayang,
     buat_pulsa=buat_pulsa,
+    buat_guncangan=buat_guncangan,
 )

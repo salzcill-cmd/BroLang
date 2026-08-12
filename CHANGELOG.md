@@ -4,6 +4,152 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [6.8.0] - 2026-08-12
+
+### Added — Fitur Bahasa Baru
+
+- **Guard clause** — `kembali`, `hentikan`, dan `lanjutkan` kini bisa
+  diberi kondisi: statement hanya dijalankan saat kondisi benar.
+  ```bro
+  fungsi cek(x)
+      kembali "negatif" jika x < 0     # early return ber-guard
+      kembali "nol" jika x == 0
+      kembali "positif"
+  selesai
+
+  untuk i dari 1 sampai 10 lakukan
+      lanjutkan jika i % 2 == 0         # skip genap
+      hentikan jika i > 5               # break bersyarat
+      tulis i
+  selesai
+  ```
+  - `kembali jika x` (tanpa nilai) juga didukung.
+  - Tidak ambigu dengan ternary: `kembali a jika b lainnya c` tetap
+    ternary, `kembali a jika b` adalah guard.
+- **Floor division `//`** — pembagian yang membulatkan ke bawah:
+  `17 // 5` → `3`, `-17 // 5` → `-4`, `17.5 // 5` → `3.0`, plus operator
+  augmented `//=` (`x //= 3`). Bekerja di interpreter, transpiler, VM
+  bytecode, dan compiler lama (`bro build`).
+- **Augmented assignment pada atribut & index** — `self.x += 1`,
+  `data[i] += 10`, `skor[i] //= 2` kini berfungsi di ketiga mesin
+  (sebelumnya: interpreter menolak dengan error, VM menimbun stack).
+
+### Fixed — VM Bytecode
+
+- **`x %= y` dan `x **= y` diam-diam rusak di VM** — compiler tidak
+  punya opcode `AUG_MOD`/`AUG_POW`, sehingga `x %= y` dieksekusi sebagai
+  `x = y`. Kini kedua opcode ditambahkan dan hasil konsisten dengan
+  interpreter & transpiler.
+- **Loop VM memotong body setelah `hentikan`** — kompilasi body loop
+  berhenti di break pertama; guard `hentikan jika x` membuat statement
+  setelahnya tidak pernah jalan saat kondisi salah. Kelima loop emitter
+  (while/do-until/for/range-for/for-each) kini mengumpulkan semua marker
+  BREAK dan mem-patch-nya di akhir loop.
+- **Transpiler guard return** — `return x if c` (Python membutuhkan
+  `else`) diganti `if c: return x`.
+
+### Added — Game Dev
+
+- **`audio` — BGM prosedural** (tanpa file eksternal):
+  - `buat_bgm(pola, tempo, gelombang, volume)` — generator musik latar
+    yang bisa di-loop; pola memakai nama not (`"C4"`, `"A#3"`, `"Bb2"`),
+    frekuensi langsung, jeda (`0`), atau tuple `(nada, ketukan)`.
+  - `mainkan_bgm(pola, ...)` — generate + putar sebagai musik loop
+    pygame; `hentikan_bgm()` untuk menghentikan.
+  - Pola siap pakai: `pola_arcade`, `pola_epik`, `pola_tenang`; helper
+    `frekuensi_nada(nama)` untuk konversi nama not → Hz.
+
+### Notes
+
+- 55 test baru (`tests/unit/test_v68_language.py`) — total **954 test passing**.
+- Dokumentasi: `docs/FITUR_V68.md`, contoh `examples/fitur_v68.bro`.
+
+## [6.7.0] - 2026-08-12
+
+### Added — Fitur Bahasa Baru
+
+- **Rest parameter `...nama`** — fungsi, method, lambda, asinkron, dan
+  generator kini bisa menampung sisa argumen:
+  ```bro
+  fungsi jumlahkan(...angka)
+      buat total = 0
+      untuk setiap n dalam angka lakukan
+          total = total + n
+      selesai
+      kembali total
+  selesai
+  tulis jumlahkan(1, 2, 3, 4, 5)   # 15
+  ```
+  Bisa digabung dengan parameter biasa (`fungsi sapa(nama, ...lain)`),
+  default parameter, dan keyword args.
+- **Spread call `f(...args)`** — membongkar list saat memanggil fungsi:
+  `kali3(...[2, 3, 4])` → `kali3(2, 3, 4)`. Berlaku juga untuk method
+  (`obj.f(...list)`).
+- **Spread list `[...a, 1]`** — menggabungkan list di literal:
+  `buat gabung = [...dasar, 3, 4]`.
+- **Multiple return `kembali a, b`** — fungsi bisa mengembalikan beberapa
+  nilai yang langsung dibongkar dengan destructuring:
+  ```bro
+  fungsi bagi_dan_sisa(a, b)
+      kembali a / b, a % b
+  selesai
+  buat [hasil, sisa] = bagi_dan_sisa(17, 5)   # 3.4, 2
+  ```
+
+### Changed — Bytecode VM kini lengkap
+
+Fitur yang sebelumnya `NotImplementedError` / diam-diam dilewati di VM
+bytecode (`bro build` / `bro benchmark --vm`) sekarang berfungsi penuh dan
+konsisten dengan interpreter & transpiler:
+- **Range for** (`untuk i dari A sampai B langkah S`) — inklusif, step
+  default otomatis naik/turun, guard step 0.
+- **Destructuring assignment** (`buat [a, b] = list` / `buat {x, y} = objek`)
+  — opcode `DICT_GET` baru untuk unpack objek yang aman (kunci hilang → `kosong`).
+- **Pipeline operator** (`nilai |> f`) — termasuk `peta`/`saring`/`kurangi`
+  dan `f(nilai, args...)`.
+- **For-each** (`untuk setiap item dalam iterable`) — dengan counter indeks
+  manual saat `index_variable` dipakai.
+- **Rest parameter di VM** — `rest_pos` di `CLOSURE`/`VMFunction`/method
+  kelas, dan rest param didaftarkan sebagai local (sebelumnya nama yang
+  bentrok dengan builtin, mis. `angka`, salah di-resolve).
+- **`untuk setiap` di SemanticAnalyzer** — `visit_ForEachNode` baru, sehingga
+  `bro run` tidak lagi error untuk program yang memakai for-each.
+
+### Added — Game Dev
+
+- **`efek.Guncangan` — screen shake**: model trauma (trauma berkurang
+exponensial), `guncang(kekuatan)`, `offset()` per-frame (noise terarah
+acak), `update(dt)`, `set_redaman` — testable tanpa pygame.
+- **`audio` — synth procedural** (tanpa file eksternal, murni stdlib):
+  `nada(frekuensi, durasi)` (sine fade in/out), `laser()` (sweep turun),
+  `ledakan()` (noise + low-pass), `blip()` (square pendek) — semuanya
+  mengembalikan bytes WAV yang siap disimpan/dimainkan.
+
+### Fixed
+
+- Optimizer `visit_FunctionNode` kehilangan `rest_param`/`param_types`/
+  `return_type` saat rekonstruksi node — kini dipertahankan.
+- Compiler VM method non-static dengan rest param: `total_params`/`rest_pos`
+  kini dihitung dari slot local yang sebenarnya (`self._get_local_idx`),
+  benar meski method menulis `self` eksplisit di daftar parameter.
+- **Compiler VM: assignment `obj.atribut = value` / `lst[i] = v`** — value
+  sebelumnya di-emit **dua kali** (`_emit_assignment` + `_get_assign_name`)
+  dan sisa `STORE_ATTR` menumpuk di stack, sehingga loop `untuk setiap` di
+  sekitar assignment (mis. `self.total = self.total + n` di dalam method
+  dengan rest param) crash `FOR_ITER: 'int' object is not an iterator`.
+  Kini value di-eval sekali dan stack dibersihkan setelah store.
+- Compiler VM `_emit_for_each`: cleanup local hanya menghapus slot yang
+  benar-benar ditambahkan loop (bukan jumlah tetap) — aman bila nama
+  variabel loop sudah ada sebagai local/param dari luar.
+- Compiler VM `_emit_range_for`: guard `langkah 0` sekarang benar-benar
+  meng-raise error ramah (sebelumnya hanya komentar, runtime jatuh ke
+  `ValueError` Python yang terbungkus).
+
+### Notes
+
+- 59 test baru (`tests/unit/test_v67_language.py`) — total **899 test passing**.
+- Dokumentasi: `docs/FITUR_V67.md`.
+
 ## [6.6.0] - 2026-08-09
 
 ### Added — 2 Modul Baru

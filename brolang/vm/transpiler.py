@@ -132,9 +132,19 @@ class Transpiler:
         elif isinstance(node, PrintNode):
             self._emit_print(node)
         elif isinstance(node, BreakNode):
-            self._line('break')
+            guard = getattr(node, "guard", None)
+            if guard is not None:
+                # hentikan jika x (v6.8)
+                self._line(f'if {self._emit_expr(guard)}: break')
+            else:
+                self._line('break')
         elif isinstance(node, ContinueNode):
-            self._line('continue')
+            guard = getattr(node, "guard", None)
+            if guard is not None:
+                # lanjutkan jika x (v6.8)
+                self._line(f'if {self._emit_expr(guard)}: continue')
+            else:
+                self._line('continue')
         elif isinstance(node, PassNode):
             self._line('pass')
         elif isinstance(node, RaiseNode):
@@ -221,6 +231,10 @@ class Transpiler:
         params = self._emit_params_with_defaults(node)
         self._line(f'{prefix}def {node.name}({params}):')
         self._indent += 1
+        rest_param = getattr(node, 'rest_param', None)
+        if rest_param:
+            # Konsisten dengan interpreter (list, bukan tuple dari *args)
+            self._line(f'{rest_param} = list({rest_param})')
         if not node.body:
             self._line('pass')
         else:
@@ -233,6 +247,9 @@ class Transpiler:
         params = self._emit_params_with_defaults(node)
         self._line(f'def {node.name}({params}):')
         self._indent += 1
+        rest_param = getattr(node, 'rest_param', None)
+        if rest_param:
+            self._line(f'{rest_param} = list({rest_param})')
         if not node.body:
             self._line('pass')
         else:
@@ -305,10 +322,17 @@ class Transpiler:
                 params = ', '.join(node.params)
             else:
                 params = ', '.join(['self'] + node.params) if node.params else 'self'
+        rest_param = getattr(node, 'rest_param', None)
+        if rest_param:
+            # Guard params kosong (mis. static method hanya punya rest)
+            params = f'*{rest_param}' if not params else f'{params}, *{rest_param}'
         # Operator overloading: _tambah_ -> __add__, dst.
         py_name = self._OVERLOAD_METHOD_MAP.get(node.name, node.name)
         self._line(f'def {py_name}({params}):')
         self._indent += 1
+        if rest_param:
+            # Konsisten dengan interpreter (list, bukan tuple dari *args)
+            self._line(f'{rest_param} = list({rest_param})')
         if not node.body:
             self._line('pass')
         else:
@@ -449,6 +473,15 @@ class Transpiler:
 
     def _emit_return(self, node: ReturnNode):
         val = self._emit_expr(node.value)
+        guard = getattr(node, "guard", None)
+        if guard is not None:
+            # kembali x jika c (v6.8) -> if c: return x
+            g = self._emit_expr(guard)
+            if val:
+                self._line(f'if {g}: return {val}')
+            else:
+                self._line(f'if {g}: return')
+            return
         if val:
             self._line(f'return {val}')
         else:
@@ -665,8 +698,14 @@ class Transpiler:
             d = self._emit_expr(dec)
             self._line(f'@{d}')
         params = ', '.join(node.params)
+        rest_param = getattr(node, 'rest_param', None)
+        if rest_param:
+            params = f'*{rest_param}' if not params else f'{params}, *{rest_param}'
         self._line(f'def {node.name}({params}):')
         self._indent += 1
+        if rest_param:
+            # Konsisten dengan interpreter (list, bukan tuple dari *args)
+            self._line(f'{rest_param} = list({rest_param})')
         if not node.body:
             self._line('pass')
         else:
@@ -693,11 +732,13 @@ class Transpiler:
     def _emit_async_function(self, node: AsyncFunctionDefNode):
         self._emit_function(FunctionNode(
             name=node.name, params=node.params,
-            defaults=node.defaults, body=node.body
+            defaults=node.defaults, body=node.body,
+            rest_param=node.rest_param,
         ), is_async=True)
 
     def _emit_params_with_defaults(self, node) -> str:
-        """Buat daftar parameter dengan default value: 'a, b=0, c="x"'."""
+        """Buat daftar parameter dengan default value: 'a, b=0, c="x"'.
+        v6.7: rest parameter '...sisa' -> '*sisa'."""
         params = []
         defaults = getattr(node, 'defaults', None) or []
         for i, name in enumerate(node.params):
@@ -706,6 +747,9 @@ class Transpiler:
                 params.append(f'{name}={default_expr}')
             else:
                 params.append(name)
+        rest_param = getattr(node, 'rest_param', None)
+        if rest_param:
+            params.append(f'*{rest_param}')
         return ', '.join(params)
 
     def _emit_destructuring_assignment(self, node: DestructuringAssignmentNode):
@@ -807,10 +851,10 @@ class Transpiler:
         elif isinstance(node, IndexNode):
             return self._emit_index(node)
         elif isinstance(node, ListNode):
-            elems = ', '.join(self._emit_expr(e) for e in node.elements)
+            elems = ', '.join(self._emit_list_element(e) for e in node.elements)
             return f'[{elems}]'
         elif isinstance(node, TupleNode):
-            elems = ', '.join(self._emit_expr(e) for e in node.elements)
+            elems = ', '.join(self._emit_list_element(e) for e in node.elements)
             if len(node.elements) == 1:
                 return f'({elems},)'
             return f'({elems})'
@@ -825,6 +869,15 @@ class Transpiler:
             return '{' + ', '.join(pairs) + '}'
         elif isinstance(node, LambdaNode):
             params = ', '.join(node.params)
+            rest_param = getattr(node, 'rest_param', None)
+            if rest_param:
+                # Rest di lambda: bind ulang via walrus agar konsisten dengan
+                # interpreter yang memberi list (bukan tuple). Tuple trick
+                # `(..., body)[-1]` dipakai agar body falsy (0/""/kosong)
+                # tetap menjadi hasil.
+                params = f'*{rest_param}' if not node.params else f'{params}, *{rest_param}'
+                body = self._emit_expr(node.body)
+                return f'(lambda {params}: ({rest_param} := list({rest_param}), {body})[-1])'
             body = self._emit_expr(node.body)
             return f'lambda {params}: {body}'
         elif isinstance(node, ComprehensionNode):
@@ -834,6 +887,9 @@ class Transpiler:
             return f'[{expr} for {node.variable} in {iterable}{cond}]'
         elif isinstance(node, FStringNode):
             return self._emit_fstring(node)
+        elif isinstance(node, SpreadNode):
+            # Spread di luar konteks list/call (jarang) — perlakuan fallback
+            return f'*{self._emit_expr(node.value)}'
         elif isinstance(node, PipelineNode):
             left = self._emit_expr(node.left)
             right = node.right
@@ -960,9 +1016,15 @@ class Transpiler:
         op = op_map.get(node.operator, node.operator)
         return f'({op}{operand})'
 
+    def _emit_list_element(self, node) -> str:
+        """Emit satu elemen list — spread `...a` -> `*a` (v6.7)."""
+        if isinstance(node, SpreadNode):
+            return f'*{self._emit_expr(node.value)}'
+        return self._emit_expr(node)
+
     def _emit_call(self, node: CallNode) -> str:
         func = self._emit_expr(node.function)
-        arg_parts = [self._emit_expr(a) for a in node.args]
+        arg_parts = [self._emit_call_arg(a) for a in node.args]
         arg_parts.extend(f'{name}={self._emit_expr(val)}' for name, val in node.kwargs)
         args = ', '.join(arg_parts)
 
@@ -1024,6 +1086,12 @@ class Transpiler:
                 return f'{obj}.{py_method}({args})'
 
         return f'{func}({args})'
+
+    def _emit_call_arg(self, node) -> str:
+        """Emit satu argumen call — spread `...a` -> `*a` (v6.7)."""
+        if isinstance(node, SpreadNode):
+            return f'*{self._emit_expr(node.value)}'
+        return self._emit_expr(node)
 
     def _emit_index(self, node: IndexNode) -> str:
         target = self._emit_expr(node.target)

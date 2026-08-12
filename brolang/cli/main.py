@@ -563,7 +563,7 @@ Dirancang untuk kemudahan belajar dan pembuatan game 2D.Perintah:
   bro run-game <file>    : Jalankan game
   bro pkg <cmd>          : Package manager
   bro benchmark <file>   : Benchmark (transpiler vs interpreter)
-  bro upgrade            : Update BroLang ke versi terbaru (v6.6)
+  bro upgrade            : Update BroLang ke versi terbaru (v6.7)
 
 Topik Dokumentasi:
   bro doc dasar          : Dasar bahasa
@@ -1644,7 +1644,7 @@ Penggunaan:
     bro new-game <nama>    : Buat proyek game baru
     bro run-game <file>    : Jalankan file game
   bro benchmark <file>   : Benchmark interpreter vs transpiler vs VM
-  bro upgrade            : Update BroLang ke versi terbaru (v6.6)
+  bro upgrade            : Update BroLang ke versi terbaru (v6.7)
   bro belajar            : Belajar coding interaktif (untuk pemula) 🎓
   bro pkg <cmd>          : Package manager (init/install/publish/dll)
   bro version            : Informasi versi

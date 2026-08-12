@@ -121,10 +121,12 @@ class Tilemap:
     """Tilemap 2D."""
 
     def __init__(self, lebar=20, tinggi=15, ukuran_tile=32):
-        self.lebar = lebar
-        self.tinggi = tinggi
-        self.ukuran_tile = ukuran_tile
-        self.data = [[0] * lebar for _ in range(tinggi)]
+        # Guard dimensi <= 0: hindari ZeroDivisionError di pixel_ke_tile /
+        # check_collision serta peta berukuran nol yang tidak berguna.
+        self.lebar = max(int(lebar), 1)
+        self.tinggi = max(int(tinggi), 1)
+        self.ukuran_tile = max(int(ukuran_tile), 1)
+        self.data = [[0] * self.lebar for _ in range(self.tinggi)]
         self.tileset = None
 
         # Collision layer
@@ -439,6 +441,9 @@ def dari_file(path, pemisah=',', ukuran_tile=32):
     """
     with open(path, encoding='utf-8') as f:
         baris = [b.strip() for b in f.readlines() if b.strip()]
+    if not baris:
+        # File kosong / hanya baris kosong -> peta kosong 1x1 (tidak crash)
+        return Tilemap(1, 1, ukuran_tile)
     peta = Tilemap(
         lebar=max(len(b.split(pemisah)) for b in baris),
         tinggi=len(baris),

@@ -11,6 +11,19 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v6.8 (Fitur Bahasa + Bug Fix + Game Dev):
+- Guard clause: `kembali x jika c`, `hentikan jika c`, `lanjutkan jika c`
+- Floor division: `//` dan `//=` (17 // 5 = 3, -17 // 5 = -4)
+- Augmented assignment pada atribut & index: `self.x += 1`, `data[i] //= 2`
+- Perbaikan VM: `%=` dan `**=` (sebelumnya diam-diam menjadi `x = y`)
+- BGM prosedural di `audio`: `buat_bgm`/`mainkan_bgm` + pola siap pakai (arcade/epik/tenang)
+
+Fitur v6.7 (Fitur Bahasa + Bug Fix + Game Dev):
+- Rest parameter: `fungsi f(a, ...sisa)` + spread call `f(...args)` + spread list `[...a, 1]`
+- Multiple return: `kembali a, b` (destructuring otomatis)
+- Bytecode VM kini mendukung range-for, destructuring, pipeline, for-each (sebelumnya NotImplementedError / silent skip)
+- Efek baru `Guncangan` (screen shake) + synth audio procedural di `audio` (nada/laser/ledakan tanpa file eksternal)
+
 Fitur v6.6 (Upgrade Game Dev):
 - Modul baru `jalur` (pathfinding A* + patroli waypoint)
 - Modul baru `efek` (flash, vignette, teks melayang, pulsa)
@@ -68,7 +81,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "6.6.0"
+__version__ = "6.8.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 
