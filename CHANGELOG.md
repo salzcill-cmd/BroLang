@@ -63,9 +63,25 @@ blok `jika`, dan single-line block.
   Kini memakai `true_value`/`false_value` dan hasil konsisten dengan
   interpreter & transpiler.
 
+### Fixed (pasca-rilis)
+
+- **`hasilkandari` (yield from) di interpreter hanya menghasilkan elemen
+  pertama** — `visit_YieldFromNode` memakai
+  `for item in items: raise YieldException(item)`; raise pertama
+  menghentikan loop sehingga elemen sisanya tidak pernah terlempar
+  (terlihat saat `hasilkandari` berada di dalam blok `jika`/guard). Kini
+  semua item ditambahkan langsung ke koleksi generator aktif (tracking
+  `_active_generator`), dan eksekusi blok di sekitarnya tetap berlanjut
+  — konsisten dengan transpiler (`yield from` Python).
+- **Yield di dalam blok `jika`/guard memotong sisa blok** — `_collect_if`
+  baru menangani statement if/elif/else per-statement seperti loop,
+  sehingga `hasilkan` berurutan di dalam blok if kini semuanya dikoleksi
+  (sebelumnya hanya yield pertama yang tercapai).
+
 ### Notes
 
-- 43 test baru (`tests/unit/test_v69_language.py`) — total **997 test passing**.
+- 45 test baru (`tests/unit/test_v69_language.py`) + 6 test regresi generator
+  (`tests/unit/test_v5_language.py`) — total **1005 test passing**.
 - Dokumentasi: `docs/FITUR_V69.md`, contoh `examples/fitur_v69.bro`.
 
 ## [6.8.0] - 2026-08-12

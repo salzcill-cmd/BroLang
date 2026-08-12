@@ -315,6 +315,21 @@ selesai
         out = run_code(code)
         assert out == ["9"], out
 
+    def test_hasilkandari_guard_benar_semua_item(self):
+        # Regresi fix v6.9: guard benar -> hasilkandari menghasilkan SEMUA item
+        # (sebelumnya hanya elemen pertama)
+        code = '''
+fungsi gen()
+    hasilkandari [1, 2, 3] jika benar
+selesai
+buat g = gen()
+untuk v dalam g lakukan
+    tulis v
+selesai
+'''
+        out = run_code(code)
+        assert out == ["1", "2", "3"], out
+
     def test_konstanta_guard(self):
         out = run_code('konstanta X = 5 jika benar\ntulis "ok"')
         assert out == ["ok"], out
@@ -490,6 +505,30 @@ tulis data
         interp_out = [o for o in run_code(code) if o.strip()]
         transp_out = self._run_full(code)
         assert interp_out == transp_out, f"interp={interp_out} transp={transp_out}"
+
+    def test_yield_from_konsisten_interpreter_vs_transpiler(self):
+        # Fix v6.9: hasilkandari (yield from) di interpreter kini konsisten
+        # dengan transpiler (Python `yield from`)
+        code = '''
+fungsi sumber()
+    hasilkan 1
+    hasilkan 2
+selesai
+fungsi gen()
+    hasilkandari [1, 2, 3] jika benar
+    hasilkandari sumber()
+    hasilkan 9 jika benar
+selesai
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis hasil
+'''
+        interp_out = [o for o in run_code(code) if o.strip()]
+        transp_out = self._run_full(code)
+        assert interp_out == transp_out, f"interp={interp_out} transp={transp_out}"
+        assert interp_out == ["[1, 2, 3, 1, 2, 9]"], interp_out
 
 
 # ============= Semantic Analyzer =============

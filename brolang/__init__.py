@@ -19,6 +19,9 @@ Fitur v6.9 (Fitur Bahasa):
 - Tidak ambigu dengan ternary: `a jika b lainnya c` tetap ternary
 - Nilai statement tidak dievaluasi saat guard salah (konsisten antar mesin)
 - Perbaikan VM: kompilasi ternary (TernaryNode) kini benar di bytecode VM
+- Perbaikan generator: `hasilkandari` (yield from) kini menghasilkan SEMUA
+  item (sebelumnya hanya elemen pertama), dan yield di dalam blok `jika`
+  tidak lagi memotong sisa statement blok
 
 Fitur v6.8 (Fitur Bahasa + Bug Fix + Game Dev):
 - Guard clause: `kembali x jika c`, `hentikan jika c`, `lanjutkan jika c`

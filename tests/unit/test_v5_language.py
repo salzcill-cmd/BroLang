@@ -484,6 +484,123 @@ tulis(hasil2)
         assert "[1, 2, 3]" in output[0]
         assert "[1, 2, 3]" in output[1]
 
+    # ============= hasilkandari (yield from) — fix v6.9 =============
+
+    def test_generator_yield_from_list(self):
+        """hasilkandari [1, 2, 3] menghasilkan SEMUA item."""
+        code = '''
+fungsi gen()
+    hasilkandari [1, 2, 3]
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[1, 2, 3]" in output[0]
+
+    def test_generator_yield_from_generator(self):
+        """hasilkandari dari fungsi generator lain menghasilkan semua nilainya."""
+        code = '''
+fungsi sumber()
+    hasilkan 1
+    hasilkan 2
+selesai
+
+fungsi gen()
+    hasilkandari sumber()
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[1, 2]" in output[0]
+
+    def test_generator_yield_from_guard(self):
+        """Regresi v6.9: guard `hasilkandari ... jika c` menghasilkan semua item
+        (sebelumnya hanya elemen pertama — raise pertama menghentikan loop)."""
+        code = '''
+fungsi gen()
+    hasilkandari [1, 2, 3] jika benar
+    hasilkandari [9, 8] jika salah
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[1, 2, 3]" in output[0]
+
+    def test_generator_yield_from_di_blok_jika(self):
+        """hasilkandari di dalam blok jika + statement lanjutan setelahnya."""
+        code = '''
+fungsi gen(x)
+    jika x > 0 maka
+        hasilkandari [1, 2]
+    selesai
+    hasilkan 9
+selesai
+
+buat hasil = []
+untuk x dalam gen(5) lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[1, 2, 9]" in output[0]
+
+    def test_generator_yield_di_blok_jika_tidak_memotong(self):
+        """Regresi v6.9: yield di dalam blok jika tidak lagi menghentikan
+        eksekusi statement setelahnya di blok yang sama."""
+        code = '''
+fungsi gen()
+    jika benar maka
+        hasilkan 1
+        hasilkan 2
+    selesai
+    hasilkan 3
+selesai
+
+buat hasil = []
+untuk x dalam gen() lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[1, 2, 3]" in output[0]
+
+    def test_generator_yield_from_else(self):
+        """hasilkandari di cabang lainnya (else) tetap dikoleksi."""
+        code = '''
+fungsi gen(x)
+    jika x > 0 maka
+        hasilkan 1
+    lainnya
+        hasilkandari [2, 3]
+    selesai
+selesai
+
+buat hasil = []
+untuk x dalam gen(-1) lakukan
+    hasil.append(x)
+selesai
+tulis(hasil)
+'''
+        output = run_code(code)
+        assert "[2, 3]" in output[0]
+
 
 # ============= Iterator Protocol =============
 

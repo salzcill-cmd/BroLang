@@ -412,6 +412,8 @@ class BroLangGenerator:
                 self._collect_while(stmt)
             elif cls == "DoUntilNode":
                 self._collect_do_until(stmt)
+            elif cls == "IfNode":
+                self._collect_if(stmt)
             elif cls == "YieldFromNode":
                 self._collect_yield_from(stmt)
             else:
@@ -421,6 +423,37 @@ class BroLangGenerator:
                     self._values.append(e.value)
                 if self._interpreter.current_env.should_return:
                     return
+
+    def _collect_if(self, node):
+        """Eksekusi if/elif/else statement per-statement supaya yield bisa
+        ditangkap di setiap cabang (v6.9).
+
+        Tanpa ini, yield di dalam blok `jika` menghentikan eksekusi sisa
+        blok (YieldException melewati visit_IfNode), dan `hasilkandari`
+        hanya menghasilkan elemen pertama.
+        """
+        condition = self._interpreter.visit(node.condition)
+        if condition:
+            self._interpreter._push_env()
+            try:
+                self._collect_stmts(node.body)
+            finally:
+                self._interpreter._pop_env()
+            return
+        for i, ec in enumerate(node.elif_conditions):
+            if self._interpreter.visit(ec):
+                self._interpreter._push_env()
+                try:
+                    self._collect_stmts(node.elif_bodies[i])
+                finally:
+                    self._interpreter._pop_env()
+                return
+        if node.else_body:
+            self._interpreter._push_env()
+            try:
+                self._collect_stmts(node.else_body)
+            finally:
+                self._interpreter._pop_env()
 
     def _collect_range_for(self, node):
         """Eksekusi range-for item per item supaya yield bisa ditangkap (v6.5)."""
@@ -495,6 +528,10 @@ class BroLangGenerator:
         self._collected = True
 
         old_env = self._interpreter.current_env
+        # v6.9: generator aktif dilacak supaya `hasilkandari` di dalam
+        # blok (jika/guard/loop) bisa menambahkan SEMUA item ke koleksi.
+        old_gen = getattr(self._interpreter, "_active_generator", None)
+        self._interpreter._active_generator = self
         self._interpreter.current_env = self._setup_env()
         try:
             self._collect_stmts(self._body)
@@ -502,6 +539,7 @@ class BroLangGenerator:
             pass
         finally:
             self._interpreter.current_env = old_env
+            self._interpreter._active_generator = old_gen
 
     def __iter__(self):
         self._collect()
@@ -2765,13 +2803,25 @@ class Interpreter(ASTVisitor):
         raise YieldException(value)
 
     def visit_YieldFromNode(self, node: YieldFromNode) -> Any:
-        """Yield from — yield setiap item dari iterable."""
+        """Yield from — hasilkan SEMUA item dari iterable (v6.9 fix).
+
+        Sebelumnya `for item in items: raise YieldException(item)` hanya
+        menghasilkan item PERTAMA — raise pertama menghentikan loop, jadi
+        elemen sisanya tidak pernah terlempar. Kini semua item ditambahkan
+        langsung ke koleksi generator aktif, dan eksekusi blok sekitar
+        tetap berlanjut (konsisten dengan `yield from` Python).
+        """
         iterable = self.visit(node.value)
         # Konversi ke list dulu supaya bisa di-iterate tanpa masalah
         items = list(iterable) if not isinstance(iterable, list) else iterable
+        gen = getattr(self, "_active_generator", None)
+        if gen is not None and hasattr(gen, "_values"):
+            gen._values.extend(items)
+            return None
+        # Fallback: hasilkandari di luar konteks generator (sumber tidak valid)
         for item in items:
             raise YieldException(item)
-        return result
+        return None
 
     # ============= V4: Decorators =============
 
