@@ -157,7 +157,7 @@ buat lemparan = acak.dadu()     # 1..6
 
 - **1205 test passing** (32 test baru di `tests/unit/test_v72_language.py`)
 - **Audit konsistensi lintas mesin** (`tools/audit_konsistensi.py`): 73 snippet
-  fitur diuji di interpreter/transpiler/VM → **69 konsisten**. Bug yang
+  fitur diuji di interpreter/transpiler/VM → **72 konsisten**. Bug yang
   diperbaiki: slicing string & list, method list/dict/str di VM & transpiler,
   closure di VM, unpack multiple return, index assignment dict, urutan
   kunci dict di VM.

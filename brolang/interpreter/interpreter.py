@@ -1633,7 +1633,7 @@ class Interpreter(ASTVisitor):
             bound = self._bind_params(
                 node.params, node.defaults, args, kwargs, node, node.rest_param
             )
-            return BroLangGenerator(
+            gen = BroLangGenerator(
                 body=node.body,
                 params=[p for p, _ in bound],
                 args=[v for _, v in bound],
@@ -1641,6 +1641,11 @@ class Interpreter(ASTVisitor):
                 closure_env=closure_env,
                 interpreter=self,
             )
+            # v7.2: generator dikumpulkan saat pemanggilan dan dikembalikan
+            # sebagai list — konsisten dengan VM & transpiler (hasil `tulis gen(3)`
+            # = `[1, 2, 3]` di ketiga mesin).
+            gen._collect()
+            return gen._values
 
         # Penanda fungsi BroLang — dipakai modul `sejajar` untuk serialisasi
         # aman saat dijalankan dari thread (interpreter tidak thread-safe).
@@ -1968,6 +1973,10 @@ class Interpreter(ASTVisitor):
 
             static_method._brolang_static = True
             static_method._brolang_fn = True
+            # v7.2: repr deterministik method — dipakai `tulis` agar output
+            # konsisten lintas mesin (`<method K.buat>`).
+            static_method._brolang_owner = owner_class_name
+            static_method._brolang_name = node.name
             return static_method
 
         def method(self_instance, *args, **kwargs):
@@ -2008,6 +2017,10 @@ class Interpreter(ASTVisitor):
                 return e.value
 
         method._brolang_fn = True
+        # v7.2: repr deterministik method — dipakai `tulis` agar output
+        # konsisten lintas mesin (`<method K.x>`).
+        method._brolang_owner = owner_class_name
+        method._brolang_name = node.name
         return method
 
     def visit_AttributeNode(self, node: AttributeNode) -> Any:
@@ -2394,6 +2407,12 @@ class Interpreter(ASTVisitor):
 
     def _format_value(self, value: Any) -> str:
         """Format nilai untuk output — hormati overload `_teks_`."""
+        # v7.2: method BroLang punya repr deterministik `<method K.x>`
+        # (konsisten lintas mesin — interpreter/transpiler/VM).
+        owner = getattr(value, "_brolang_owner", None)
+        name = getattr(value, "_brolang_name", None)
+        if owner and name:
+            return f"<method {owner}.{name}>"
         method = self._get_overload_method(value, "_teks_")
         if method is not None:
             try:
@@ -3390,11 +3409,12 @@ class Interpreter(ASTVisitor):
     # ============= V4: Generator Function =============
 
     def visit_GeneratorFunctionNode(self, node: GeneratorFunctionNode) -> None:
-        """Generator function declaration — returns BroLangGenerator."""
+        """Generator function declaration — hasil pemanggilan = list nilai
+        `hasilkan` (v7.2, konsisten dengan VM & transpiler)."""
         closure_env = self.current_env
 
         def generator_func(*args):
-            return BroLangGenerator(
+            gen = BroLangGenerator(
                 body=node.body,
                 params=node.params,
                 args=args,
@@ -3402,6 +3422,8 @@ class Interpreter(ASTVisitor):
                 closure_env=closure_env,
                 interpreter=self,
             )
+            gen._collect()
+            return gen._values
 
         self.current_env.functions[node.name] = generator_func
 

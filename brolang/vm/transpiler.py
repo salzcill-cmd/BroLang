@@ -13,12 +13,60 @@ from brolang.ast.nodes import *
 from typing import List, Optional
 
 
+def _has_yield_in_body(body):
+    """Cek apakah ada `hasilkan`/`hasilkandari` di dalam body fungsi (v7.2).
+
+    Rekursif ke sub-block (if/elif/else, loop, try/catch, match, dengan) agar
+    fungsi ber-yield di cabang mana pun terdeteksi — konsisten dengan
+    interpreter (_has_yield_in_body) dan compiler VM (_body_has_yield).
+    """
+    for stmt in body or []:
+        if isinstance(stmt, (YieldNode, YieldFromNode)):
+            return True
+        for attr in ("body", "else_body", "catch_body", "finally_body"):
+            sub = getattr(stmt, attr, None)
+            if sub and _has_yield_in_body(sub):
+                return True
+        for sub in getattr(stmt, "elif_bodies", None) or []:
+            if _has_yield_in_body(sub):
+                return True
+        for _cond, block in getattr(stmt, "if_branches", None) or []:
+            if _has_yield_in_body(block):
+                return True
+        for clause in getattr(stmt, "except_clauses", None) or []:
+            if hasattr(clause, "body") and _has_yield_in_body(clause.body):
+                return True
+        for case in getattr(stmt, "cases", None) or []:
+            if len(case) >= 2 and _has_yield_in_body(case[1]):
+                return True
+        dflt = getattr(stmt, "default_case", None)
+        if dflt and _has_yield_in_body(dflt):
+            return True
+    return False
+
+
 # BroLang builtins yang perlu di-override agar identik
 RUNTIME_HELPERS = '''
 import sys as _sys
 
 def _brolang_tulis(*args, **kwargs):
     print(*args, **kwargs)
+
+def _brolang_str(v):
+    """Format nilai untuk `tulis` (v7.2).
+
+    Method BroLang (bound method Python) diformat deterministik
+    `<method K.x>` agar output konsisten lintas mesin (interpreter
+    memakai `_brolang_owner`/`_brolang_name`; VM memakai owner_name
+    pada VMFunction). Nilai lain dikembalikan sebagai str biasa.
+    """
+    import types as _t
+    if isinstance(v, _t.MethodType):
+        self_obj = getattr(v, "__self__", None)
+        if self_obj is not None and getattr(v, "__name__", ""):
+            cls = type(self_obj).__name__
+            return f"<method {cls}.{v.__name__}>"
+    return str(v)
 
 def _brolang_cek_tipe(x, tipe=None):
     result = type(x).__name__
@@ -170,6 +218,11 @@ class Transpiler:
         self._in_class = False
         self._modules: set = set()  # nama identifier yang merupakan modul (impor)
         self._tmp_counter = 0  # v6.5: nama temp unik untuk range-for
+        # v7.2: accumulator generator — fungsi ber-`hasilkan` ditranspile
+        # menjadi fungsi biasa yang mengumpulkan yield ke list dan mengembalikan
+        # list (konsisten dengan VM & interpreter). None = di luar generator.
+        self._gen_accum = None
+        self._gen_counter = 0
 
     def transpile(self, node: ASTNode) -> str:
         """Transpile AST root → Python source code string."""
@@ -327,11 +380,23 @@ class Transpiler:
         if rest_param:
             # Konsisten dengan interpreter (list, bukan tuple dari *args)
             self._line(f'{rest_param} = list({rest_param})')
+        # v7.2: fungsi ber-`hasilkan`/`hasilkandari` ditranspile menjadi fungsi
+        # yang mengumpulkan yield ke list dan mengembalikan list — hasilnya
+        # konsisten dengan VM & interpreter (`tulis gen(3)` → `[1, 2, 3]`).
+        is_gen = _has_yield_in_body(node.body)
+        old_accum = self._gen_accum
+        if is_gen:
+            self._gen_accum = f'_brolang_gen_{self._gen_counter}'
+            self._gen_counter += 1
+            self._line(f'{self._gen_accum} = []')
         if not node.body:
             self._line('pass')
         else:
             for stmt in node.body:
                 self._emit_stmt(stmt)
+        if is_gen:
+            self._line(f'return {self._gen_accum}')
+        self._gen_accum = old_accum
         self._indent -= 1
         self._blank()
 
@@ -566,6 +631,16 @@ class Transpiler:
     def _emit_return(self, node: ReturnNode):
         val = self._emit_expr(node.value)
         guard = getattr(node, "guard", None)
+        if self._gen_accum is not None:
+            # v7.2: di dalam generator, `kembali` menghentikan pengumpulan dan
+            # mengembalikan list yang sudah terkumpul (konsisten dengan
+            # interpreter yang menangkap ReturnException di _collect).
+            if guard is not None:
+                g = self._emit_expr(guard)
+                self._line(f'if {g}: return {self._gen_accum}')
+            else:
+                self._line(f'return {self._gen_accum}')
+            return
         if guard is not None:
             # kembali x jika c (v6.8) -> if c: return x
             g = self._emit_expr(guard)
@@ -583,7 +658,10 @@ class Transpiler:
         parts = [self._emit_expr(node.expression)]
         for arg in node.args:
             parts.append(self._emit_expr(arg))
-        self._line(f'print({", ".join(parts)})')
+        # v7.2: format nilai via _brolang_str agar method punya repr
+        # deterministik `<method K.x>` (konsisten dengan interpreter & VM).
+        formatted = ', '.join(f'_brolang_str({p})' for p in parts)
+        self._line(f'print({formatted})')
 
     def _emit_raise(self, node: RaiseNode):
         val = self._emit_expr(node.value)
@@ -672,6 +750,15 @@ class Transpiler:
             self._indent -= 1
 
     def _emit_yield(self, node: YieldNode):
+        if self._gen_accum is not None:
+            # v7.2: kumpulkan ke list accumulator (konsisten dengan VM &
+            # interpreter — generator mengembalikan list, bukan objek generator).
+            if node.value:
+                val = self._emit_expr(node.value)
+                self._line(f'{self._gen_accum}.append({val})')
+            else:
+                self._line(f'{self._gen_accum}.append(None)')
+            return
         if node.value:
             val = self._emit_expr(node.value)
             self._line(f'yield {val}')
@@ -680,6 +767,10 @@ class Transpiler:
 
     def _emit_yield_from(self, node: YieldFromNode):
         val = self._emit_expr(node.value)
+        if self._gen_accum is not None:
+            # v7.2: hasilkandari -> extend list accumulator.
+            self._line(f'{self._gen_accum}.extend(list({val}))')
+            return
         self._line(f'yield from {val}')
 
     def _emit_augmented_assignment(self, node: AugmentedAssignmentNode):

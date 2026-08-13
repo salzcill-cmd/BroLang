@@ -369,3 +369,55 @@ class TestKonsistensiLintasMesin:
         assert out == ["1 2 3"]
         assert _jalankan_vm(kode) == out
         assert _jalankan_transpiler(kode) == out
+
+    def test_method_object_repr_konsisten(self):
+        """v7.2.1: `tulis k.x` (method) → `<method K.x>` di ketiga mesin."""
+        kode = (
+            "kelas K\n"
+            "    fungsi __init__(self)\n"
+            "        self._x = 5\n"
+            "    selesai\n"
+            "    fungsi x(self)\n"
+            "        kembali self._x\n"
+            "    selesai\n"
+            "selesai\n"
+            "buat k = K()\n"
+            "tulis k.x\n"
+        )
+        out = _jalankan(kode)
+        assert out == ["<method K.x>"]
+        assert _jalankan_vm(kode) == out
+        assert _jalankan_transpiler(kode) == out
+
+    def test_generator_call_returns_list_konsisten(self):
+        """v7.2.1: `tulis gen(3)` → `[1, 2, 3]` di ketiga mesin."""
+        kode = (
+            "fungsi gen(n)\n"
+            "    untuk i dari 1 sampai n lakukan\n"
+            "        hasilkan i\n"
+            "    selesai\n"
+            "selesai\n"
+            "tulis gen(3)\n"
+        )
+        out = _jalankan(kode)
+        assert out == ["[1, 2, 3]"]
+        assert _jalankan_vm(kode) == out
+        assert _jalankan_transpiler(kode) == out
+
+    def test_generator_yield_from_konsisten(self):
+        """v7.2.1: `hasilkandari` → list di ketiga mesin."""
+        kode = (
+            "fungsi a()\n"
+            "    hasilkan 1\n"
+            "    hasilkan 2\n"
+            "selesai\n"
+            "fungsi b()\n"
+            "    hasilkandari a()\n"
+            "    hasilkan 3\n"
+            "selesai\n"
+            "tulis b()\n"
+        )
+        out = _jalankan(kode)
+        assert out == ["[1, 2, 3]"]
+        assert _jalankan_vm(kode) == out
+        assert _jalankan_transpiler(kode) == out

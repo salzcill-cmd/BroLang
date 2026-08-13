@@ -4,6 +4,23 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [7.2.1] - 2026-08-13
+
+### Fixed — Konsistensi Output `tulis` untuk Object
+
+- **`tulis k.x` (method object)** kini output ketiga mesin identik:
+  `<method K.x>` (deterministik). Sebelumnya interpreter mencetak repr
+  closure Python, transpiler mencetak `<bound method ...>`, dan VM mencetak
+  `<VMFunction ...>` (semuanya berisi alamat memori yang acak).
+- **`tulis gen(3)` (generator)** kini output ketiga mesin identik: `[1, 2, 3]`.
+  Sebelumnya interpreter mencetak repr objek `BroLangGenerator`, transpiler
+  mencetak `<generator object ...>`, dan hanya VM yang mengembalikan list.
+  Generator kini dikumpulkan saat pemanggilan dan dikembalikan sebagai list
+  di interpreter & transpiler (konsisten dengan VM & CHANGELOG v7.2).
+- Audit `tools/audit_konsistensi.py`: **72/73 fitur konsisten** (naik dari
+  69/73). Sisa 1 mismatch: formatting pesan error (`tulis e` pada `lempar`)
+  antara interpreter & transpiler — di luar kategori repr object.
+
 ## [7.2.0] - 2026-08-13
 
 ### Added — Fitur Bahasa Baru
@@ -84,7 +101,7 @@ Bug yang ditemukan & diperbaiki:
 
 - 32 test baru di `tests/unit/test_v72_language.py` — total **1205 test passing**.
 - Dokumentasi: `docs/FITUR_V72.md`, contoh `examples/fitur_v72.bro`,
-  audit `tools/audit_konsistensi.py` (73 fitur, 69 konsisten).
+  audit `tools/audit_konsistensi.py` (73 fitur, 72 konsisten).
 
 ## [7.1.0] - 2026-08-13
 

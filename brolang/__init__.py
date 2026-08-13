@@ -26,6 +26,12 @@ Fitur v6.9 (Fitur Bahasa):
   (sebelumnya yield di try memicu handler catch; yield hanya di `tangkap`
   error karena fungsi tidak terdeteksi sebagai generator)
 
+Fitur v7.2.1 (Konsistensi Output Object):
+- `tulis k.x` (method object) → `<method K.x>` di interpreter/transpiler/VM
+  (sebelumnya repr masing-masing berisi alamat memori acak)
+- `tulis gen(3)` (generator) → `[1, 2, 3]` di ketiga mesin (sebelumnya
+  interpreter/transpiler mengembalikan objek generator, hanya VM yang list)
+
 Fitur v7.2 (Fitur Bahasa + Konsistensi VM + Library):
 - List/dict/set comprehension: `[x lalu x dalam data]`, `{k: v lalu ...}`, `{x lalu ...}`
   (sebelumnya list-comp rusak/no-op di VM; dict & set-comp kini didukung semua mesin)
@@ -117,7 +123,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "7.2.0"
+__version__ = "7.2.1"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

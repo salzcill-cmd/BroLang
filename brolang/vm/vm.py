@@ -1027,6 +1027,10 @@ class VM:
             if name in obj.klass.methods:
                 method = obj.klass.methods[name]
                 if isinstance(method, VMFunction):
+                    # v7.2: method diakses dari instance → pastikan repr
+                    # deterministik `<method K.x>` (konsisten lintas mesin).
+                    method.owner_name = obj.klass.name
+                    method.method_name = name
                     return method
                 if isinstance(method, tuple):
                     # (bytecode, is_static, param_count, rest_pos, param_names)
@@ -1035,6 +1039,8 @@ class VM:
                     rest_pos = method[3] if len(method) > 3 else -1
                     pnames = method[4] if len(method) > 4 else None
                     func = VMFunction(bc, param_count, False, [], rest_pos, False, pnames)
+                    func.owner_name = obj.klass.name
+                    func.method_name = name
                     if not is_static:
                         return lambda *a: self._call_function(func, [obj] + list(a))
                     return lambda *a: self._call_function(func, list(a))
@@ -1139,7 +1145,8 @@ class VMFunction:
     """Bytecode function object."""
 
     __slots__ = ("bytecode", "param_count", "has_defaults", "closure", "rest_pos",
-                 "is_async", "param_names", "defaults", "is_generator")
+                 "is_async", "param_names", "defaults", "is_generator",
+                 "owner_name", "method_name")
 
     def __init__(self, bytecode, param_count, has_defaults, closure, rest_pos=-1, is_async=False,
                  param_names=None, is_generator=False):
@@ -1157,6 +1164,11 @@ class VMFunction:
         self.defaults = None
         # v7.2: fungsi generator — hasil pemanggilan = list nilai `hasilkan`.
         self.is_generator = is_generator
+        # v7.2: repr deterministik method — dipakai `tulis` agar output
+        # konsisten lintas mesin (`<method K.x>`). Diisi saat VMClass dibuat
+        # atau saat method diakses dari instance.
+        self.owner_name = None
+        self.method_name = None
 
     def get_param_names(self):
         """Nama parameter asli bila tersedia; fallback ke p0..pN."""
@@ -1171,6 +1183,10 @@ class VMFunction:
         return names
 
     def __repr__(self):
+        # v7.2: method punya repr deterministik `<method K.x>` (konsisten
+        # dengan interpreter & transpiler). Fungsi polos tetap `<VMFunction ...>`.
+        if self.owner_name and self.method_name:
+            return f"<method {self.owner_name}.{self.method_name}>"
         return f"<VMFunction {self.bytecode}>"
 
 
@@ -1190,7 +1206,12 @@ class VMClass:
             param_count = method_data[2] if len(method_data) > 2 else 0
             rest_pos = method_data[3] if len(method_data) > 3 else -1
             pnames = method_data[4] if len(method_data) > 4 else None
-            self.methods[method_name] = VMFunction(bc, param_count, False, [], rest_pos, False, pnames)
+            func = VMFunction(bc, param_count, False, [], rest_pos, False, pnames)
+            # v7.2: tag owner/nama method → repr `<method K.x>` konsisten
+            # lintas mesin (dipakai `tulis k.x`).
+            func.owner_name = self.name
+            func.method_name = method_name
+            self.methods[method_name] = func
 
     def __repr__(self):
         return f"<VMClass {self.name}>"
