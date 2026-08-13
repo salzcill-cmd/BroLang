@@ -49,6 +49,92 @@ def _brolang_stdlib_get(name):
 
 _brolang_nomatch = object()  # sentinel pola objek (v6.0)
 
+# V7.0: error propagation '?' — buka Result/Option (dict interpreter ATAU
+# tuple transpiler) dan lempar error untuk kasus Salah/Kosong.
+def _brolang_propagate(v):
+    if isinstance(v, dict) and v.get("type") == "Result":
+        if v.get("is_success"):
+            return v.get("value")
+        err = v.get("value")
+        if isinstance(err, BaseException):
+            raise err
+        raise RuntimeError(str(err) if err is not None else "Error tanpa pesan")
+    if isinstance(v, dict) and v.get("type") == "Option":
+        if v.get("has_value"):
+            return v.get("value")
+        raise RuntimeError("Nilai kosong (Kosong()) — tidak bisa di-unwrap dengan '?'.")
+    if isinstance(v, tuple) and len(v) == 2:
+        if v[0] == "ok":
+            return v[1]
+        if v[0] == "some":
+            return v[1]
+        if v[0] == "err":
+            err = v[1]
+            if isinstance(err, BaseException):
+                raise err
+            raise RuntimeError(str(err) if err is not None else "Error tanpa pesan")
+        if v[0] == "none":
+            raise RuntimeError("Nilai kosong — tidak bisa di-unwrap dengan '?'.")
+    return v
+
+# V7.0: async sejati — body fungsi asinkron dijalankan di background
+# thread (daemon) dan dibungkus objek _AsyncTugas (kelas yang SAMA dengan
+# interpreter, agar `selesai()`/`hasil()`/`tunggu()` konsisten lintas mesin).
+def _brolang_async_run(fn, *args):
+    import concurrent.futures as _cf
+    import threading as _th
+    from brolang.interpreter.interpreter import _AsyncTugas as _T
+
+    _future = _cf.Future()
+
+    def _brolang_worker():
+        try:
+            _future.set_result(fn(*args))
+        except Exception as _e:
+            _future.set_exception(_e)
+
+    _th.Thread(target=_brolang_worker, daemon=True).start()
+    return _T(_future)
+
+
+def _brolang_await(v):
+    # tunggu: blokir sampai Tugas selesai; nilai non-Tugas apa adanya.
+    if hasattr(v, 'tunggu') and callable(v.tunggu):
+        return v.tunggu()
+    return v
+
+
+# V7.2: `dengan` statement — dukung method BroLang `masuk`/`keluar` DAN
+# protocol Python `__enter__`/`__exit__` (konsisten dengan interpreter/VM).
+def _brolang_with_enter(ctx):
+    if hasattr(ctx, 'masuk') and callable(ctx.masuk):
+        r = ctx.masuk()
+        return r if r is not None else ctx
+    if hasattr(ctx, '__enter__'):
+        r = ctx.__enter__()
+        return r if r is not None else ctx
+    return ctx
+
+
+def _brolang_with_exit(ctx):
+    if hasattr(ctx, 'keluar') and callable(ctx.keluar):
+        return ctx.keluar()
+    if hasattr(ctx, '__exit__'):
+        return ctx.__exit__(None, None, None)
+    return None
+
+
+def _brolang_with(ctx):
+    class _Ctx:
+        def __enter__(self):
+            return _brolang_with_enter(ctx)
+
+        def __exit__(self, et, ev, tb):
+            return _brolang_with_exit(ctx)
+
+    return _Ctx()
+
+
 _tulis = _brolang_tulis
 
 # V6.0: kelas dasar error kustom
@@ -109,6 +195,12 @@ class Transpiler:
                 self._emit_stmt(stmt)
         elif isinstance(node, AssignmentNode):
             self._emit_assignment(node)
+        elif isinstance(node, MultiAssignNode):
+            # Multiple assignment (v7.0): a, b = 1, 2 / a, b = b, a
+            # (Python mengevaluasi sisi kanan dulu — swap aman.)
+            targets = ', '.join(node.targets)
+            values = ', '.join(self._emit_expr(v) for v in node.values)
+            self._line(f'{targets} = {values}')
         elif isinstance(node, FunctionNode):
             self._emit_function(node)
         elif isinstance(node, ClassNode):
@@ -513,21 +605,22 @@ class Transpiler:
         self._line(f'del {target}')
 
     def _emit_import(self, node: ImportNode):
-        # Module stdlib BroLang bukan package Python top-level. Coba import
-        # biasa dulu; kalau gagal, muat lewat get_stdlib_module agar `bro run`
-        # tidak jatuh ke interpreter (yang membuat output dobel).
+        # Module stdlib BroLang bukan package Python top-level. Coba modul
+        # stdlib BroLang DULU (agar `impor json`/`impor csv` tidak tertimpa
+        # modul Python dengan nama sama — fix v7.1), lalu fallback ke import
+        # Python biasa bila tidak ada di stdlib BroLang.
         bind = node.alias or node.module.split('.')[0]
         self._modules.add(bind)
         self._line('try:')
+        self._indent += 1
+        self._line(f'{bind} = _brolang_stdlib_get({node.module!r})')
+        self._indent -= 1
+        self._line('except ImportError:')
         self._indent += 1
         if node.alias:
             self._line(f'import {node.module} as {node.alias}')
         else:
             self._line(f'import {node.module}')
-        self._indent -= 1
-        self._line('except ImportError:')
-        self._indent += 1
-        self._line(f'{bind} = _brolang_stdlib_get({node.module!r})')
         self._indent -= 1
 
     def _emit_from_import(self, node: FromImportNode):
@@ -730,11 +823,33 @@ class Transpiler:
         self._blank()
 
     def _emit_async_function(self, node: AsyncFunctionDefNode):
-        self._emit_function(FunctionNode(
-            name=node.name, params=node.params,
-            defaults=node.defaults, body=node.body,
-            rest_param=node.rest_param,
-        ), is_async=True)
+        """Async function (v7.0: async sejati, konsisten dengan interpreter).
+
+        Body ditulis sebagai nested function `_brolang_async_body`, lalu
+        pemanggilan membungkusnya menjadi Tugas background thread via
+        `_brolang_async_run` — pemanggil tidak diblokir, dan `tunggu`
+        memblokir sampai selesai (lihat helper runtime).
+        """
+        params = self._emit_params_with_defaults(node)
+        call_args = ', '.join(node.params)
+        rest_param = getattr(node, 'rest_param', None)
+        if rest_param:
+            call_args = f'{call_args}, *{rest_param}' if call_args else f'*{rest_param}'
+        self._line(f'def {node.name}({params}):')
+        self._indent += 1
+        self._line(f'def _brolang_async_body({params}):')
+        self._indent += 1
+        if rest_param:
+            self._line(f'{rest_param} = list({rest_param})')
+        if not node.body:
+            self._line('pass')
+        else:
+            for stmt in node.body:
+                self._emit_stmt(stmt)
+        self._indent -= 1
+        self._line(f'return _brolang_async_run(_brolang_async_body, {call_args})')
+        self._indent -= 1
+        self._blank()
 
     def _emit_params_with_defaults(self, node) -> str:
         """Buat daftar parameter dengan default value: 'a, b=0, c="x"'.
@@ -764,11 +879,14 @@ class Transpiler:
             self._line(f'{targets} = {parts}')
 
     def _emit_with(self, node: WithNode):
+        # v7.2: pakai helper _brolang_with supaya `masuk`/`keluar` (method
+        # BroLang) dan `__enter__`/`__exit__` (protocol Python) sama-sama
+        # berfungsi — konsisten dengan interpreter & VM.
         ctx = self._emit_expr(node.context_expr)
         if node.as_name:
-            self._line(f'with {ctx} as {node.as_name}:')
+            self._line(f'with _brolang_with({ctx}) as {node.as_name}:')
         else:
-            self._line(f'with {ctx}:')
+            self._line(f'with _brolang_with({ctx}):')
         self._indent += 1
         if not node.body:
             self._line('pass')
@@ -826,8 +944,7 @@ class Transpiler:
         elif isinstance(node, DecimalNode):
             return str(node.value)
         elif isinstance(node, StringNode):
-            escaped = node.value.replace('\\', '\\\\').replace('"', '\\"')
-            return f'"{escaped}"'
+            return f'"{self._escape_string(node.value)}"'
         elif isinstance(node, BooleanNode):
             return 'True' if node.value else 'False'
         elif isinstance(node, KosongNode):
@@ -885,6 +1002,12 @@ class Transpiler:
             iterable = self._emit_expr(node.iterable)
             expr = self._emit_expr(node.expr)
             return f'[{expr} for {node.variable} in {iterable}{cond}]'
+        elif isinstance(node, SetComprehensionNode):
+            # v7.2: set comprehension {expr lalu var dalam iterable}
+            cond = f' if {self._emit_expr(node.condition)}' if node.condition else ''
+            iterable = self._emit_expr(node.iterable)
+            expr = self._emit_expr(node.expr)
+            return f'{{{expr} for {node.variable} in {iterable}{cond}}}'
         elif isinstance(node, FStringNode):
             return self._emit_fstring(node)
         elif isinstance(node, SpreadNode):
@@ -962,7 +1085,9 @@ class Transpiler:
             return ' '.join(parts)
         elif isinstance(node, AwaitNode):
             val = self._emit_expr(node.value)
-            return f'await {val}'
+            # v7.0: tunggu memblokir sampai Tugas selesai (nilai non-Tugas
+            # dikembalikan apa adanya) — lihat helper runtime `_brolang_await`.
+            return f'_brolang_await({val})'
         elif isinstance(node, InputNode):
             if node.prompt:
                 prompt = self._emit_expr(node.prompt)
@@ -982,6 +1107,37 @@ class Transpiler:
             if node.has_value and node.value:
                 return f'("some", {self._emit_expr(node.value)})'
             return '("none", None)'
+        elif isinstance(node, ErrorPropagationNode):
+            # Error propagation (v7.0): ekspresi? — helper membuka
+            # Result/Option dan melempar error untuk Salah/Kosong.
+            return f'_brolang_propagate({self._emit_expr(node.value)})'
+        elif isinstance(node, NullSafeIndexNode):
+            # Null-safe indexing (v7.2): arr?[0] — kosong bila target kosong
+            # atau indeks di luar jangkauan. Untuk dict, cek kunci dengan in.
+            target = self._emit_expr(node.target)
+            index = self._emit_expr(node.index)
+            return (f'(None if {target} is None else '
+                    f'({target}[{index}] '
+                    f'if {index} in {target} or '
+                    f'(type({index}) is int and 0 <= {index} < len({target})) '
+                    f'else None))')
+        elif isinstance(node, SwitchExprNode):
+            # Switch expression (v7.0): cocokkan x { pola: ekspresi } — bernilai.
+            # Emit IIFE: (lambda _sv: hasil if kondisi else ...)(x)
+            val = self._emit_expr(node.value)
+            parts = []
+            for pattern, body in node.cases:
+                body_expr = self._emit_expr(body[0]) if body else 'None'
+                if isinstance(pattern, WildcardNode):
+                    parts.append(body_expr)
+                else:
+                    cond = self._emit_pattern_condition(pattern, '_sv')
+                    parts.append(f'({body_expr}) if ({cond}) else')
+            if node.default_case is not None:
+                parts.append(self._emit_expr(node.default_case))
+            else:
+                parts.append('None')
+            return '(lambda _sv: ' + ' '.join(parts) + f')({val})'
         else:
             return f'# unsupported: {type(node).__name__}'
 
@@ -1064,14 +1220,30 @@ class Transpiler:
             obj = self._emit_expr(node.function.object)
             method_name = node.function.property
             method_map = {
+                # list
+                'tambah': 'append',
+                'sisipkan': 'insert',
                 'urutkan': 'sort',
+                'balik': 'reverse',
                 'balikkan': 'reverse',
+                'hapus': 'remove',
+                'pop': 'pop',
+                'indeks': 'index',
+                'hitung': 'count',
+                'perpanjang': 'extend',
+                'jumlah': '__len__',
                 'salin': 'copy',
                 'kosongkan': 'clear',
+                # dict
                 'kunci': 'keys',
                 'nilai': 'values',
                 'item': 'items',
                 'dapat': 'get',
+                'ambil': 'get',
+                'punya': '__contains__',
+                'perbarui': 'update',
+                'hapus_kunci': 'pop',
+                # string
                 'panjang': '__len__',
                 'potong': 'split',
                 'atas': 'upper',
@@ -1083,7 +1255,27 @@ class Transpiler:
                               and node.function.object.name in self._modules)
             if method_name in method_map and not is_module_attr:
                 py_method = method_map[method_name]
-                return f'{obj}.{py_method}({args})'
+                # v7.1: panggil method BroLang asli bila ada (mis. method
+                # stdlib seperti GrupSprite.kosongkan) — fallback ke method
+                # Python builtin (mis. list.clear). Konsisten dengan
+                # interpreter yang mencoba getattr(obj, nama) lebih dulu.
+                # v7.2: urutkan/balik/balikkan interpreter MENGEMBALIKAN
+                # list (bukan None seperti sort()/reverse() Python) —
+                # tambahkan `or _o` supaya hasilnya konsisten.
+                if method_name in ('urutkan', 'balik', 'balikkan'):
+                    return (f'(lambda _o: _o.{method_name}() '
+                            f'if hasattr(_o, {method_name!r}) else '
+                            f'(_o.{py_method}() or _o))({obj})')
+                # v7.2: kunci/nilai/item interpreter mengembalikan LIST
+                # (bukan view dict_keys/dict_values) — bungkus list() agar
+                # konsisten (mis. d.kunci() -> ['a', 'b']).
+                if method_name in ('kunci', 'nilai', 'item'):
+                    return (f'(lambda _o: _o.{method_name}() '
+                            f'if hasattr(_o, {method_name!r}) else '
+                            f'list(_o.{py_method}()))({obj})')
+                return (f'(lambda _o: _o.{method_name}({args}) '
+                        f'if hasattr(_o, {method_name!r}) else '
+                        f'_o.{py_method}({args}))({obj})')
 
         return f'{func}({args})'
 
@@ -1096,28 +1288,37 @@ class Transpiler:
     def _emit_index(self, node: IndexNode) -> str:
         target = self._emit_expr(node.target)
         if node.is_slice:
-            parts = []
-            if node.slice_start:
-                parts.append(self._emit_expr(node.slice_start))
-            else:
-                parts.append('')
-            parts.append(':')
-            if node.slice_stop:
-                parts.append(self._emit_expr(node.slice_stop))
-            else:
-                parts.append('')
-            if node.slice_step:
-                parts.append(':')
-                parts.append(self._emit_expr(node.slice_step))
-            return f'{target}["{" ".join(parts)}"]'
+            # Slicing asli: target[start:stop:step] — bukan string berisi ':.'
+            start = self._emit_expr(node.slice_start) if node.slice_start else ''
+            stop = self._emit_expr(node.slice_stop) if node.slice_stop else ''
+            step = self._emit_expr(node.slice_step) if node.slice_step else ''
+            return f'{target}[{start}:{stop}:{step}]'
         idx = self._emit_expr(node.index)
         return f'{target}[{idx}]'
+
+    @staticmethod
+    def _escape_string(value: str) -> str:
+        """Escape string untuk output Python (v7.0 fix).
+
+        Lexer sudah menerjemahkan escape (`\n`, `\t`, ...) menjadi karakter
+        asli, jadi saat ditulis ulang sebagai literal Python perlu di-escape
+        lagi — sebelumnya `tulis "a\nb"` menghasilkan newline literal di
+        tengah string Python (SyntaxError).
+        """
+        return (
+            value.replace('\\', '\\\\')
+            .replace('"', '\\"')
+            .replace('\n', '\\n')
+            .replace('\r', '\\r')
+            .replace('\t', '\\t')
+            .replace('\0', '\\0')
+        )
 
     def _emit_fstring(self, node: FStringNode) -> str:
         parts = []
         for ptype, pval in node.parts:
             if ptype == 'literal':
-                parts.append(pval)
+                parts.append(self._escape_string(pval))
             elif ptype == 'expr':
                 code = self._emit_expr(pval)
                 parts.append(f'{{{code}}}')

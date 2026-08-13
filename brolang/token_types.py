@@ -309,6 +309,7 @@ KEYWORDS: dict[str, TokenType] = {
     "Benar": TokenType.TOKEN_BENAR_VAL,
     "Salah": TokenType.TOKEN_SALAH_VAL,
     "Ada": TokenType.TOKEN_SOME,
+    "Kosong": TokenType.TOKEN_NONE_VAL,
     # v5.0 keywords — Macros
     "makro": TokenType.TOKEN_MAKRO,
     "eksekusi": TokenType.TOKENEKSEKUSI,

@@ -203,6 +203,91 @@ class TestSvg:
         assert ids1 & ids2 == set()
 
 
+class TestTabel:
+    """Tabel teks (ASCII) — v7.1."""
+
+    def test_list_of_dict(self, vis):
+        data = [{"nama": "Budi", "nilai": 90}, {"nama": "Siti", "nilai": 85}]
+        out = vis.tabel(data)
+        assert "nama" in out and "nilai" in out
+        assert "Budi" in out and "Siti" in out
+        assert out.count("+") >= 2  # ada bingkai atas & bawah
+
+    def test_list_of_list_with_header(self, vis):
+        out = vis.tabel([["nama", "nilai"], ["Budi", 90], ["Siti", 85]])
+        assert "nama" in out and "Budi" in out
+
+    def test_dict_tunggal(self, vis):
+        out = vis.tabel({"nama": "Budi", "nilai": 90})
+        assert "Budi" in out
+        assert out.count("|") >= 2
+
+    def test_nomor(self, vis):
+        data = [{"a": 1}, {"a": 2}]
+        out = vis.tabel(data, nomor=True)
+        assert "#" in out
+        assert "| 1 |" in out and "| 2 |" in out
+
+    def test_judul(self, vis):
+        out = vis.tabel([{"a": 1}], judul="Data Tes")
+        assert out.splitlines()[0] == "Data Tes"
+
+    def test_empty(self, vis):
+        assert vis.tabel([]) == "(data kosong)"
+
+
+class TestTabelSvg:
+    """Tabel HTML/SVG — v7.1."""
+
+    def test_basic(self, vis):
+        data = [{"nama": "Budi", "nilai": 90}]
+        out = vis.tabel_svg(data, judul="Nilai")
+        assert "<table" in out
+        assert "Budi" in out
+        assert "Nilai" in out
+        assert "baris" in out
+
+    def test_custom_warna(self, vis):
+        out = vis.tabel_svg([{"a": 1}], warna="#ff0000")
+        assert "#ff0000" in out
+
+    def test_empty(self, vis):
+        out = vis.tabel_svg([], judul="Kosong")
+        assert "<svg" in out  # placeholder SVG
+
+
+class TestAreaSvg:
+    """Chart area (SVG) — v7.1."""
+
+    def test_basic(self, vis):
+        out = vis.area_svg([1, 3, 2, 5], judul="Tren")
+        assert "<svg" in out
+        assert "polyline" in out
+        assert "linearGradient" in out
+        assert "Tren" in out
+
+    def test_multi_series(self, vis):
+        out = vis.area_svg([[1, 2, 3], [3, 1, 2]], label=["A", "B"], judul="Multi")
+        assert out.count("polyline") == 2
+        assert "A" in out and "B" in out
+
+    def test_x_numeric(self, vis):
+        out = vis.area_svg([5, 4, 6], x=[10, 20, 30])
+        assert "polyline" in out
+
+    def test_label_legend(self, vis):
+        out = vis.area_svg([[1, 2], [2, 1]], label=["Seri A", "Seri B"])
+        assert "Seri A" in out and "Seri B" in out
+
+    def test_length_mismatch_raises(self, vis):
+        with pytest.raises(ValueError):
+            vis.area_svg([1, 2], x=[1])
+
+    def test_empty(self, vis):
+        out = vis.area_svg([], judul="Kosong")
+        assert "<svg" in out
+
+
 class TestExport:
     """Fungsi export ke file."""
 

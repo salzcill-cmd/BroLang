@@ -26,7 +26,7 @@ Contoh:
 """
 
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 
@@ -58,6 +58,77 @@ def jam() -> str:
 def format_waktu(fmt: str) -> str:
     """Format waktu kustom."""
     return datetime.now().strftime(fmt)
+
+
+def timestamp() -> float:
+    """Waktu Unix saat ini dalam detik (float) (v7.2)."""
+    return time.time()
+
+
+def milidetik() -> int:
+    """Waktu Unix saat ini dalam milidetik (int) (v7.2)."""
+    return int(time.time() * 1000)
+
+
+def zona_waktu() -> str:
+    """Nama zona waktu lokal (v7.2), mis. 'WIB' atau '+07:00'."""
+    import time as _t
+
+    tz = _t.tzname
+    if isinstance(tz, (list, tuple)) and tz:
+        return str(tz[0])
+    return str(tz)
+
+
+def dari_timestamp(ts: float, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """Ubah timestamp Unix ke string tanggal (v7.2)."""
+    return datetime.fromtimestamp(ts).strftime(fmt)
+
+
+def hari_ini() -> str:
+    """Tanggal hari ini 'YYYY-MM-DD' (v7.2)."""
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def waktu_iso() -> str:
+    """Waktu saat ini dalam format ISO 8601 (v7.2)."""
+    return datetime.now().isoformat()
+
+
+def tambah_hari(tgl: str, n: int) -> str:
+    """Tambah/kurang N hari dari tanggal 'YYYY-MM-DD' (v7.2)."""
+    try:
+        d = datetime.strptime(tgl, "%Y-%m-%d")
+    except ValueError:
+        d = datetime.strptime(tgl, "%Y-%m-%d %H:%M:%S")
+    return (d + timedelta(days=n)).strftime("%Y-%m-%d")
+
+
+def umur(tgl_lahir: str) -> int:
+    """Hitung umur (tahun) dari tanggal lahir 'YYYY-MM-DD' (v7.2)."""
+    lahir = datetime.strptime(tgl_lahir, "%Y-%m-%d")
+    sekarang_dt = datetime.now()
+    usia = sekarang_dt.year - lahir.year
+    if (sekarang_dt.month, sekarang_dt.day) < (lahir.month, lahir.day):
+        usia -= 1
+    return usia
+
+
+def selisih_waktu(a: str, b: str) -> float:
+    """Selisih dua waktu ISO 'YYYY-MM-DD HH:MM:SS' dalam detik (v7.2)."""
+    fmt = "%Y-%m-%d %H:%M:%S"
+    try:
+        ta = datetime.strptime(a, fmt)
+        tb = datetime.strptime(b, fmt)
+    except ValueError:
+        ta = datetime.fromisoformat(a)
+        tb = datetime.fromisoformat(b)
+    return (tb - ta).total_seconds()
+
+
+def detik_sejak(epoch: float) -> float:
+    """Detik yang berlalu sejak timestamp Unix tertentu (v7.2)."""
+    return time.time() - epoch
 
 
 def delta() -> float:
@@ -233,4 +304,15 @@ module = SimpleNamespace(
     buat_timer=buat_timer,
     buat_stopwatch=buat_stopwatch,
     buat_fps=buat_fps,
+    # v7.2
+    timestamp=timestamp,
+    milidetik=milidetik,
+    zona_waktu=zona_waktu,
+    dari_timestamp=dari_timestamp,
+    hari_ini=hari_ini,
+    waktu_iso=waktu_iso,
+    tambah_hari=tambah_hari,
+    umur=umur,
+    selisih_waktu=selisih_waktu,
+    detik_sejak=detik_sejak,
 )

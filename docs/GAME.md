@@ -255,15 +255,42 @@ pemain.cek_tabrakan_lingkaran(musuh)   # mode lingkaran
 pemain.cek_titik(mx, my)               # titik di dalam sprite
 ```
 
-### Grup Sprite
+### Metode Tambahan (v7.1) 🆕
 
 ```bro
+# Pergerakan & arah
+pemain.arah_ke(200, 300, kecepatan=120)      # gerak menuju titik
+pemain.kejar(musuh, kecepatan=150)           # kejar sprite lain
+pemain.rotasi_ke_titik(200, 300)             # putar menghadap titik
+pemain.ikuti_patroli([(100, 100), (500, 100)], kecepatan=120, mode="loop")
+pemain.berhenti_patroli()
+pemain.patroli_aktif()                       # sedang patroli?
+
+# Status & tampilan
+pemain.visibel()                             # True/False
+pemain.tampilkan() / pemain.sembunyikan()
+pemain.set_visibel(False)
+pemain.set_skala(2.0)
+pemain.set_rotasi(90)
+
+# Info
+pemain.jarakk_ke(100, 200)                   # jarak euclidean
+pemain.ke_awal(100, 200)                     # reset ke posisi awal
+pemain.di_dalam_bounds(800, 600)             # masih di layar?
+pemain.set_fps_animasi(12)                   # kecepatan animasi (fps)
+pemain.daftar_animasi()                      # list nama animasi
+
+# Grup
 buat grup = sprite.GrupSprite()
 grup.tambah(pemain, musuh)
 grup.update(dt)                  # update semua
 grup.gambar(screen)              # gambar semua (urut z)
 grup.cek_tabrakan(pemain)        # list sprite yang bertabrakan
 grup.hapus_tidak_aktif()         # buang sprite mati
+grup.apakah_kosong()             # True jika tidak ada sprite
+grup.kosongkan()                 # hapus semua
+grup.dapatkan_semua()            # list semua sprite
+grup.pertama()                  # sprite pertama (atau None)
 ```
 
 ---
@@ -325,6 +352,11 @@ dunia.bodi_di_posisi(mx, my)   # cari bodi yang disentuh mouse
 bola.tambah_gaya(0, -500)      # dorongan ke atas (lompat)
 bola.apply_impulse(100, 0)     # impulse instan
 bola.grounded                  # True saat menyentuh lantai
+
+# Helper v7.1 🆕
+buat v = fisika.vektor_dari_sudut(0, panjang=10)   # (10, 0) — sudut dalam radian
+buat g = fisika.gravitasi_bumi()                   # Vektor2D(0, 490)
+buat g_bulan = fisika.gravitasi_bulan()            # Vektor2D(0, 81)
 ```
 
 ---
@@ -464,6 +496,13 @@ judul.gambar(screen)
 panel.gambar(screen)
 tombol_mulai.gambar(screen)
 hp.gambar(screen)
+
+# Helper warna v7.1 🆕
+buat merah = ui.warna(255, 0, 0)                # tuple (255, 0, 0)
+buat oranye = ui.warna_hex("#ff8800")           # hex -> (255, 136, 0)
+buat warna_acak = ui.acak_warna()               # tuple RGB acak
+judul.set_warna(ui.warna_hex("#22d3ee"))        # Label juga bisa diubah warnanya
+judul.set_ukuran(32)
 ```
 
 ### KotakTeks — Input Teks (v6.2) 🆕

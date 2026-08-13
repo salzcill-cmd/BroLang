@@ -77,10 +77,16 @@ def kolom(path: str, nama_kolom: str, delimiter: str = ",") -> list:
     return [r.get(nama_kolom) for r in rows if nama_kolom in r]
 
 
+# v7.1: alias aman-keyword (`tulis` adalah keyword bahasa) — level modul
+# agar berfungsi di interpreter DAN VM.
+tulis_file = tulis
+
+
 module = SimpleNamespace(
     baca=baca,
     baca_list=baca_list,
     tulis=tulis,
+    tulis_file=tulis,  # v7.1: alias aman-keyword
     tulis_baris=tulis_baris,
     kolom=kolom,
 )

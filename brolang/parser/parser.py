@@ -88,6 +88,11 @@ from brolang.ast.nodes import (
     DoUntilNode, RangeForNode,
     # V6.7 Nodes
     SpreadNode,
+    # V7.0 Nodes
+    MultiAssignNode, ErrorPropagationNode,
+    SwitchExprNode,
+    # V7.2 Nodes
+    NullSafeIndexNode, SetComprehensionNode,
 )
 from brolang.exceptions import ParserError
 from brolang.suggestions import saran_keyword
@@ -315,11 +320,14 @@ class Parser:
             return self._parse_reduce_call()
         elif token_type == TokenType.TOKEN_BENAR_VAL or token_type == TokenType.TOKEN_SALAH_VAL:
             return self._parse_result()
-        elif token_type == TokenType.TOKEN_SOME:
+        elif token_type in (TokenType.TOKEN_SOME, TokenType.TOKEN_NONE_VAL):
             return self._parse_option()
         elif token_type == TokenType.TOKEN_IDENTIFIER:
             # Could be reassignment, augmented assignment, method call, or expression
             # Peek ahead to see if it's assignment
+            if self._peek(1) == TokenType.TOKEN_COMMA:
+                # v7.0: multiple assignment `a, b = 1, 2` atau swap `a, b = b, a`
+                return self._maybe_guard(self._parse_multi_assign(is_declaration=False))
             if self._peek(1) == TokenType.TOKEN_ASSIGN:
                 return self._maybe_guard(self._parse_reassignment())
             elif self._peek(1) in Parser.AUGMENTED_OPS:
@@ -389,6 +397,14 @@ class Parser:
             solution="Tulis nama variabel setelah 'buat'.",
             example="buat nama = \"Budi\"",
         )
+
+        # v7.0: buat a, b = 1, 2 — deklarasi ganda (koma belum dikonsumsi;
+        # _parse_multi_assign_from yang memproses sisa daftar target).
+        if self._check(TokenType.TOKEN_COMMA):
+            return self._parse_multi_assign_from(
+                token, [id_token.value], is_declaration=True, is_const=is_const
+            )
+
         target: ASTNode = IdentifierNode(name=id_token.value, line=id_token.line, column=id_token.column)
 
         # Handle dotted assignment: self.attr = value
@@ -481,6 +497,56 @@ class Parser:
             is_declaration=False,
             line=id_token.line,
             column=id_token.column,
+        )
+
+    def _parse_multi_assign(self, is_declaration: bool) -> MultiAssignNode:
+        """Multiple assignment (v7.0): `a, b = 1, 2` atau swap `a, b = b, a`.
+
+        Semua nilai kanan dievaluasi sebelum assignment (swap aman).
+        """
+        token = self._advance()  # identifier pertama
+        return self._parse_multi_assign_from(token, [token.value], is_declaration=is_declaration)
+
+    def _parse_multi_assign_from(self, token: Token, targets: List[str],
+                                 is_declaration: bool, is_const: bool = False) -> MultiAssignNode:
+        """Lanjutan multiple assignment: targets sudah berisi identifier pertama.
+
+        `buat a, b = 1, 2` dipanggil dengan targets=['a'] setelah koma pertama
+        dikonsumsi; `a, b = b, a` dipanggil dengan targets=[nama] dari
+        _parse_statement.
+        """
+        if is_const:
+            raise self._error(
+                message="'konstanta' tidak mendukung multiple assignment.",
+                solution="Deklarasikan satu konstanta per baris, mis. konstanta A = 1.",
+            )
+        # Sisa target: b, c, ...
+        while self._match(TokenType.TOKEN_COMMA):
+            t = self._expect(
+                TokenType.TOKEN_IDENTIFIER,
+                message="Setelah koma, harus ada nama variabel.",
+                solution="Gunakan: buat a, b = 1, 2",
+                example="a, b = b, a",
+            )
+            targets.append(t.value)
+
+        self._expect(
+            TokenType.TOKEN_ASSIGN,
+            message="Setelah daftar variabel, harus ada '='.",
+            solution="Gunakan: a, b = 1, 2",
+            example="a, b = b, a",
+        )
+
+        values = [self._parse_value_with_guard()]
+        while self._match(TokenType.TOKEN_COMMA):
+            values.append(self._parse_value_with_guard())
+
+        return MultiAssignNode(
+            targets=targets,
+            values=values,
+            is_declaration=is_declaration,
+            line=token.line,
+            column=token.column,
         )
 
     def _parse_augmented_assignment(self) -> AugmentedAssignmentNode:
@@ -1306,10 +1372,19 @@ class Parser:
         if self._check(TokenType.TOKEN_LBRACE):
             return self._parse_object_pattern()
         if self._check(TokenType.TOKEN_IDENTIFIER):
+            # Pola enum `Warna.MERAH` (member access) — BUKAN binding.
+            # Bug lama: `cocokkan warna2 { Warna.MERAH: ... }` gagal parse
+            # karena identifier dianggap binding lalu token '.' ditolak.
+            if self._peek(1) in (TokenType.TOKEN_DOT, TokenType.TOKEN_LPAREN):
+                # _parse_value_with_guard: parse tanpa ternary agar `jika`
+                # sisa untuk guard case (`Warna.HIJAU jika c`).
+                return self._parse_value_with_guard()
             tok = self._advance()
             return BindingPatternNode(name=tok.value,
                                       line=tok.line, column=tok.column)
-        return self._parse_expression()
+        # Pola literal/ekspresi (perilaku lama). Pakai _parse_value_with_guard
+        # agar `1 jika c:` terbaca sebagai case ber-guard, bukan ternary.
+        return self._parse_value_with_guard()
 
     def _parse_object_pattern(self) -> ASTNode:
         """Parse pola objek: {nama, umur} atau {"x": a, "y": b}."""
@@ -1891,8 +1966,14 @@ class Parser:
             node = self._parse_result()
         elif self._check(TokenType.TOKEN_SALAH_VAL):
             node = self._parse_result()
-        elif self._check(TokenType.TOKEN_SOME):
+        elif self._check(TokenType.TOKEN_SOME) or self._check(TokenType.TOKEN_NONE_VAL):
             node = self._parse_option()
+        # v7.0: switch expression `cocokkan x { ... }` sebagai ekspresi bernilai
+        elif self._check(TokenType.TOKEN_COCOKKAN):
+            node = self._parse_switch_expr()
+        # v7.0: await `tunggu ekspresi` — blokir sampai Tugas selesai
+        elif self._check(TokenType.TOKEN_TUNGGU):
+            node = self._parse_await()
         else:
             raise self._error(
                 message=f"Token tidak terduga: '{token.value}' ({token.type.name}).",
@@ -1921,6 +2002,66 @@ class Parser:
             node = CallNode(function=node, args=args, kwargs=kwargs, line=token.line, column=token.column)
 
         return node
+
+    def _parse_switch_expr(self) -> SwitchExprNode:
+        """Switch expression (v7.0): `cocokkan nilai { pola: ekspresi, _: ekspresi }`
+
+        Sama seperti statement `cocokkan`, tapi setiap body case adalah
+        ekspresi tunggal yang menjadi nilai hasil switch:
+            buat status = cocokkan kode {
+                1: "satu",
+                2: "dua",
+                _: "lainnya"
+            }
+        """
+        token = self._advance()  # cocokkan
+        value = self._parse_expression()
+
+        self._expect(
+            TokenType.TOKEN_LBRACE,
+            message="Setelah 'cocokkan', harus ada '{'.",
+            solution="Tambahkan '{' setelah ekspresi.",
+        )
+
+        self._match(TokenType.TOKEN_NEWLINE)
+        self._match(TokenType.TOKEN_INDENT)
+
+        cases = []
+        default_case = None
+
+        while not self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
+            while self._match(TokenType.TOKEN_COMMA) or self._match(TokenType.TOKEN_NEWLINE):
+                pass
+            if self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT, TokenType.TOKEN_EOF):
+                break
+
+            if self._check(TokenType.TOKEN_IDENTIFIER) and self.current_token.value == "_":
+                self._advance()  # consume _
+                pattern = WildcardNode(line=self.current_token.line, column=self.current_token.column)
+                self._expect(TokenType.TOKEN_COLON, message="Setelah '_', harus ada ':'.")
+                body = self._parse_expression()
+                default_case = body
+            else:
+                pattern = self._parse_pattern()
+                self._expect(TokenType.TOKEN_COLON, message="Setelah pattern, harus ada ':'.")
+                body = self._parse_expression()
+                cases.append((pattern, [body]))
+
+        self._match(TokenType.TOKEN_DEDENT)
+        self._expect(TokenType.TOKEN_RBRACE, message="Switch expression harus ditutup dengan '}'.")
+
+        return SwitchExprNode(value=value, cases=cases, default_case=default_case,
+                              line=token.line, column=token.column)
+
+    def _parse_await(self) -> AwaitNode:
+        """tunggu ekspresi (v7.0: await sejati)
+
+        Memblokir sampai Tugas asinkron selesai dan mengembalikan hasilnya.
+        Jika nilainya bukan Tugas, dikembalikan apa adanya.
+        """
+        token = self._advance()  # tunggu
+        value = self._parse_expression()
+        return AwaitNode(value=value, line=token.line, column=token.column)
 
     def _parse_postfix(self, node: ASTNode) -> ASTNode:
         """Mem-parse postfix operations: calls, indexing, attribute access."""
@@ -2027,6 +2168,31 @@ class Parser:
                         line=id_token.line,
                         column=id_token.column,
                     )
+            elif self._check(TokenType.TOKEN_QUESTION) and self._peek(1) == TokenType.TOKEN_LBRACKET:
+                # v7.2: null-safe indexing `arr?[0]` — kosong bila target
+                # kosong (mirror `?.` untuk atribut).
+                self._advance()  # ?
+                self._advance()  # [
+                if self._check(TokenType.TOKEN_RBRACKET):
+                    raise self._error(
+                        message="Setelah '?[', harus ada indeks.",
+                        solution="Tulis indeks: data?[0]",
+                        example="buat x = data?[0] ?? 0",
+                    )
+                index_expr = self._parse_expression()
+                self._expect(TokenType.TOKEN_RBRACKET,
+                             message="Null-safe indexing tidak ditutup.",
+                             solution="Tambahkan ']' setelah indeks.",
+                             example="data?[0]")
+                node = NullSafeIndexNode(
+                    target=node, index=index_expr, line=node.line, column=node.column
+                )
+            elif self._check(TokenType.TOKEN_QUESTION) and self.current_token.value == "?":
+                # v7.0: error propagation `ekspresi?` — buka Result/Option,
+                # lempar error bila Salah/Kosong. (Token `??` null-coalescing
+                # punya value "??", jadi aman dari bentrok.)
+                self._advance()  # ?
+                node = ErrorPropagationNode(value=node, line=node.line, column=node.column)
             else:
                 break
 
@@ -2182,9 +2348,71 @@ class Parser:
             self._expect(TokenType.TOKEN_RBRACE)
             return ObjectNode(entries=entries, line=token.line, column=token.column)
         else:
-            # It's a set
-            elements = []
-            elements.append(self._parse_expression())
+            # It's a set (atau dict comprehension v7.2: {k: v lalu ...})
+            first_expr = self._parse_expression()
+
+            # v7.2: dict comprehension {kunci: nilai lalu var dalam iterable}
+            if self._check(TokenType.TOKEN_COLON):
+                self._advance()  # :
+                value_expr = self._parse_expression()
+                if self._check(TokenType.TOKEN_LALU):
+                    self._advance()  # lalu
+                    var_token = self._expect(
+                        TokenType.TOKEN_IDENTIFIER,
+                        message="Setelah 'lalu', harus ada nama variabel.",
+                    )
+                    self._expect(
+                        TokenType.TOKEN_DALAM,
+                        message="Setelah variabel, harus ada 'dalam'.",
+                    )
+                    iterable = self._parse_comprehension_iterable()
+                    condition = None
+                    if self._check(TokenType.TOKEN_JIKA):
+                        self._advance()  # jika
+                        condition = self._parse_expression()
+                    self._expect(
+                        TokenType.TOKEN_RBRACE,
+                        message="Dict comprehension tidak ditutup.",
+                        solution="Tambahkan '}' setelah iterable.",
+                    )
+                    return DictComprehensionNode(
+                        key_expr=first_expr, value_expr=value_expr,
+                        key_var=var_token.value, iterable=iterable,
+                        condition=condition,
+                        line=token.line, column=token.column,
+                    )
+                # {k: v} tanpa lalu — set dengan colon? Tidak valid; biarkan
+                # error RBRACE berikutnya. (Objek literal hanya string key.)
+                self._expect(TokenType.TOKEN_RBRACE,
+                             message="Objek/set literal tidak valid.")
+                return SetNode(elements=[first_expr], line=token.line, column=token.column)
+
+            # v7.2: set comprehension {expr lalu var dalam iterable}
+            if self._check(TokenType.TOKEN_LALU):
+                self._advance()  # lalu
+                var_token = self._expect(
+                    TokenType.TOKEN_IDENTIFIER,
+                    message="Setelah 'lalu', harus ada nama variabel.",
+                )
+                self._expect(
+                    TokenType.TOKEN_DALAM,
+                    message="Setelah variabel, harus ada 'dalam'.",
+                )
+                iterable = self._parse_comprehension_iterable()
+                condition = None
+                if self._check(TokenType.TOKEN_JIKA):
+                    self._advance()  # jika
+                    condition = self._parse_expression()
+                self._expect(TokenType.TOKEN_RBRACE,
+                             message="Set comprehension tidak ditutup.",
+                             solution="Tambahkan '}' setelah iterable.")
+                return SetComprehensionNode(
+                    expr=first_expr, variable=var_token.value,
+                    iterable=iterable, condition=condition,
+                    line=token.line, column=token.column,
+                )
+
+            elements = [first_expr]
             while self._match(TokenType.TOKEN_COMMA):
                 if self._check(TokenType.TOKEN_RBRACE):
                     break  # trailing comma
@@ -2853,7 +3081,7 @@ class Parser:
             self._expect(TokenType.TOKEN_RPAREN)
             return OptionNode(has_value=True, value=value,
                               line=token.line, column=token.column)
-        elif self._check(TokenType.TOKEN_KOSONG_KW):
+        elif self._check(TokenType.TOKEN_NONE_VAL) or self._check(TokenType.TOKEN_KOSONG_KW):
             self._advance()  # Kosong
             if self._check(TokenType.TOKEN_LPAREN):
                 self._advance()  # (

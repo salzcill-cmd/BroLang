@@ -128,6 +128,9 @@ class Op(IntEnum):
     AUG_FLOOR_DIV = auto()  # v6.8: x //= y
     AUG_MOD = auto()        # x %= y
     AUG_POW = auto()        # x **= y
+    YIELD = auto()          # v7.2: hasilkan nilai (append ke buffer generator)
+    YIELD_FROM = auto()     # v7.2: hasilkan semua nilai dari iterable
+    GENERATOR_MAKE = auto() # v7.2: tandai fungsi sebagai generator
 
 
 @dataclass(slots=True)

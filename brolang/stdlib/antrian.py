@@ -161,9 +161,15 @@ def buat_dua_arah():
     return AntrianDuaArah()
 
 
+# v7.1: alias aman-keyword (`buat` adalah keyword bahasa) — level modul
+# agar berfungsi di interpreter DAN VM.
+buat_antrian = buat
+
+
 module = SimpleNamespace(
     Buat=buat,
     buat=buat,
+    buat_antrian=buat_antrian,
     buat_prioritas=buat_prioritas,
     buat_dua_arah=buat_dua_arah,
     Antrian=Antrian,

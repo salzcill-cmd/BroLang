@@ -37,9 +37,26 @@ def tulis(path: str, data: Any, indent: int = 2, encoding: str = "utf-8") -> Non
         _json.dump(data, f, indent=indent, ensure_ascii=False)
 
 
+def valid(teks: str) -> bool:
+    """Cek apakah teks adalah JSON yang valid (v7.1)."""
+    try:
+        _json.loads(teks)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+# v7.1: alias aman-keyword (`tulis` adalah keyword bahasa) — didefinisikan
+# di level modul agar berfungsi di interpreter (SimpleNamespace) DAN VM
+# (importlib memuat modul .py langsung).
+tulis_file = tulis
+
+
 module = SimpleNamespace(
     parsing=parsing,
     string=string,
     baca=baca,
     tulis=tulis,
+    tulis_file=tulis,  # v7.1: alias aman-keyword
+    valid=valid,
 )

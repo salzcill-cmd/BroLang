@@ -38,7 +38,7 @@ from brolang.ast.nodes import (
     KosongNode,
     LambdaNode,
     ListNode,
-    MatchNode,
+    MatchNode, SwitchNode, MethodNode,
     NonlocalNode,
     NullCoalescingNode,
     NumberNode,
@@ -62,8 +62,17 @@ from brolang.ast.nodes import (
     VariableNode,
     WhileNode,
     WildcardNode,
+    DestructuringPatternNode, ObjectPatternNode, BindingPatternNode,
     SpreadNode,
     MapNode, FilterNode, ReduceNode,
+    MultiExceptNode, TypedExceptNode,
+    AsyncFunctionDefNode,
+    # V7.0 Nodes
+    MultiAssignNode, ErrorPropagationNode,
+    ResultNode, OptionNode, AwaitNode, SwitchExprNode,
+    # V7.2 Nodes
+    WalrusNode, GeneratorFunctionNode, YieldNode, YieldFromNode, WithNode,
+    NullSafeIndexNode, SetComprehensionNode,
 )
 from brolang.vm.opcodes import Bytecode, Instruction, Op
 
@@ -239,6 +248,14 @@ class Compiler:
         self.locals = []  # [(name, scope_depth), ...]
         self.free_vars = []  # Closure variable names
         self.breakpoints = []
+        # v7.2: closure capture — stack {nama: indeks_lokal} per fungsi
+        # enclosing, supaya _resolve_name bisa menemukan free var dan
+        # LOAD_DEREF memakai slot lokal parent (frame.closure = snapshot
+        # locals parent di VM). Sebelumnya free_vars tidak pernah diisi
+        # sehingga fungsi bersarang memperlakukan variabel enclosing
+        # sebagai global (RuntimeError "belum didefinisikan").
+        self._enclosing_locals: List[Dict[str, int]] = []
+        self._free_local_idx = -1  # slot lokal parent untuk free var terakhir
 
     def compile(self, node: ASTNode) -> Bytecode:
         """Compile AST ke bytecode."""
@@ -263,8 +280,48 @@ class Compiler:
 
         if isinstance(node, AssignmentNode):
             self._emit_assignment(node)
+        elif isinstance(node, MultiAssignNode):
+            self._emit_multi_assign(node)
         elif isinstance(node, FunctionNode):
             self._emit_function(node)
+        elif isinstance(node, AsyncFunctionDefNode):
+            # v7.0: async/await sejati di VM — body dikompilasi sebagai
+            # fungsi biasa; hasil pemanggilan dibungkus Tugas oleh VM
+            # (lihat Op.CALL + _vm_tugas). `tunggu` tetap no-op (hasil
+            # sinkron), konsisten dengan desain v7.0 untuk VM.
+            self._emit_function(FunctionNode(
+                name=node.name, params=node.params,
+                defaults=node.defaults, body=node.body,
+                rest_param=node.rest_param,
+                line=node.line, column=node.column,
+            ), is_async=True)
+        elif isinstance(node, GeneratorFunctionNode):
+            # v7.2: generator — kompilasi sebagai fungsi dengan flag
+            # generator; hasil pemanggilan adalah daftar nilai `hasilkan`
+            # (mirror interpreter yang mengumpulkan semua yield sekaligus).
+            self._emit_function(FunctionNode(
+                name=node.name, params=node.params,
+                defaults=node.defaults, body=node.body,
+                rest_param=node.rest_param,
+                line=node.line, column=node.column,
+            ), is_generator=True)
+        elif isinstance(node, YieldNode):
+            if getattr(node, "guard", None) is not None:
+                # hasilkan x jika c -> guard dulu
+                self._emit_expr(node.guard)
+                skip_idx = len(self.bytecode.instructions)
+                self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0, node.line, node.column)
+                self._emit_expr(node.value)
+                self.bytecode.add(Op.YIELD, line=node.line, column=node.column)
+                self.bytecode.instructions[skip_idx].arg = len(self.bytecode.instructions)
+            else:
+                self._emit_expr(node.value)
+                self.bytecode.add(Op.YIELD, line=node.line, column=node.column)
+        elif isinstance(node, YieldFromNode):
+            self._emit_expr(node.value)
+            self.bytecode.add(Op.YIELD_FROM, line=node.line, column=node.column)
+        elif isinstance(node, WithNode):
+            self._emit_with(node)
         elif isinstance(node, ClassNode):
             self._emit_class(node)
         elif isinstance(node, ReturnNode):
@@ -329,14 +386,264 @@ class Compiler:
             self._emit_augmented_assignment(node)
         elif isinstance(node, TryNode):
             self._emit_try(node)
+        elif isinstance(node, MultiExceptNode):
+            self._emit_multi_except(node)
         elif isinstance(node, DestructuringAssignmentNode):
             self._emit_destructuring(node)
+        elif isinstance(node, (MatchNode, SwitchNode)):
+            self._emit_match(node)
         else:
             # Expression statement — evaluate and pop
             self._emit_expr(node)
             self.bytecode.add(Op.POP_TOP, line=getattr(node, "line", 0))
 
     # ============= Assignment =============
+
+    def _emit_multi_assign(self, node: MultiAssignNode):
+        """Multiple assignment (v7.0): `a, b = 1, 2`, `a, b = b, a`, `buat a, b = ...`.
+
+        Semua nilai kanan dievaluasi DULU (swap aman), lalu disimpan ke
+        target. Store dilakukan terbalik agar nilai teratas stack sampai ke
+        target terakhir (interpreter: values[i] -> targets[i]).
+        """
+        # v7.2: multiple return — `buat a, b, c = f()` (SATU nilai tuple)
+        # dengan jumlah target > 1 di-unpack (konsisten interpreter/transpiler).
+        unpack_tuple = (len(node.values) == 1 and len(node.targets) > 1)
+        if unpack_tuple:
+            # Pola _emit_destructuring: push V, lalu per target DUP + INDEX_GET
+            # + store — V tetap tersisa di stack sebagai dasar untuk iterasi
+            # berikutnya (INDEX_GET memakai top-2 sebagai target).
+            self._emit_expr(node.values[0])
+            for i, name in enumerate(node.targets):
+                self.bytecode.add(Op.DUP, node.line, node.column)
+                self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const(i),
+                                  node.line, node.column)
+                self.bytecode.add(Op.INDEX_GET, node.line, node.column)
+                self._store_assign_target(name, node)
+            self.bytecode.add(Op.POP_TOP, node.line, node.column)  # sisa V
+            return
+
+        for v in node.values:
+            self._emit_expr(v)
+        # Nilai kurang dari target -> sisanya kosong (konsisten interpreter)
+        for _ in range(len(node.targets) - len(node.values)):
+            self.bytecode.add(Op.PUSH_NONE, node.line, node.column)
+        for name in reversed(node.targets):
+            self._store_assign_target(name, node)
+
+    def _store_assign_target(self, name: str, node: MultiAssignNode):
+        """Store nilai teratas stack ke target (deklarasi/reassignment).
+
+        v7.2: dipakai multi-assign biasa (reversed) dan unpack tuple
+        multiple return (urutan normal).
+        """
+        if node.is_declaration:
+            if self.scope_depth == 0:
+                idx = self.bytecode.add_name(name)
+                self.bytecode.add(Op.DEFINE_GLOBAL, idx, node.line, node.column)
+            else:
+                idx = self._add_local(name)
+                self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
+            return
+        loc = self._resolve_name(name)
+        if loc == "local":
+            idx = self._get_local_idx(name)
+            self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
+        elif loc == "free":
+            # v7.2: gunakan slot lokal parent (frame.closure = snapshot
+            # locals parent di VM) — bukan indeks sub-bytecode.
+            self.bytecode.add(Op.STORE_DEREF, self._free_local_idx, node.line, node.column)
+        else:
+            idx = self.bytecode.add_name(name)
+            self.bytecode.add(Op.STORE_GLOBAL, idx, node.line, node.column)
+
+    def _emit_error_propagation(self, node: ErrorPropagationNode):
+        """Error propagation '?' (v7.0) di VM.
+
+        Buka Result/Option: Benar(v)? -> v, Salah(e)? -> raise e,
+        Ada(v)? -> v, Kosong()? -> raise. Nilai non-Result/Option (termasuk
+        primitif seperti `7?`) dikembalikan apa adanya — delegasi ke helper
+        `_vm_propagate` (identik dengan interpreter/transpiler).
+        """
+        self._emit_expr(node.value)
+        self.bytecode.add(Op.CALL_BUILTIN, ("_vm_propagate", 1), node.line, node.column)
+
+    @staticmethod
+    def _pattern_vars(pattern: ASTNode) -> list:
+        """Nama variabel yang di-bind oleh pola (untuk switch expression v7.0)."""
+        if isinstance(pattern, (DestructuringPatternNode,)):
+            return list(pattern.variables)
+        if isinstance(pattern, ObjectPatternNode):
+            vars_ = []
+            for entry in pattern.entries.values():
+                if isinstance(entry, tuple) and entry[0] == "var":
+                    vars_.append(entry[1])
+                elif isinstance(entry, tuple) and entry[0] == "lit":
+                    continue
+                else:
+                    vars_.append(entry)
+            return vars_
+        if isinstance(pattern, BindingPatternNode):
+            return [pattern.name]
+        return []
+
+    def _emit_pattern_probe(self, pattern: ASTNode, line: int, column: int) -> None:
+        """Emit probe pencocokan pola: stack [v] -> [v, probe].
+
+        - Pola terstruktur (list/objek/binding/wildcard): probe = node pola,
+          dicocokkan oleh helper `_vm_switch_match` (dict binding / False).
+        - Pola literal/ekspresi (termasuk enum `Warna.MERAH`): probe = nilai
+          pola yang dievaluasi, lalu dibandingkan dengan `==` (perilaku lama,
+          identik dengan interpreter `_match_pattern`).
+        """
+        if isinstance(pattern, (
+            DestructuringPatternNode, ObjectPatternNode, BindingPatternNode, WildcardNode,
+        )):
+            pidx = self.bytecode.add_const(pattern)
+            self.bytecode.add(Op.PUSH_CONST, pidx, line, column)
+        else:
+            self._emit_expr(pattern)
+
+    def _emit_match(self, node: MatchNode):
+        """Statement `cocokkan x { pola: body, ... }` di VM (fix v7.0).
+
+        Sebelumnya MatchNode di-skip diam-diam (fall ke expression statement),
+        jadi `cocokkan` tidak pernah berjalan di VM. Nilai dievaluasi sekali;
+        tiap case diuji (pola terstruktur via `_vm_switch_match`, pola
+        literal/ekspresi via `==`), binding disimpan, body (multi-statement)
+        dijalankan, lalu lompat ke akhir. Default (wildcard `_`) dijalankan
+        bila tidak ada case yang cocok.
+        """
+        self._emit_expr(node.value)  # [v]
+        guards = getattr(node, "guards", None) or [None] * len(node.cases)
+        end_jumps = []
+
+        for idx, (pattern, body) in enumerate(node.cases):
+            guard = guards[idx] if idx < len(guards) else None
+            structured = isinstance(pattern, (
+                DestructuringPatternNode, ObjectPatternNode, BindingPatternNode, WildcardNode,
+            ))
+
+            # Uji case
+            self.bytecode.add(Op.DUP)  # [v, v]
+            self._emit_pattern_probe(pattern, node.line, node.column)  # [v, v, p]
+            if structured:
+                self.bytecode.add(Op.CALL_BUILTIN, ("_vm_switch_match", 2))  # [v, b]
+            else:
+                self.bytecode.add(Op.EQ)  # [v, m]
+            self.bytecode.add(Op.DUP)  # [v, b/m, b/m]
+            next_case = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0)  # [v, b/m]
+
+            # Cocok: bind variabel pola dari dict binding
+            if structured:
+                for name in self._pattern_vars(pattern):
+                    self.bytecode.add(Op.DUP)  # [v, b, b]
+                    nidx = self.bytecode.add_const(name)
+                    self.bytecode.add(Op.PUSH_CONST, nidx, node.line, node.column)
+                    self.bytecode.add(Op.DICT_GET)  # [v, b, val]
+                    if self.scope_depth == 0:
+                        gidx = self.bytecode.add_name(name)
+                        self.bytecode.add(Op.DEFINE_GLOBAL, gidx, node.line, node.column)
+                    else:
+                        lidx = self._add_local(name)
+                        self.bytecode.add(Op.STORE_LOCAL, lidx, node.line, node.column)
+                    # [v, b]
+
+            # Guard `jika c`
+            if guard is not None:
+                self._emit_expr(guard)  # [v, b/m, g]
+                self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0)  # [v, b/m]
+                guard_jump = len(self.bytecode.instructions) - 1
+            else:
+                guard_jump = None
+
+            # Jalankan body
+            if structured:
+                self.bytecode.add(Op.POP_TOP)  # buang dict binding -> [v]
+            self.bytecode.add(Op.POP_TOP)  # buang nilai -> []
+            for stmt in body:
+                self._emit_stmt(stmt)
+            end_jumps.append(len(self.bytecode.instructions))
+            self.bytecode.add(Op.JUMP, 0, node.line, node.column)
+
+            # Entry case berikutnya / default
+            self.bytecode.instructions[next_case].arg = len(self.bytecode.instructions)
+            if guard_jump is not None:
+                self.bytecode.instructions[guard_jump].arg = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_TOP)  # buang hasil uji (b/m) -> [v]
+            # [v]
+
+        # Default (wildcard `_`) / tanpa default
+        self.bytecode.add(Op.POP_TOP)  # buang nilai -> []
+        if node.default_case:
+            for stmt in node.default_case:
+                self._emit_stmt(stmt)
+
+        end = len(self.bytecode.instructions)
+        for j in end_jumps:
+            self.bytecode.instructions[j].arg = end
+
+    def _emit_switch_expr(self, node: SwitchExprNode):
+        """Switch expression (v7.0) di VM: `cocokkan x { pola: ekspresi }`.
+
+        Nilai dievaluasi sekali; tiap case dicocokkan via helper
+        `_vm_switch_match` (kembalikan dict binding atau False) — pola
+        literal/ekspresi (termasuk enum) dievaluasi dulu oleh
+        `_emit_pattern_probe` — binding disimpan, body case dievaluasi,
+        lalu lompat ke akhir. Default (wildcard `_`) dievaluasi bila tidak
+        ada case yang cocok.
+        """
+        self._emit_expr(node.value)  # [v]
+
+        end_jumps = []
+        for pattern, body in node.cases:
+            # Cek case: [v] -> [v, b]
+            self.bytecode.add(Op.DUP)  # [v, v]
+            self._emit_pattern_probe(pattern, node.line, node.column)  # [v, v, p]
+            self.bytecode.add(Op.CALL_BUILTIN, ("_vm_switch_match", 2))  # [v, b]
+            self.bytecode.add(Op.DUP)  # [v, b, b]
+            next_case = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0)  # [v, b]
+
+            # Cocok: bind variabel pola dari dict binding
+            for name in self._pattern_vars(pattern):
+                self.bytecode.add(Op.DUP)  # [v, b, b]
+                nidx = self.bytecode.add_const(name)
+                self.bytecode.add(Op.PUSH_CONST, nidx, node.line, node.column)  # [v, b, b, n]
+                self.bytecode.add(Op.DICT_GET)  # [v, b, val]
+                if self.scope_depth == 0:
+                    gidx = self.bytecode.add_name(name)
+                    self.bytecode.add(Op.DEFINE_GLOBAL, gidx, node.line, node.column)
+                else:
+                    idx = self._add_local(name)
+                    self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
+                # [v, b]
+            self.bytecode.add(Op.POP_TOP)  # buang dict binding -> [v]
+            self.bytecode.add(Op.POP_TOP)  # buang nilai -> []
+
+            if body:
+                self._emit_expr(body[0])  # [r]
+            else:
+                self.bytecode.add(Op.PUSH_NONE)  # [None]
+            end_jumps.append(len(self.bytecode.instructions))
+            self.bytecode.add(Op.JUMP, 0, node.line, node.column)
+
+            # Entry case berikutnya: buang dict binding -> [v]
+            self.bytecode.instructions[next_case].arg = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_TOP)
+
+        # Default (wildcard `_`) / tanpa default
+        if node.default_case is not None:
+            self.bytecode.add(Op.POP_TOP)  # buang nilai -> []
+            self._emit_expr(node.default_case)  # [r]
+        else:
+            self.bytecode.add(Op.POP_TOP)  # buang nilai -> []
+            self.bytecode.add(Op.PUSH_NONE)  # [None]
+
+        end = len(self.bytecode.instructions)
+        for j in end_jumps:
+            self.bytecode.instructions[j].arg = end
 
     def _emit_assignment(self, node: AssignmentNode):
         """`buat x = v` / `x = v` / `obj.atribut = v` / `lst[i] = v`.
@@ -377,8 +684,8 @@ class Compiler:
                 idx = self._get_local_idx(name)
                 self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
             elif loc == "free":
-                idx = self.bytecode.add_free_var(name)
-                self.bytecode.add(Op.STORE_DEREF, idx, node.line, node.column)
+                # v7.2: slot lokal parent (closure).
+                self.bytecode.add(Op.STORE_DEREF, self._free_local_idx, node.line, node.column)
             else:
                 idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.STORE_GLOBAL, idx, node.line, node.column)
@@ -390,8 +697,14 @@ class Compiler:
 
     # ============= Function =============
 
-    def _emit_function(self, node: FunctionNode, is_lambda=False):
+    def _emit_function(self, node: FunctionNode, is_lambda=False, is_async=False,
+                       is_generator=False):
         """Emit function as closure object."""
+        # v7.2: fungsi berisi `hasilkan`/`hasilkandari` = generator (parser
+        # selalu menghasilkan FunctionNode; interpreter juga mendeteksi
+        # yield di body).
+        if not is_generator and self._body_has_yield(node.body):
+            is_generator = True
         func_name = node.name
 
         # Compile function body into a sub-bytecode
@@ -399,11 +712,18 @@ class Compiler:
         saved_locals = self.locals
         saved_free = self.free_vars
         saved_depth = self.scope_depth
+        saved_enclosing = self._enclosing_locals
 
         self.bytecode = Bytecode()
         self.scope_depth += 1
         self.locals = []
         self.free_vars = []
+        # v7.2: scope fungsi enclosing = lokal saat ini (indeks = slot lokal
+        # di frame parent — VM memakai ini untuk closure).
+        self._enclosing_locals = list(self._enclosing_locals)
+        self._enclosing_locals.append(
+            {name: idx for idx, (name, _) in enumerate(saved_locals)}
+        )
 
         # Parameters become locals (rest param disimpan di slot terakhir
         # setelah param biasa — indeksnya harus sama dengan rest_pos).
@@ -430,6 +750,7 @@ class Compiler:
         self.locals = saved_locals
         self.free_vars = saved_free
         self.scope_depth = saved_depth
+        self._enclosing_locals = saved_enclosing
 
         # Emit closure in parent scope
         const_idx = self.bytecode.add_const(func_bytecode)
@@ -437,19 +758,31 @@ class Compiler:
         rest_pos = len(node.params) if node.rest_param else -1
         has_defaults = len(node.defaults) > 0 and any(d is not None for d in node.defaults)
 
-        # Create closure instruction
+        # v7.1: nama parameter disertakan agar VM bisa mengikat keyword
+        # argumen berdasarkan nama (konsisten dengan interpreter).
+        param_names = list(node.params)
+        if node.rest_param:
+            param_names.append(node.rest_param)
+
+        # Create closure instruction (v7.2: is_generator flag untuk generator)
         self.bytecode.add(
-            Op.CLOSURE, (const_idx, param_count, has_defaults, rest_pos),
+            Op.CLOSURE,
+            (const_idx, param_count, has_defaults, rest_pos, is_async,
+             tuple(param_names), is_generator),
             node.line, node.column,
         )
 
-        # Push default values if any
+        # Push default values if any — MAKE_FUNCTION menggabungkan closure
+        # + daftar default (urutan = indeks param, None = tanpa default).
         if has_defaults:
             for d in node.defaults:
                 if d is not None:
                     self._emit_expr(d)
                 else:
                     self.bytecode.add(Op.PUSH_NONE)
+            self.bytecode.add(
+                Op.MAKE_FUNCTION, len(node.defaults), node.line, node.column
+            )
 
         if is_lambda:
             return
@@ -473,11 +806,17 @@ class Compiler:
             saved_locals = self.locals
             saved_free = self.free_vars
             saved_depth = self.scope_depth
+            saved_enclosing = self._enclosing_locals
 
             self.bytecode = Bytecode()
             self.scope_depth += 1
             self.locals = []
             self.free_vars = []
+            # v7.2: method juga bisa menangkap variabel enclosing (closure).
+            self._enclosing_locals = list(self._enclosing_locals)
+            self._enclosing_locals.append(
+                {name: idx for idx, (name, _) in enumerate(saved_locals)}
+            )
 
             # Add self as first param if not static
             if not method.is_static:
@@ -511,8 +850,23 @@ class Compiler:
             self.locals = saved_locals
             self.free_vars = saved_free
             self.scope_depth = saved_depth
+            self._enclosing_locals = saved_enclosing
 
-            methods[method.name] = (method_bc, method.is_static, total_params, rest_pos)
+            # v7.1: nama parameter disertakan agar keyword-argumen bisa diikat
+            # berdasarkan nama di VM (konsisten dengan interpreter).
+            param_names = []
+            if not method.is_static:
+                param_names.append("self")
+            for param in method.params:
+                if param == "self" and not method.is_static:
+                    continue
+                param_names.append(param)
+            if rest_name:
+                param_names.append(rest_name)
+
+            methods[method.name] = (
+                method_bc, method.is_static, total_params, rest_pos, tuple(param_names)
+            )
         return methods
 
     # ============= Class =============
@@ -868,6 +1222,249 @@ class Compiler:
         # Cleanup: hapus hanya local yang ditambahkan oleh loop ini
         self._remove_locals(len(self.locals) - locals_before)
 
+    def _emit_comprehension(self, node: ComprehensionNode):
+        """List comprehension (v7.2): [expr lalu var dalam iterable]
+
+        Iterasi atas iterator (GET_ITER + FOR_ITER), binding variabel ke
+        local (sementara), dan hasil akhir dikumpulkan lewat helper
+        `_vm_comp_append` (mirror interpreter: evaluasi per item, filter
+        kondisi bila ada).
+        """
+        # Buat list hasil kosong di local temp
+        self._ensure_local("_comp")
+        comp_idx = self._get_local_idx("_comp")
+        self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const([]))
+        self.bytecode.add(Op.STORE_LOCAL, comp_idx, node.line, node.column)
+
+        self._emit_expr(node.iterable)
+        self.bytecode.add(Op.GET_ITER, line=node.line, column=node.column)
+
+        locals_before = len(self.locals)
+
+        loop_start = len(self.bytecode.instructions)
+        body_jump_idx = len(self.bytecode.instructions)
+        self.bytecode.add(Op.FOR_ITER, 0, node.line, node.column)
+
+        # Simpan item ke variabel loop
+        self._ensure_local(node.variable)
+        var_idx = self._get_local_idx(node.variable)
+        self.bytecode.add(Op.STORE_LOCAL, var_idx, node.line, node.column)
+
+        if node.condition:
+            self._emit_expr(node.condition)
+            skip_idx = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0, node.line, node.column)
+
+        # _vm_comp_append(list, nilai) -> list. Stack: nilai, list, func
+        # (CALL membalik urutan pop jadi [list, nilai] — urutan param benar).
+        self.bytecode.add(Op.LOAD_LOCAL, comp_idx, node.line, node.column)
+        self._emit_expr(node.expr)
+        n_idx = self.bytecode.add_name("_vm_comp_append")
+        self.bytecode.add(Op.LOAD_GLOBAL, n_idx, node.line, node.column)
+        self.bytecode.add(Op.CALL, 2, node.line, node.column)
+        self.bytecode.add(Op.STORE_LOCAL, comp_idx, node.line, node.column)
+
+        if node.condition:
+            self.bytecode.instructions[skip_idx].arg = len(self.bytecode.instructions)
+
+        self.bytecode.add(Op.JUMP, loop_start, node.line, node.column)
+        loop_end = len(self.bytecode.instructions)
+        self.bytecode.instructions[body_jump_idx].arg = loop_end
+
+        self.bytecode.add(Op.LOAD_LOCAL, comp_idx, node.line, node.column)
+        # Cleanup local loop var (hasil list dibiarkan di stack)
+        self._remove_locals(len(self.locals) - locals_before)
+
+    def _emit_dict_comprehension(self, node: DictComprehensionNode):
+        """Dict comprehension (v7.2): {k: v lalu var dalam iterable}
+
+        Mirror interpreter: iterate + bind var, evaluasi kunci & nilai,
+        set ke dict hasil lewat `_vm_dict_set` (helper).
+        """
+        self._ensure_local("_dcomp")
+        comp_idx = self._get_local_idx("_dcomp")
+        self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const({}))
+        self.bytecode.add(Op.STORE_LOCAL, comp_idx, node.line, node.column)
+
+        self._emit_expr(node.iterable)
+        self.bytecode.add(Op.GET_ITER, line=node.line, column=node.column)
+
+        locals_before = len(self.locals)
+
+        loop_start = len(self.bytecode.instructions)
+        body_jump_idx = len(self.bytecode.instructions)
+        self.bytecode.add(Op.FOR_ITER, 0, node.line, node.column)
+
+        self._ensure_local(node.key_var)
+        var_idx = self._get_local_idx(node.key_var)
+        self.bytecode.add(Op.STORE_LOCAL, var_idx, node.line, node.column)
+
+        if node.condition:
+            self._emit_expr(node.condition)
+            skip_idx = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0, node.line, node.column)
+
+        # _vm_dict_set(dict, kunci, nilai) -> dict. Stack: dict, kunci,
+        # nilai, func (CALL membalik pop jadi [dict, kunci, nilai]).
+        self.bytecode.add(Op.LOAD_LOCAL, comp_idx, node.line, node.column)
+        self._emit_expr(node.key_expr)
+        self._emit_expr(node.value_expr)
+        n_idx = self.bytecode.add_name("_vm_dict_set")
+        self.bytecode.add(Op.LOAD_GLOBAL, n_idx, node.line, node.column)
+        self.bytecode.add(Op.CALL, 3, node.line, node.column)
+        self.bytecode.add(Op.STORE_LOCAL, comp_idx, node.line, node.column)
+
+        if node.condition:
+            self.bytecode.instructions[skip_idx].arg = len(self.bytecode.instructions)
+
+        self.bytecode.add(Op.JUMP, loop_start, node.line, node.column)
+        loop_end = len(self.bytecode.instructions)
+        self.bytecode.instructions[body_jump_idx].arg = loop_end
+
+        self.bytecode.add(Op.LOAD_LOCAL, comp_idx, node.line, node.column)
+        self._remove_locals(len(self.locals) - locals_before)
+
+    def _emit_set_comprehension(self, node: SetComprehensionNode):
+        """Set comprehension (v7.2): {expr lalu var dalam iterable}
+
+        Mirror list comprehension tapi hasilnya set (via `_vm_set_add`).
+        """
+        self._ensure_local("_scomp")
+        comp_idx = self._get_local_idx("_scomp")
+        self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const(set()))
+        self.bytecode.add(Op.STORE_LOCAL, comp_idx, node.line, node.column)
+
+        self._emit_expr(node.iterable)
+        self.bytecode.add(Op.GET_ITER, line=node.line, column=node.column)
+
+        locals_before = len(self.locals)
+
+        loop_start = len(self.bytecode.instructions)
+        body_jump_idx = len(self.bytecode.instructions)
+        self.bytecode.add(Op.FOR_ITER, 0, node.line, node.column)
+
+        self._ensure_local(node.variable)
+        var_idx = self._get_local_idx(node.variable)
+        self.bytecode.add(Op.STORE_LOCAL, var_idx, node.line, node.column)
+
+        if node.condition:
+            self._emit_expr(node.condition)
+            skip_idx = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0, node.line, node.column)
+
+        # _vm_set_add(set, nilai) -> set
+        self.bytecode.add(Op.LOAD_LOCAL, comp_idx, node.line, node.column)
+        self._emit_expr(node.expr)
+        n_idx = self.bytecode.add_name("_vm_set_add")
+        self.bytecode.add(Op.LOAD_GLOBAL, n_idx, node.line, node.column)
+        self.bytecode.add(Op.CALL, 2, node.line, node.column)
+        self.bytecode.add(Op.STORE_LOCAL, comp_idx, node.line, node.column)
+
+        if node.condition:
+            self.bytecode.instructions[skip_idx].arg = len(self.bytecode.instructions)
+
+        self.bytecode.add(Op.JUMP, loop_start, node.line, node.column)
+        loop_end = len(self.bytecode.instructions)
+        self.bytecode.instructions[body_jump_idx].arg = loop_end
+
+        self.bytecode.add(Op.LOAD_LOCAL, comp_idx, node.line, node.column)
+        self._remove_locals(len(self.locals) - locals_before)
+
+    def _emit_walrus(self, node: WalrusNode):
+        """Walrus (v7.2): x := nilai — assign & kembalikan nilai.
+
+        Evaluasi nilai, simpan ke variable (local bila ada di scope,
+        global bila tidak), dan biarkan nilai di stack sebagai hasil
+        ekspresi.
+        """
+        self._emit_expr(node.value)
+        self.bytecode.add(Op.DUP)
+        loc = self._resolve_name(node.name)
+        if loc == "local":
+            idx = self._get_local_idx(node.name)
+            self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
+        elif loc == "free":
+            # v7.2: slot lokal parent (closure).
+            self.bytecode.add(Op.STORE_DEREF, self._free_local_idx, node.line, node.column)
+        else:
+            # Belum ada di scope manapun -> definisikan global (mirror
+            # interpreter yang memakai define_variable pada current_env).
+            idx = self.bytecode.add_name(node.name)
+            self.bytecode.add(Op.DEFINE_GLOBAL, idx, node.line, node.column)
+
+    def _body_has_yield(self, body) -> bool:
+        """Cek apakah body berisi YieldNode/YieldFromNode (rekursif)."""
+        if not body:
+            return False
+        for stmt in body:
+            if isinstance(stmt, (YieldNode, YieldFromNode)):
+                return True
+            # Rekursi ke blok bersarang (jika/loop/dengan/coba)
+            for attr in ("body", "else_body", "catch_body", "finally_body"):
+                sub = getattr(stmt, attr, None)
+                if sub and self._body_has_yield(sub):
+                    return True
+        return False
+
+    def _emit_with(self, node: WithNode):
+        """dengan expr sebagai nama ... selesai (v7.2: dukung di VM)
+
+        Mirror interpreter: evaluasi context, panggil __enter__/masuk,
+        bind ke variabel, jalankan body, lalu __exit__/keluar di akhir
+        (dalam & luar exception). Dipakai TRY_PUSH supaya __exit__
+        selalu terpanggil.
+        """
+        # Evaluasi context expr, simpan ke local temp
+        locals_before = len(self.locals)
+        self._ensure_local("_with_ctx")
+        ctx_idx = self._get_local_idx("_with_ctx")
+        self._emit_expr(node.context_expr)
+        self.bytecode.add(Op.STORE_LOCAL, ctx_idx, node.line, node.column)
+
+        # Panggil helper _vm_with_enter(context) -> nilai untuk di-bind
+        self.bytecode.add(Op.LOAD_LOCAL, ctx_idx, node.line, node.column)
+        n_idx = self.bytecode.add_name("_vm_with_enter")
+        self.bytecode.add(Op.LOAD_GLOBAL, n_idx, node.line, node.column)
+        self.bytecode.add(Op.CALL, 1, node.line, node.column)
+        if node.as_name:
+            self._ensure_local(node.as_name)
+            as_idx = self._get_local_idx(node.as_name)
+            self.bytecode.add(Op.STORE_LOCAL, as_idx, node.line, node.column)
+        else:
+            self.bytecode.add(Op.POP_TOP)
+
+        # TRY_PUSH: jalankan body; __exit__ selalu dipanggil (handler =
+        # panggil __exit__ lalu re-raise).
+        push_idx = len(self.bytecode.instructions)
+        self.bytecode.add(Op.TRY_PUSH, 0, node.line, node.column)
+
+        for stmt in node.body:
+            self._emit_stmt(stmt)
+
+        self.bytecode.add(Op.TRY_POP)
+        # Exit normal
+        self.bytecode.add(Op.LOAD_LOCAL, ctx_idx, node.line, node.column)
+        n_idx = self.bytecode.add_name("_vm_with_exit")
+        self.bytecode.add(Op.LOAD_GLOBAL, n_idx, node.line, node.column)
+        self.bytecode.add(Op.CALL, 1, node.line, node.column)
+        self.bytecode.add(Op.POP_TOP)
+        jump_fin = len(self.bytecode.instructions)
+        self.bytecode.add(Op.JUMP, 0, node.line, node.column)
+
+        # Handler exception: panggil __exit__ lalu re-raise
+        self.bytecode.instructions[push_idx].arg = len(self.bytecode.instructions)
+        self.bytecode.add(Op.LOAD_LOCAL, ctx_idx, node.line, node.column)
+        n_idx = self.bytecode.add_name("_vm_with_exit")
+        self.bytecode.add(Op.LOAD_GLOBAL, n_idx, node.line, node.column)
+        self.bytecode.add(Op.CALL, 1, node.line, node.column)
+        self.bytecode.add(Op.POP_TOP)
+        self.bytecode.add(Op.RAISE)
+
+        fin = len(self.bytecode.instructions)
+        self.bytecode.instructions[jump_fin].arg = fin
+        # Cleanup local temp
+        self._remove_locals(len(self.locals) - locals_before)
+
     def _emit_destructuring(self, node: DestructuringAssignmentNode):
         """buat [a, b] = list / buat {x, y} = objek / buat (a, b) = tuple (v6.7)
 
@@ -962,8 +1559,8 @@ class Compiler:
                 idx = self._get_local_idx(name)
                 self.bytecode.add(Op.LOAD_LOCAL, idx, node.line, node.column)
             elif loc == "free":
-                idx = self.bytecode.add_free_var(name)
-                self.bytecode.add(Op.LOAD_DEREF, idx, node.line, node.column)
+                # v7.2: slot lokal parent (closure).
+                self.bytecode.add(Op.LOAD_DEREF, self._free_local_idx, node.line, node.column)
             else:
                 idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
@@ -1045,8 +1642,8 @@ class Compiler:
                 idx = self._get_local_idx(name)
                 self.bytecode.add(Op.LOAD_LOCAL, idx, node.line, node.column)
             elif loc == "free":
-                idx = self.bytecode.add_free_var(name)
-                self.bytecode.add(Op.LOAD_DEREF, idx, node.line, node.column)
+                # v7.2: slot lokal parent (closure).
+                self.bytecode.add(Op.LOAD_DEREF, self._free_local_idx, node.line, node.column)
             else:
                 idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
@@ -1095,13 +1692,51 @@ class Compiler:
         elif isinstance(node, IndexNode):
             self._emit_expr(node.target)
             if node.is_slice:
-                self.bytecode.add(Op.PUSH_NONE)  # Placeholder
+                # Bangun objek slice via helper _vm_make_slice(start, stop,
+                # step) — nilai yang tidak ada diisi None (konsisten dengan
+                # interpreter target[start:stop:step]).
+                if node.slice_start:
+                    self._emit_expr(node.slice_start)
+                else:
+                    self.bytecode.add(Op.PUSH_NONE)
+                if node.slice_stop:
+                    self._emit_expr(node.slice_stop)
+                else:
+                    self.bytecode.add(Op.PUSH_NONE)
+                if node.slice_step:
+                    self._emit_expr(node.slice_step)
+                else:
+                    self.bytecode.add(Op.PUSH_NONE)
+                n_idx = self.bytecode.add_name("_vm_make_slice")
+                self.bytecode.add(Op.LOAD_GLOBAL, n_idx, node.line, node.column)
+                self.bytecode.add(Op.CALL, 3, node.line, node.column)
             else:
                 self._emit_expr(node.index)
             self.bytecode.add(Op.INDEX_GET, line=node.line, column=node.column)
 
+        elif isinstance(node, NullSafeIndexNode):
+            # v7.2: arr?[0] — kosong bila target kosong. Stack: target,
+            # index, func (CALL membalik pop jadi [target, index]).
+            self._emit_expr(node.target)
+            self._emit_expr(node.index)
+            n_idx = self.bytecode.add_name("_vm_null_safe_index")
+            self.bytecode.add(Op.LOAD_GLOBAL, n_idx, node.line, node.column)
+            self.bytecode.add(Op.CALL, 2, node.line, node.column)
+
         elif isinstance(node, FStringNode):
             self._emit_fstring(node)
+
+        elif isinstance(node, ComprehensionNode):
+            self._emit_comprehension(node)
+
+        elif isinstance(node, DictComprehensionNode):
+            self._emit_dict_comprehension(node)
+
+        elif isinstance(node, SetComprehensionNode):
+            self._emit_set_comprehension(node)
+
+        elif isinstance(node, WalrusNode):
+            self._emit_walrus(node)
 
         elif isinstance(node, LambdaNode):
             self._emit_lambda(node)
@@ -1133,6 +1768,49 @@ class Compiler:
             for arg in node.args:
                 self._emit_expr(arg)
             self.bytecode.add(Op.MAKE_INSTANCE, len(node.args), node.line, node.column)
+
+        elif isinstance(node, ResultNode):
+            # v7.0: Benar(v)/Salah(e) -> {"type": "Result", "is_success": .., "value": ..}
+            # (representasi identik dengan interpreter — dipakai operator '?'.)
+            self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const("type"))
+            self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const("Result"))
+            self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const("is_success"))
+            if node.is_success:
+                self.bytecode.add(Op.PUSH_TRUE)
+            else:
+                self.bytecode.add(Op.PUSH_FALSE)
+            self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const("value"))
+            self._emit_expr(node.value)
+            self.bytecode.add(Op.MAKE_DICT, 3, node.line, node.column)
+
+        elif isinstance(node, OptionNode):
+            # v7.0: Ada(v)/Kosong() -> {"type": "Option", "has_value": .., "value": ..}
+            self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const("type"))
+            self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const("Option"))
+            self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const("has_value"))
+            if node.has_value:
+                self.bytecode.add(Op.PUSH_TRUE)
+            else:
+                self.bytecode.add(Op.PUSH_FALSE)
+            self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const("value"))
+            if node.has_value and node.value:
+                self._emit_expr(node.value)
+            else:
+                self.bytecode.add(Op.PUSH_NONE)
+            self.bytecode.add(Op.MAKE_DICT, 3, node.line, node.column)
+
+        elif isinstance(node, ErrorPropagationNode):
+            self._emit_error_propagation(node)
+
+        elif isinstance(node, SwitchExprNode):
+            self._emit_switch_expr(node)
+
+        elif isinstance(node, AwaitNode):
+            # v7.0: `tunggu` — buka Tugas lewat helper `_vm_tunggu` (no-op
+            # untuk nilai biasa). Body fungsi asinkron dieksekusi sinkron di
+            # VM; hasil pemanggilan dibungkus Tugas oleh Op.CALL.
+            self._emit_expr(node.value)
+            self.bytecode.add(Op.CALL_BUILTIN, ("_vm_tunggu", 1), node.line, node.column)
 
         elif isinstance(node, PipelineNode):
             self._emit_pipeline(node)
@@ -1191,7 +1869,8 @@ class Compiler:
     def _emit_call(self, node: CallNode):
         # Keyword arguments dikonversi jadi positional dict-passing:
         # fungsi(a, b=1) => fungsi(a, {'b': 1})
-        # Untuk VM sederhana, kwargs dipasangkan sebagai dict arg terakhir.
+        # Untuk VM sederhana, kwargs dipasangkan sebagai dict arg terakhir
+        # (dibungkus marker `_vm_kwargs` agar dibedakan dari dict posisional).
         has_kwargs = bool(node.kwargs)
         has_spread = any(isinstance(a, SpreadNode) for a in node.args)
 
@@ -1199,8 +1878,10 @@ class Compiler:
             for arg in node.args:
                 self._emit_expr(arg)
             if has_kwargs:
-                for _, val in node.kwargs:
-                    self._emit_expr(val)
+                self._emit_expr(ObjectNode(entries={n: v for n, v in node.kwargs}))
+                self.bytecode.add(
+                    Op.CALL_BUILTIN, ("_vm_kwargs", 1), node.line, node.column
+                )
 
         if isinstance(node.function, IdentifierNode):
             name = node.function.name
@@ -1221,8 +1902,8 @@ class Compiler:
                     idx = self._get_local_idx(name)
                     self.bytecode.add(Op.LOAD_LOCAL, idx, node.line, node.column)
                 elif loc == "free":
-                    idx = self.bytecode.add_free_var(name)
-                    self.bytecode.add(Op.LOAD_DEREF, idx, node.line, node.column)
+                    # v7.2: slot lokal parent (closure).
+                    self.bytecode.add(Op.LOAD_DEREF, self._free_local_idx, node.line, node.column)
                 else:
                     idx = self.bytecode.add_name(name)
                     self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
@@ -1235,8 +1916,8 @@ class Compiler:
                 idx = self._get_local_idx(name)
                 self.bytecode.add(Op.LOAD_LOCAL, idx, node.line, node.column)
             elif loc == "free":
-                idx = self.bytecode.add_free_var(name)
-                self.bytecode.add(Op.LOAD_DEREF, idx, node.line, node.column)
+                # v7.2: slot lokal parent (closure).
+                self.bytecode.add(Op.LOAD_DEREF, self._free_local_idx, node.line, node.column)
             else:
                 idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
@@ -1296,6 +1977,9 @@ class Compiler:
         if has_kwargs:
             self.bytecode.add(Op.PUSH_FALSE)
             self._emit_expr(ObjectNode(entries={n: v for n, v in node.kwargs}))
+            self.bytecode.add(
+                Op.CALL_BUILTIN, ("_vm_kwargs", 1), node.line, node.column
+            )
         self.bytecode.add(
             Op.BUILD_LIST_SPREAD, len(node.args) + (1 if has_kwargs else 0),
             node.line, node.column,
@@ -1361,24 +2045,30 @@ class Compiler:
         self.bytecode.add(Op.RAISE, line=node.line, column=node.column)
 
     def _emit_import(self, node):
+        """Emit import (v7.0 fix): ImportNode memakai `.module`, bukan `.parts`
+        yang tidak pernah ada — `impor event_loop` dulu crash di VM."""
         if isinstance(node, ImportNode):
-            parts = ".".join(node.parts)
-            idx = self.bytecode.add_const(parts)
-            self.bytecode.add(Op.IMPORT, (parts, None), node.line, node.column)
-            name = node.parts[-1]
-            name_idx = self.bytecode.add_name(name)
+            mod = node.module
+            bind = node.alias or mod.split(".")[0]
+            self.bytecode.add(Op.IMPORT, (mod, None), node.line, node.column)
+            name_idx = self.bytecode.add_name(bind)
             self.bytecode.add(Op.DEFINE_GLOBAL, name_idx, node.line, node.column)
         elif isinstance(node, FromImportNode):
-            parts = ".".join(node.parts)
+            mod = node.module
             for name in node.names:
-                self.bytecode.add(Op.IMPORT, (parts, name), node.line, node.column)
+                self.bytecode.add(Op.IMPORT, (mod, name), node.line, node.column)
                 name_idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.DEFINE_GLOBAL, name_idx, node.line, node.column)
 
     def _emit_enum(self, node: EnumNode):
-        """Emit enum as dict."""
+        """Emit enum as dict.
+
+        Fix v7.0: pakai `node.members` (bukan `node.values` yang tidak ada —
+        dulu `enum` apa pun crash di VM). Anggota diakses via atribut
+        (`Warna.MERAH`) karena `_get_attribute` mendukung dict.
+        """
         entries = {}
-        for i, name in enumerate(node.values):
+        for i, name in enumerate(node.members):
             entries[name] = i
         idx = self.bytecode.add_const(entries)
         self.bytecode.add(Op.PUSH_CONST, idx, node.line, node.column)
@@ -1386,10 +2076,50 @@ class Compiler:
         self.bytecode.add(Op.DEFINE_GLOBAL, name_idx, node.line, node.column)
 
     def _emit_struct(self, node: StructNode):
-        """Emit struct as class-like construct."""
-        # Simplified: treat struct as a class with automatic __init__
-        methods = self._compile_methods(node.methods)
+        """Emit struct as class with auto `__init__` (fix v7.0).
 
+        Sebelumnya `_emit_struct` memakai `node.methods` yang tidak ada pada
+        StructNode → deklarasi struct apa pun crash di VM. Kini dibangun
+        class dengan `__init__` (mengisi tiap field dari argumen posisional)
+        dan `__repr__` (`Titik(10, 20)`) — konsisten dengan interpreter.
+        """
+        init_body = []
+        for f in node.fields:
+            init_body.append(AssignmentNode(
+                target=ObjectAccessNode(object=IdentifierNode(name="self", line=node.line, column=node.column), property=f,
+                                        line=node.line, column=node.column),
+                value=IdentifierNode(name=f, line=node.line, column=node.column),
+                is_declaration=False,
+                line=node.line, column=node.column,
+            ))
+        init_method = MethodNode(
+            name="__init__", params=["self"] + list(node.fields),
+            body=init_body, is_static=False, line=node.line, column=node.column,
+        )
+
+        # __repr__: `Titik(10, 20)`
+        repr_parts = [("literal", f"{node.name}(")]
+        for i, f in enumerate(node.fields):
+            if i > 0:
+                repr_parts.append(("literal", ", "))
+            repr_parts.append(("expr", ObjectAccessNode(
+                object=IdentifierNode(name="self", line=node.line, column=node.column), property=f,
+                line=node.line, column=node.column,
+            )))
+        repr_parts.append(("literal", ")"))
+        repr_method = MethodNode(
+            name="__repr__", params=["self"],
+            body=[ReturnNode(
+                value=FStringNode(parts=repr_parts, line=node.line, column=node.column),
+                line=node.line, column=node.column,
+            )],
+            is_static=False, line=node.line, column=node.column,
+        )
+
+        methods = self._compile_methods([init_method, repr_method])
+
+        # Struct tidak punya parent
+        self.bytecode.add(Op.PUSH_NONE, node.line, node.column)
         struct_data = (node.name, methods)
         idx = self.bytecode.add_const(struct_data)
         self.bytecode.add(Op.MAKE_CLASS, idx, node.line, node.column)
@@ -1458,30 +2188,98 @@ class Compiler:
         raise NotImplementedError("Augmented assignment untuk target ini belum didukung.")
 
     def _emit_try(self, node: TryNode):
-        """Emit try/except."""
+        """Emit try/except (legacy TryNode: catch_var + catch_body)."""
         push_idx = len(self.bytecode.instructions)
         self.bytecode.add(Op.TRY_PUSH, 0, node.line, node.column)
 
         for stmt in node.body:
             self._emit_stmt(stmt)
 
-        jump_end = len(self.bytecode.instructions)
+        self.bytecode.add(Op.TRY_POP)
+        jump_fin = len(self.bytecode.instructions)
         self.bytecode.add(Op.JUMP, 0, node.line, node.column)
 
         self.bytecode.instructions[push_idx].arg = len(self.bytecode.instructions)
-        self.bytecode.add(Op.TRY_POP)
 
-        # Handle catch
-        for handler in node.handlers:
-            if handler.name:
-                self._add_local(handler.name)
-                var_idx = self._get_local_idx(handler.name)
-                self.bytecode.add(Op.STORE_LOCAL, var_idx, node.line, node.column)
+        # Handler: bind nilai exception lalu jalankan catch_body
+        self._emit_catch_body(node.catch_var, node.catch_body)
+        end_jump = len(self.bytecode.instructions)
+        self.bytecode.add(Op.JUMP, 0, node.line, node.column)
 
-            for stmt in handler.body:
+        # finally
+        fin = len(self.bytecode.instructions)
+        self.bytecode.instructions[jump_fin].arg = fin
+        self.bytecode.instructions[end_jump].arg = len(self.bytecode.instructions)
+        if node.finally_body:
+            for stmt in node.finally_body:
                 self._emit_stmt(stmt)
 
-        self.bytecode.instructions[jump_end].arg = len(self.bytecode.instructions)
+    def _emit_multi_except(self, node: MultiExceptNode):
+        """Emit coba/tangkap & coba/kecuali (v7.0: dukung di VM).
+
+        Klausa ber-tipe dicocokkan via helper `_vm_jenis`; klausa tak-ber-tipe
+        adalah catch-all. Jika tidak ada klausa yang cocok, exception
+        dilempar ulang (re-raise).
+        """
+        push_idx = len(self.bytecode.instructions)
+        self.bytecode.add(Op.TRY_PUSH, 0, node.line, node.column)
+
+        for stmt in node.body:
+            self._emit_stmt(stmt)
+
+        self.bytecode.add(Op.TRY_POP)
+        jump_fin = len(self.bytecode.instructions)
+        self.bytecode.add(Op.JUMP, 0, node.line, node.column)
+
+        self.bytecode.instructions[push_idx].arg = len(self.bytecode.instructions)
+
+        clause_jumps = []
+        clauses = list(node.except_clauses)
+        for idx, clause in enumerate(clauses):
+            is_last = idx == len(clauses) - 1
+            if clause.exception_type:
+                # Cek tipe: _vm_jenis(exc, nama) -> bool
+                self.bytecode.add(Op.DUP)
+                n_idx = self.bytecode.add_const(clause.exception_type)
+                self.bytecode.add(Op.PUSH_CONST, n_idx)
+                g_idx = self.bytecode.add_name("_vm_jenis")
+                self.bytecode.add(Op.LOAD_GLOBAL, g_idx)
+                self.bytecode.add(Op.CALL, 2)
+                skip = len(self.bytecode.instructions)
+                self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0)
+                self._emit_catch_body(clause.variable, clause.body)
+                clause_jumps.append(len(self.bytecode.instructions))
+                self.bytecode.add(Op.JUMP, 0, node.line, node.column)
+                self.bytecode.instructions[skip].arg = len(self.bytecode.instructions)
+                if is_last:
+                    # Klausa ber-tipe terakhir tidak cocok -> re-raise
+                    self.bytecode.add(Op.RAISE)
+            else:
+                # Tak ber-tipe: catch-all
+                self._emit_catch_body(clause.variable, clause.body)
+                clause_jumps.append(len(self.bytecode.instructions))
+                self.bytecode.add(Op.JUMP, 0, node.line, node.column)
+
+        if not clauses:
+            self.bytecode.add(Op.RAISE)
+
+        fin = len(self.bytecode.instructions)
+        for j in clause_jumps:
+            self.bytecode.instructions[j].arg = fin
+        self.bytecode.instructions[jump_fin].arg = fin
+        if node.finally_body:
+            for stmt in node.finally_body:
+                self._emit_stmt(stmt)
+
+    def _emit_catch_body(self, variable: str, body):
+        """Bind nilai exception ke variabel catch lalu emit body."""
+        if variable and self._get_local_idx(variable) == -1:
+            self._add_local(variable)
+        if variable:
+            var_idx = self._get_local_idx(variable)
+            self.bytecode.add(Op.STORE_LOCAL, var_idx)
+        for stmt in body:
+            self._emit_stmt(stmt)
 
     def _emit_fstring(self, node: FStringNode):
         """Emit f-string as string concatenation."""
@@ -1506,11 +2304,17 @@ class Compiler:
         saved_locals = self.locals
         saved_free = self.free_vars
         saved_depth = self.scope_depth
+        saved_enclosing = self._enclosing_locals
 
         self.bytecode = Bytecode()
         self.scope_depth += 1
         self.locals = []
         self.free_vars = []
+        # v7.2: lambda juga bisa menangkap variabel enclosing (closure).
+        self._enclosing_locals = list(self._enclosing_locals)
+        self._enclosing_locals.append(
+            {name: idx for idx, (name, _) in enumerate(saved_locals)}
+        )
 
         for param in node.params:
             self._add_local(param)
@@ -1527,12 +2331,18 @@ class Compiler:
         self.locals = saved_locals
         self.free_vars = saved_free
         self.scope_depth = saved_depth
+        self._enclosing_locals = saved_enclosing
 
         const_idx = self.bytecode.add_const(func_bc)
         param_count = len(node.params) + (1 if node.rest_param else 0)
         rest_pos = len(node.params) if node.rest_param else -1
+        param_names = list(node.params)
+        if node.rest_param:
+            param_names.append(node.rest_param)
         self.bytecode.add(
-            Op.CLOSURE, (const_idx, param_count, False, rest_pos), node.line, node.column
+            Op.CLOSURE,
+            (const_idx, param_count, False, rest_pos, False, tuple(param_names)),
+            node.line, node.column,
         )
 
     # ============= Scope Management =============
@@ -1548,12 +2358,23 @@ class Compiler:
         return -1
 
     def _resolve_name(self, name: str) -> str:
-        """Resolve where a name lives: 'local', 'free', or 'global'."""
+        """Resolve where a name lives: 'local', 'free', or 'global'.
+
+        v7.2: free var dicari di scope fungsi enclosing (terdekat dulu) dan
+        slot-nya dicatat di `_free_local_idx` — VM memakai indeks itu untuk
+        membaca snapshot locals parent (frame.closure). Sebelumnya free_vars
+        tidak pernah diisi sehingga closure rusak.
+        """
         # Check locals (most recent first)
         for i in range(len(self.locals) - 1, -1, -1):
             if self.locals[i][0] == name:
                 return "local"
-        # Check free vars
+        # v7.2: cari di scope fungsi enclosing (innermost dulu)
+        for scope in reversed(self._enclosing_locals):
+            if name in scope:
+                self._free_local_idx = scope[name]
+                return "free"
+        # Check free vars (legacy)
         if name in self.free_vars:
             return "free"
         return "global"

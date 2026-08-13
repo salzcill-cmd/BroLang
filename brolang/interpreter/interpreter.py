@@ -17,6 +17,9 @@ Fitur:
 from typing import Any, Dict, List, Optional, Callable, Set
 from dataclasses import dataclass, field
 import os
+import threading
+import time
+import concurrent.futures
 from brolang.ast.nodes import (
     ASTNode,
     ASTVisitor,
@@ -124,6 +127,11 @@ from brolang.ast.nodes import (
     KelasErrorNode,
     # V6.7 Nodes
     SpreadNode,
+    # V7.0 Nodes
+    MultiAssignNode, ErrorPropagationNode,
+    SwitchExprNode,
+    # V7.2 Nodes
+    NullSafeIndexNode, SetComprehensionNode,
 )
 from brolang.exceptions import (
     RuntimeError_,
@@ -138,6 +146,59 @@ from brolang.exceptions import BroLangError as _BroLangErrorBase
 from brolang.stdlib import get_stdlib_module
 from brolang.interpreter.builtins import BUILTINS
 from brolang.suggestions import saran_keyword
+
+
+# ============= V7.0: Async/Await sejati =============
+# Interpreter tidak thread-safe → eksekusi body fungsi asinkron di-serialisasi
+# dengan RLock (konsisten dengan modul stdlib `sejajar`). `tunggu` di dalam
+# body async melepas lock sambil menunggu agar task lain bisa maju (anti-deadlock).
+_ASYNC_LOCK = threading.RLock()
+_async_local = threading.local()  # thread-local: sedang menjalankan body async?
+
+
+class _AsyncTugas:
+    """Tugas asinkron (v7.0) — hasil pemanggilan fungsi `asinkron fungsi`.
+
+    Body berjalan di background thread (daemon). Pemanggilan TIDAK memblokir;
+    gunakan `tunggu tugas` / `tugas.hasil()` untuk mengambil hasilnya.
+
+    API (konsisten dengan `sejajar.Tugas`):
+        selesai()            — True jika sudah selesai (tanpa memblokir)
+        hasil(timeout=None)  — blokir sampai selesai, kembalikan hasil
+        tunggu(timeout=None) — alias hasil()
+        batal()              — task sudah berjalan; selalu False
+    """
+
+    def __init__(self, future: "concurrent.futures.Future"):
+        self._future = future
+
+    def selesai(self) -> bool:
+        return self._future.done()
+
+    def hasil(self, timeout: Optional[float] = None):
+        return self._future.result(timeout)
+
+    def tunggu(self, timeout: Optional[float] = None):
+        return self._future.result(timeout)
+
+    def batal(self) -> bool:
+        return False
+
+
+def _async_tidur(detik: float) -> None:
+    """Tidur kooperatif (v7.0) — dipakai `event_loop.tidur`.
+
+    Di dalam body async (thread memegang _ASYNC_LOCK) lock dilepas dulu
+    sambil tidur agar task lain bisa maju, lalu dikunci kembali.
+    """
+    if getattr(_async_local, "in_task", False):
+        _ASYNC_LOCK.release()
+        try:
+            time.sleep(detik)
+        finally:
+            _ASYNC_LOCK.acquire()
+    else:
+        time.sleep(detik)
 
 
 @dataclass
@@ -949,10 +1010,14 @@ class Interpreter(ASTVisitor):
                 self.current_env.set_variable(name, value, line=node.line, column=node.column)
             return value
         elif isinstance(node.target, IndexNode):
-            # Array assignment: list[index] = value
+            # Array/dict assignment: list[index] = value atau dict[key] = value
             target = self.visit(node.target.target)
             index = self.visit(node.target.index)
             if isinstance(target, list):
+                target[index] = value
+            elif isinstance(target, dict):
+                # v7.2: d[kunci] = nilai — konsisten dengan transpiler/VM
+                # (sebelumnya hanya list yang didukung di interpreter).
                 target[index] = value
             elif isinstance(target, BroLangInstance):
                 # Operator overloading: obj[i] = v -> _index_set_(i, v)
@@ -968,7 +1033,7 @@ class Interpreter(ASTVisitor):
                     )
             else:
                 raise TypeError_(
-                    message="Hanya list yang bisa di-index assignment.",
+                    message="Hanya list/dict yang bisa di-index assignment.",
                     line=node.line,
                     column=node.column,
                 )
@@ -1002,6 +1067,104 @@ class Interpreter(ASTVisitor):
             )
 
         return value
+
+    def visit_MultiAssignNode(self, node: MultiAssignNode) -> Any:
+        """Multiple assignment (v7.0): a, b = 1, 2; a, b = b, a; buat a, b = ...
+
+        v7.2: dukung multiple return — `buat a, b, c = f()` dengan f() yang
+        `kembali 1, 2, 3` menghasilkan SATU tuple; unpack otomatis ke target
+        (konsisten dengan transpiler/VM dan destructuring assignment).
+        """
+        # Evaluasi SEMUA nilai dulu sebelum assignment (swap aman)
+        values = [self.visit(v) for v in node.values]
+
+        # v7.2: satu nilai berbentuk tuple/list dengan jumlah elemen ==
+        # jumlah target -> unpack (multiple return `kembali a, b, c`).
+        if len(values) == 1 and len(node.targets) > 1:
+            single = values[0]
+            if isinstance(single, (tuple, list)) and len(single) == len(node.targets):
+                values = list(single)
+
+        for i, name in enumerate(node.targets):
+            val = values[i] if i < len(values) else None
+            if node.is_declaration:
+                self.current_env.define_variable(name, val)
+            else:
+                self.current_env.set_variable(name, val, line=node.line, column=node.column)
+        return values[-1] if values else None
+
+    def visit_ErrorPropagationNode(self, node: ErrorPropagationNode) -> Any:
+        """Error propagation (v7.0): ekspresi?
+
+        Membuka (unwrap) Result/Option:
+            Salah(e)?  -> lempar e
+            Benar(v)?  -> v
+            Kosong()?  -> lempar error
+            Ada(v)?    -> v
+        Nilai non-Result/Option dikembalikan apa adanya (no-op).
+        """
+        value = self.visit(node.value)
+
+        # Result: Benar(v) / Salah(e) — dict {"type": "Result", ...}
+        if isinstance(value, dict) and value.get("type") == "Result":
+            if value.get("is_success"):
+                return value.get("value")
+            err = value.get("value")
+            if isinstance(err, Exception):
+                raise err
+            raise RuntimeError_(
+                message=str(err) if err is not None else "Error tanpa pesan",
+                line=node.line,
+                column=node.column,
+                solution="Tangani error sebelum memakai operator '?'.",
+            )
+
+        # Option: Ada(v) / Kosong()
+        if isinstance(value, dict) and value.get("type") == "Option":
+            if value.get("has_value"):
+                return value.get("value")
+            raise RuntimeError_(
+                message="Nilai kosong (Kosong()) — tidak bisa di-unwrap dengan '?'.",
+                line=node.line,
+                column=node.column,
+                solution="Periksa apakah nilai ada sebelum memakai '?', atau beri default.",
+            )
+
+        # Nilai biasa (bukan Result/Option): no-op
+        return value
+
+    def visit_SetComprehensionNode(self, node: SetComprehensionNode) -> Set[Any]:
+        """Set comprehension (v7.2): {expr lalu var dalam iterable}"""
+        iterable = self.visit(node.iterable)
+        result = set()
+        for item in iterable:
+            self._push_env()
+            self.current_env.define_variable(node.variable, item)
+            if node.condition:
+                cond_val = self.visit(node.condition)
+                if cond_val:
+                    result.add(self.visit(node.expr))
+            else:
+                result.add(self.visit(node.expr))
+            self._pop_env()
+        return result
+
+    def visit_NullSafeIndexNode(self, node: NullSafeIndexNode) -> Any:
+        """Null-safe indexing (v7.2): ekspresi?[indeks]
+
+        Target kosong (None) -> kosong tanpa error (mirror `?.` untuk
+        atribut). Target bukan None -> indexing biasa.
+        """
+        target = self.visit(node.target)
+        if target is None:
+            return None
+        index = self.visit(node.index)
+        try:
+            return target[index]
+        except (TypeError, IndexError, KeyError):
+            # Di luar jangkauan -> kosong (mirror OptionalChaining yang
+            # mengembalikan None bila atribut tidak ada).
+            return None
 
     def visit_BinaryOpNode(self, node: BinaryOpNode) -> Any:
         """Operasi biner dengan type checking runtime."""
@@ -2401,6 +2564,29 @@ class Interpreter(ASTVisitor):
 
         return None
 
+    def visit_SwitchExprNode(self, node: SwitchExprNode) -> Any:
+        """Switch expression (v7.0): `cocokkan nilai { pola: ekspresi }` bernilai.
+
+        Setiap body case adalah ekspresi tunggal yang menjadi hasil switch:
+            buat status = cocokkan kode { 1: "satu", 2: "dua", _: "lainnya" }
+        """
+        value = self.visit(node.value)
+        for pattern, body in node.cases:
+            bindings: Dict[str, Any] = {}
+            if not self._match_pattern(value, pattern, bindings):
+                continue
+            self._push_env()
+            for k, v in bindings.items():
+                self.current_env.define_variable(k, v)
+            try:
+                return self.visit(body[0]) if body else None
+            finally:
+                self._pop_env()
+
+        if node.default_case is not None:
+            return self.visit(node.default_case)
+        return None
+
     def _match_pattern(self, value: Any, pattern: ASTNode, bindings: Dict[str, Any]) -> bool:
         """Cocokkan nilai dengan pola (v6.0). Isi bindings kalau cocok."""
         if isinstance(pattern, DestructuringPatternNode):
@@ -2773,46 +2959,85 @@ class Interpreter(ASTVisitor):
     # ============= V4: Async/Await =============
 
     def visit_AsyncFunctionDefNode(self, node: AsyncFunctionDefNode) -> None:
-        """Async function declaration — in sync interpreter, just treat as regular function."""
-        # In a sync interpreter, async functions are treated as regular functions
-        # The 'tunggu' (await) just calls the function directly
+        """Async function declaration (v7.0: async/await sejati).
+
+        Pemanggilan fungsi asinkron mengembalikan objek `_AsyncTugas` yang
+        menjalankan body di background thread (daemon) — pemanggil TIDAK
+        diblokir. Gunakan `tunggu tugas` (atau `tugas.hasil()`) untuk
+        memblokir sampai selesai dan mengambil hasilnya.
+
+        Body di-serialisasi dengan `_ASYNC_LOCK` (interpreter tidak
+        thread-safe). `tunggu`/`event_loop.tidur` di dalam body melepas
+        lock sambil menunggu agar task lain bisa maju (tanpa deadlock).
+        """
         closure_env = self.current_env
 
         def async_function(*args, **kwargs):
-            old_env = self.current_env
-            self._push_env()
-            self.current_env.parent = closure_env
+            future = concurrent.futures.Future()
+            # Sub-interpreter TERPISAH per task: body async tidak menyentuh
+            # `current_env` interpreter utama, jadi task di background tidak
+            # bisa mengganggu eksekusi program utama (anti env-corruption).
+            sub = self.__class__()
+            sub.current_env = closure_env
 
-            for param, val in self._bind_params(
-                node.params, node.defaults, args, kwargs, node, node.rest_param
-            ):
-                self.current_env.define_variable(param, val)
+            def _run():
+                _async_local.in_task = True
+                try:
+                    _ASYNC_LOCK.acquire()
+                    try:
+                        old_env = sub.current_env
+                        sub._push_env()
+                        sub.current_env.parent = closure_env
+                        try:
+                            for param, val in sub._bind_params(
+                                node.params, node.defaults, args, kwargs,
+                                node, node.rest_param,
+                            ):
+                                sub.current_env.define_variable(param, val)
+                            result = None
+                            for stmt in node.body:
+                                result = sub.visit(stmt)
+                                if sub.current_env.should_return:
+                                    result = sub.current_env.return_value
+                                    break
+                            future.set_result(result)
+                        except ReturnException as e:
+                            future.set_result(e.value)
+                        except Exception as e:
+                            future.set_exception(e)
+                        finally:
+                            sub._pop_env()
+                            sub.current_env = old_env
+                    finally:
+                        _ASYNC_LOCK.release()
+                finally:
+                    _async_local.in_task = False
 
-            try:
-                result = None
-                for stmt in node.body:
-                    result = self.visit(stmt)
-                    if self.current_env.should_return:
-                        result = self.current_env.return_value
-                        break
-                self._pop_env()
-                self.current_env = old_env
-                return result
-            except ReturnException as e:
-                self._pop_env()
-                self.current_env = old_env
-                return e.value
-            except Exception as e:
-                self._pop_env()
-                self.current_env = old_env
-                raise e
+            threading.Thread(target=_run, daemon=True).start()
+            return _AsyncTugas(future)
 
         async_function._brolang_fn = True
         self.current_env.functions[node.name] = async_function
 
     def visit_AwaitNode(self, node: AwaitNode) -> Any:
-        """Await expression — in sync interpreter, just evaluate the expression."""
-        return self.visit(node.value)
+        """Await expression (v7.0: async/await sejati).
+
+        Memblokir sampai `Tugas` asinkron selesai dan mengembalikan hasilnya.
+        Nilai non-Tugas dikembalikan apa adanya (kompatibel dengan perilaku
+        lama). Jika dipanggil dari dalam body async (thread memegang
+        `_ASYNC_LOCK`), lock dilepas dulu sambil menunggu agar task lain
+        bisa maju, lalu dikunci kembali — anti-deadlock.
+        """
+        value = self.visit(node.value)
+        if isinstance(value, _AsyncTugas):
+            if getattr(_async_local, "in_task", False):
+                _ASYNC_LOCK.release()
+                try:
+                    return value.hasil()
+                finally:
+                    _ASYNC_LOCK.acquire()
+            return value.hasil()
+        return value
 
     # ============= V4: Generators =============
 
@@ -2957,12 +3182,22 @@ class Interpreter(ASTVisitor):
         """With statement: dengan expr sebagai name ... selesai"""
         context = self.visit(node.context_expr)
 
-        # Try to call __enter__
-        enter_result = None
-        if hasattr(context, "__enter__"):
-            enter_result = context.__enter__()
-        elif hasattr(context, "masuk"):
-            enter_result = context.masuk()
+        # Try to call __enter__ / masuk — dukung instance BroLang (method
+        # diakses via .get(), bukan getattr langsung).
+        def _panggil_method(obj, *nama):
+            """Panggil method context manager bila ada; kembalikan hasil."""
+            for n in nama:
+                if hasattr(obj, n):
+                    fn = getattr(obj, n)
+                    return fn() if callable(fn) else None
+                if isinstance(obj, BroLangInstance) and obj.klass.get_method(n) is not None:
+                    # Method BroLang butuh self (instance) sebagai argumen
+                    # pertama — konsisten dengan pemanggilan method lain.
+                    fn = obj.get(n)
+                    return fn(obj)
+            return None
+
+        enter_result = _panggil_method(context, "__enter__", "masuk")
 
         self._push_env()
         if node.as_name:
@@ -2973,11 +3208,8 @@ class Interpreter(ASTVisitor):
                 self.visit(stmt)
         finally:
             self._pop_env()
-            # Try to call __exit__
-            if hasattr(context, "__exit__"):
-                context.__exit__(None, None, None)
-            elif hasattr(context, "keluar"):
-                context.keluar()
+            # Try to call __exit__ / keluar
+            _panggil_method(context, "__exit__", "keluar")
 
     # ============= V4: Multi-Except =============
 

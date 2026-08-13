@@ -26,6 +26,27 @@ Fitur v6.9 (Fitur Bahasa):
   (sebelumnya yield di try memicu handler catch; yield hanya di `tangkap`
   error karena fungsi tidak terdeteksi sebagai generator)
 
+Fitur v7.2 (Fitur Bahasa + Konsistensi VM + Library):
+- List/dict/set comprehension: `[x lalu x dalam data]`, `{k: v lalu ...}`, `{x lalu ...}`
+  (sebelumnya list-comp rusak/no-op di VM; dict & set-comp kini didukung semua mesin)
+- Walrus operator: `x := nilai` di ekspresi & kondisi (sebelumnya rusak di VM)
+- Generator di VM: `hasilkan`/`hasilkandari` (sebelumnya no-op di VM)
+- `dengan` statement di VM: konteks manager `masuk`/`keluar` (sebelumnya di-skip VM)
+- Null-safe indexing: `data?[0]` -> `kosong` jika target kosong (mirror `a?.b`)
+- Library diperluas: `waktu` (waktu_iso, timestamp, umur, selisih), `file` (jalur_*,
+  baca_biner/tulis_biner, ukuran_file), `dasar` (urutkan, balikkan, gabung,
+  unik, gabungkan, bentuk_objek, kunci_objek, nilai_objek, salin), `acak` (pilih,
+  acak_huruf, acak_hex, acak_suku_kata)
+
+Fitur v7.0 (Fitur Bahasa Modern + Async + Perbaikan VM):
+- Multiple assignment: `a, b = 1, 2`, swap `a, b = b, a`, `buat a, b = ...`
+- Switch expression: `cocokkan nilai { pola: ekspresi }` sebagai ekspresi bernilai
+- Error propagation `?`: buka Result (Benar/Salah) & Option (Ada/Kosong), lempar error otomatis
+- Async/Await sejati: `asinkron fungsi` -> Tugas background thread, `tunggu` memblokir,
+  modul stdlib baru `event_loop` (tidur kooperatif, tunggu_semua, tunggu_apa_saja)
+- Perbaikan VM: try/catch kini benar-benar bekerja (exception routing), `coba/kecuali`
+  ber-tipe didukung, `Kosong()` (Option) kini bisa diparse
+
 Fitur v6.8 (Fitur Bahasa + Bug Fix + Game Dev):
 - Guard clause: `kembali x jika c`, `hentikan jika c`, `lanjutkan jika c`
 - Floor division: `//` dan `//=` (17 // 5 = 3, -17 // 5 = -4)
@@ -96,7 +117,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "6.9.0"
+__version__ = "7.2.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

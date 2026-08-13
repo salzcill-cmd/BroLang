@@ -116,9 +116,15 @@ def buat_terbatas(maxsize):
     return TumpukanTerbatas(maxsize=maxsize)
 
 
+# v7.1: alias aman-keyword (`buat` adalah keyword bahasa) — level modul
+# agar berfungsi di interpreter DAN VM.
+buat_tumpukan = buat
+
+
 module = SimpleNamespace(
     Buat=buat,
     buat=buat,
+    buat_tumpukan=buat_tumpukan,
     buat_terbatas=buat_terbatas,
     Tumpukan=Tumpukan,
     TumpukanTerbatas=TumpukanTerbatas,

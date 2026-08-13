@@ -9,6 +9,9 @@ from typing import Any, List, Dict, Optional, Callable
 from brolang.vm.opcodes import Op, Bytecode, Instruction
 from brolang.exceptions import RuntimeError_, NameError_, TypeError_
 from brolang.interpreter.builtins import BUILTINS
+from brolang.ast.nodes import (
+    DestructuringPatternNode, ObjectPatternNode, BindingPatternNode, WildcardNode,
+)
 
 
 class _Missing:
@@ -23,10 +26,290 @@ class _Missing:
 _MISSING = _Missing()
 
 
+def _vm_jenis(exc, nama: str) -> bool:
+    """Helper `kecuali Tipe` (v7.0): apakah exception cocok dengan nama tipe.
+
+    - Tipe Python langsung (RuntimeError_, TypeError_, NameError_, ...).
+    - Kelas error kustom BroLang (subclass RuntimeError_ / Kesalahan).
+    """
+    t = type(exc)
+    if t.__name__ == nama:
+        return True
+    return any(c.__name__ == nama for c in t.__mro__)
+
+
+def _vm_switch_match(value, pattern):
+    """Cocokkan nilai dengan pola switch expression (v7.0) di VM.
+
+    Kembalikan dict binding bila cocok (bisa kosong), atau False bila tidak
+    cocok — semantik identik dengan `_match_pattern` interpreter.
+    """
+    if isinstance(pattern, DestructuringPatternNode):
+        if pattern.is_array:
+            if not isinstance(value, (list, tuple)) or len(value) != len(pattern.variables):
+                return False
+            return {var: item for var, item in zip(pattern.variables, value)}
+        if not isinstance(value, dict):
+            return False
+        bindings = {}
+        for var in pattern.variables:
+            if var not in value:
+                return False
+            bindings[var] = value[var]
+        return bindings
+    if isinstance(pattern, ObjectPatternNode):
+        if not isinstance(value, dict):
+            return False
+        bindings = {}
+        for key, entry in pattern.entries.items():
+            if key not in value:
+                return False
+            if isinstance(entry, tuple) and entry[0] == "var":
+                bindings[entry[1]] = value[key]
+            elif isinstance(entry, tuple) and entry[0] == "lit":
+                if value[key] != entry[1]:
+                    return False
+            else:
+                bindings[entry] = value[key]
+        return bindings if bindings else True  # {} falsy → pakai True
+    if isinstance(pattern, BindingPatternNode):
+        return {pattern.name: value}
+    if isinstance(pattern, WildcardNode):
+        return True  # cocok tanpa binding ({ } falsy — jangan dipakai)
+    # Pola literal/ekspresi (perilaku lama): nilai pola sudah dievaluasi
+    # compiler (`Warna.MERAH` -> anggota enum, angka, teks, ...)
+    return value == pattern
+
+
+def _vm_propagate(v):
+    """Helper error propagation '?' (v7.0) di VM.
+
+    Identik dengan interpreter (`visit_ErrorPropagationNode`):
+        Benar(v)? -> v | Salah(e)? -> lempar e
+        Ada(v)?   -> v | Kosong()? -> lempar error
+    Nilai non-Result/Option (angka, teks, list, ...) dikembalikan apa
+    adanya (no-op) — aman untuk primitif seperti `7?`.
+    """
+    if isinstance(v, dict) and v.get("type") == "Result":
+        if v.get("is_success"):
+            return v.get("value")
+        err = v.get("value")
+        if isinstance(err, Exception):
+            raise err
+        raise RuntimeError_(
+            message=str(err) if err is not None else "Error tanpa pesan"
+        )
+    if isinstance(v, dict) and v.get("type") == "Option":
+        if v.get("has_value"):
+            return v.get("value")
+        raise RuntimeError_(
+            message="Nilai kosong (Kosong()) — tidak bisa di-unwrap dengan '?'."
+        )
+    return v
+
+
+def _vm_tunggu(v):
+    """Helper `tunggu` di VM (v7.0): blokir sampai Tugas selesai.
+
+    Tugas VM sudah selesai (body dieksekusi sinkron) → langsung kembalikan
+    hasilnya. Nilai non-Tugas dikembalikan apa adanya (no-op), konsisten
+    dengan interpreter & transpiler.
+    """
+    if hasattr(v, 'tunggu') and callable(v.tunggu):
+        return v.tunggu()
+    return v
+
+
+class _VmTugas:
+    """Tugas asinkron di VM (v7.0).
+
+    VM tidak punya event loop — body fungsi asinkron dieksekusi sinkron,
+    hasilnya langsung dibungkus Tugas yang sudah selesai. API konsisten
+    dengan interpreter (`selesai`, `hasil`, `tunggu`, `batal`) sehingga
+    program yang memakai `asinkron fungsi` + `tunggu` bisa dijalankan
+    di semua mesin.
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value):
+        self._value = value
+
+    def selesai(self) -> bool:
+        return True
+
+    def hasil(self, timeout=None):
+        return self._value
+
+    def tunggu(self, timeout=None):
+        return self._value
+
+    def batal(self) -> bool:
+        return False
+
+
+class _VmKwargs(dict):
+    """Marker: dict keyword-argumen (v7.1).
+
+    Compiler membungkus kwargs sebagai dict `{nama: nilai}` lalu menandai
+    dengan helper `_vm_kwargs` agar VM tahu itu keyword-argumen — bukan
+    dict posisional biasa. `_call_function` membedakan keduanya:
+        f(a, b=1)   -> f(a, **_VmKwargs({'b': 1}))
+        f(a, {'b': 1}) -> f(a, {'b': 1})  (dict posisional apa adanya)
+    """
+
+
+def _vm_kwargs(d):
+    """Helper `_vm_kwargs` di VM (v7.1): tandai dict sebagai kwargs."""
+    return _VmKwargs(d)
+
+
+def _vm_comp_append(lst, value):
+    """Helper list comprehension di VM (v7.2): append & kembalikan list."""
+    lst.append(value)
+    return lst
+
+
+def _vm_dict_set(d, key, value):
+    """Helper dict comprehension di VM (v7.2): set item & kembalikan dict."""
+    d[key] = value
+    return d
+
+
+def _vm_set_add(s, value):
+    """Helper set comprehension di VM (v7.2): tambah & kembalikan set."""
+    s.add(value)
+    return s
+
+
+def _vm_with_enter(context):
+    """Helper `dengan` di VM (v7.2): panggil __enter__/masuk bila ada.
+
+    Mirror interpreter: bila context punya `__enter__`/`masuk`, hasilnya
+    jadi nilai yang di-bind ke variabel; selain itu context sendiri.
+    (Untuk VMInstance, VM mendaftarkan wrapper `_vm_with_enter_vm` yang
+    memakai `_call_method` — lihat VM.__init__.)
+    """
+    if hasattr(context, "__enter__"):
+        return context.__enter__()
+    if hasattr(context, "masuk"):
+        return context.masuk()
+    return context
+
+
+def _vm_with_exit(context):
+    """Helper `dengan` di VM (v7.2): panggil __exit__/keluar bila ada."""
+    if hasattr(context, "__exit__"):
+        context.__exit__(None, None, None)
+    elif hasattr(context, "keluar"):
+        context.keluar()
+    return None
+
+
+def _vm_make_slice(start, stop, step):
+    """Bangun objek slice untuk INDEX_GET (v7.2 fix slicing di VM).
+
+    Nilai None (bagian yang tidak ditulis: `a[1:]`, `a[:3]`, `a[::2]`)
+    diteruskan sebagai None supaya Python slice bekerja seperti interpreter.
+    """
+    return slice(start, stop, step)
+
+
+_LIST_METHOD_MAP = {
+    "tambah": "append",
+    "sisipkan": "insert",
+    "hapus": "remove",
+    "perpanjang": "extend",
+    "urutkan": "sort",
+    "balik": "reverse",
+    "balikkan": "reverse",
+    "indeks": "index",
+    "hitung": "count",
+    "jumlah": "__len__",
+    "salin": "copy",
+    "kosongkan": "clear",
+}
+
+_DICT_METHOD_MAP = {
+    "kunci": "keys",
+    "nilai": "values",
+    "item": "items",
+    "dapat": "get",
+    "ambil": "get",
+    "hapus_kunci": "pop",
+    "jumlah": "__len__",
+    "punya": "__contains__",
+    "perbarui": "update",
+    "kosongkan": "clear",
+    "salin": "copy",
+}
+
+_STR_METHOD_MAP = {
+    "atas": "upper",
+    "bawah": "lower",
+    "kapital": "capitalize",
+    "judul": "title",
+    "potong": "split",
+    "ganti": "replace",
+    "cari": "find",
+    "mulai": "startswith",
+    "berakhir": "endswith",
+    "strip": "strip",
+    "panjang": "__len__",
+}
+
+
+# Metode yang interpreter KEMBALIKAN hasilnya (bukan None). Python
+# sort()/reverse() mengembalikan None — bungkus supaya konsisten.
+_RETURN_SELF_METHODS = {"urutkan", "balik", "balikkan"}
+
+
+def _vm_brolang_method(obj, name):
+    """Terjemahkan method BroLang -> method Python untuk list/dict/str
+    (v7.2 fix konsistensi VM). Mirip _get_list_methods interpreter.
+
+    Mengembalikan callable atau None bila tidak ada mapping.
+    """
+    if isinstance(obj, list) and name in _LIST_METHOD_MAP:
+        py = _LIST_METHOD_MAP[name]
+        fn = getattr(obj, py)
+        if name in _RETURN_SELF_METHODS:
+            return lambda *a: (fn(*a), obj)[1]
+        return fn
+    if isinstance(obj, dict) and name in _DICT_METHOD_MAP:
+        py = _DICT_METHOD_MAP[name]
+        if py == "keys":
+            return lambda: list(obj.keys())
+        if py == "values":
+            return lambda: list(obj.values())
+        if py == "items":
+            return lambda: list(obj.items())
+        if py == "__contains__":
+            return lambda k: k in obj
+        return getattr(obj, py)
+    if isinstance(obj, str) and name in _STR_METHOD_MAP:
+        return getattr(obj, _STR_METHOD_MAP[name])
+    return None
+
+
+def _vm_null_safe_index(target, index):
+    """Helper null-safe indexing di VM (v7.2): arr?[0]
+
+    Target kosong (None) -> None tanpa error; di luar jangkauan -> None;
+    selain itu indexing biasa. Konsisten dengan interpreter.
+    """
+    if target is None:
+        return None
+    try:
+        return target[index]
+    except (TypeError, IndexError, KeyError):
+        return None
+
+
 class Frame:
     """Execution frame — represents one function call."""
 
-    __slots__ = ("bytecode", "ip", "stack", "locals", "parent", "globals", "closure")
+    __slots__ = ("bytecode", "ip", "stack", "locals", "parent", "globals", "closure", "yields")
 
     def __init__(self, bytecode: Bytecode, parent=None, globals_=None, closure=None):
         self.bytecode = bytecode
@@ -36,6 +319,8 @@ class Frame:
         self.parent = parent
         self.globals = globals_ or (parent.globals if parent else {})
         self.closure = closure
+        # v7.2: buffer nilai `hasilkan` untuk fungsi generator.
+        self.yields = []
 
 
 class VM:
@@ -57,6 +342,48 @@ class VM:
         for name, func in BUILTINS.items():
             self.globals[name] = func
             self._builtin_cache[name] = func
+        # Helper untuk klausa `kecuali Tipe` (v7.0): cocokkan nama tipe
+        # exception (termasuk subkelas RuntimeError_ kustom).
+        self.globals["_vm_jenis"] = _vm_jenis
+        # Helper `tunggu` (v7.0): buka Tugas -> hasil (no-op untuk nilai biasa).
+        self.globals["_vm_tunggu"] = _vm_tunggu
+        # Helper error propagation '?' (v7.0): buka Result/Option dict.
+        self.globals["_vm_propagate"] = _vm_propagate
+        # Helper switch expression (v7.0): cocokkan pola -> dict binding.
+        self.globals["_vm_switch_match"] = _vm_switch_match
+        # Helper kwargs (v7.1): tandai dict sebagai keyword-argumen.
+        self.globals["_vm_kwargs"] = _vm_kwargs
+        # Helper comprehension (v7.2): kumpulkan hasil list/dict/set.
+        self.globals["_vm_comp_append"] = _vm_comp_append
+        self.globals["_vm_dict_set"] = _vm_dict_set
+        self.globals["_vm_set_add"] = _vm_set_add
+        # Helper `dengan` (v7.2): enter/exit context manager. Untuk
+        # VMInstance, method BroLang (masuk/keluar) dipanggil lewat
+        # `_call_method` yang punya akses VM.
+        def _with_enter_vm(context):
+            if hasattr(context, "__enter__"):
+                return context.__enter__()
+            if isinstance(context, VMInstance) and context.klass.methods.get("masuk"):
+                return self._call_method(context, "masuk", [])
+            if hasattr(context, "masuk"):
+                return context.masuk()
+            return context
+
+        def _with_exit_vm(context):
+            if hasattr(context, "__exit__"):
+                context.__exit__(None, None, None)
+            elif isinstance(context, VMInstance) and context.klass.methods.get("keluar"):
+                self._call_method(context, "keluar", [])
+            elif hasattr(context, "keluar"):
+                context.keluar()
+            return None
+
+        self.globals["_vm_with_enter"] = _with_enter_vm
+        self.globals["_vm_with_exit"] = _with_exit_vm
+        # Helper null-safe indexing (v7.2): arr?[0].
+        self.globals["_vm_null_safe_index"] = _vm_null_safe_index
+        # Helper slicing (v7.2 fix): a[start:stop:step].
+        self.globals["_vm_make_slice"] = _vm_make_slice
 
     def run(self, bytecode: Bytecode) -> Any:
         """Execute compiled bytecode."""
@@ -67,6 +394,34 @@ class VM:
         return result
 
     def _execute(self, frame: Frame) -> Any:
+        """Eksekusi dengan exception routing (v7.0 fix try/catch VM).
+
+        Sebelumnya `TRY_PUSH` hanya menaruh marker ("handler", target) di
+        stack tanpa pernah dipakai — exception menerobos keluar dan program
+        mati. Kini exception dicari handler teratas di stack: stack dipotong
+        sampai marker, nilai exception didorong (untuk di-bind catch_var),
+        lalu eksekusi dilanjutkan dari target handler.
+        """
+        while True:
+            try:
+                return self._run_loop(frame)
+            except Exception as e:
+                stack = frame.stack
+                found = False
+                for i in range(len(stack) - 1, -1, -1):
+                    entry = stack[i]
+                    if isinstance(entry, tuple) and len(entry) == 2 and entry[0] == "handler":
+                        target = entry[1]
+                        del stack[i:]
+                        stack.append(e)
+                        frame.ip = target
+                        found = True
+                        break
+                if not found:
+                    raise
+                # Lanjutkan eksekusi dari handler (loop lagi)
+
+    def _run_loop(self, frame: Frame) -> Any:
         """Main execution loop — the hot path.
 
         Uses pre-flattened instruction arrays from Bytecode.finalize() for minimal overhead.
@@ -76,7 +431,7 @@ class VM:
         constants = bc.constants
         names = bc.names
         globals_dict = frame.globals
-        ip = 0
+        ip = frame.ip
 
         # Use pre-flattened arrays
         ops = bc.ops
@@ -254,11 +609,23 @@ class VM:
                 stack[-1], stack[-2] = stack[-2], stack[-1]
 
             elif op == _Op.CLOSURE:
-                func_bc_idx, param_count, has_defaults, rest_pos = arg
+                func_bc_idx, param_count, has_defaults, rest_pos = arg[:4]
+                is_async = arg[4] if len(arg) > 4 else False
+                param_names = arg[5] if len(arg) > 5 else None  # v7.1
+                is_generator = arg[6] if len(arg) > 6 else False  # v7.2
                 func_bc = constants[func_bc_idx]
                 closure = VMFunction(
-                    func_bc, param_count, has_defaults, _locals[: len(_locals)], rest_pos
+                    func_bc, param_count, has_defaults, _locals[: len(_locals)],
+                    rest_pos, is_async, param_names, is_generator=is_generator,
                 )
+                _append(closure)
+
+            elif op == _Op.MAKE_FUNCTION:
+                # Gabungkan closure + daftar default parameter (v7.1):
+                # Stack: [..., closure, d0, d1, ...] dengan arg = jumlah default.
+                defaults = [_pop() for _ in range(arg)][::-1]
+                closure = _pop()
+                closure.defaults = defaults
                 _append(closure)
 
             elif op == _Op.CALL:
@@ -272,6 +639,10 @@ class VM:
                     _append(instance)
                 else:
                     result = self._call_function(func, args_list, None)
+                    # v7.0: fungsi asinkron → hasil dibungkus Tugas (sudah
+                    # selesai; VM mengeksekusi body sinkron).
+                    if isinstance(func, VMFunction) and func.is_async:
+                        result = _VmTugas(result)
                     _append(result)
 
             elif op == _Op.CALL_BUILTIN:
@@ -320,10 +691,21 @@ class VM:
                 args_list = [_pop() for _ in range(arg_count)][::-1]
                 method = _pop()
                 obj = _pop()
+                # v7.1: keyword-argumen (marker _VmKwargs) dipisahkan dulu.
+                kwargs = None
+                if args_list and isinstance(args_list[-1], _VmKwargs):
+                    kwargs = dict(args_list[-1])
+                    args_list = args_list[:-1]
                 if isinstance(method, VMFunction):
-                    result = self._call_function(method, [obj] + args_list, None)
+                    result = self._call_function(method, [obj] + args_list, None, kwargs=kwargs)
                 elif callable(method):
-                    result = method(obj, *args_list)
+                    # Fungsi Python polos (mis. atribut modul stdlib seperti
+                    # event_loop.tidur) tidak terikat objek → jangan oper `obj`;
+                    # bound method Python sudah membawa self sendiri.
+                    if kwargs:
+                        result = method(*args_list, **kwargs)
+                    else:
+                        result = method(*args_list)
                 else:
                     result = method
                 _append(result)
@@ -337,6 +719,20 @@ class VM:
                 except StopIteration:
                     ip = arg
                     _pop()
+
+            elif op == _Op.YIELD:
+                # v7.2: hasilkan nilai — append ke buffer generator frame.
+                frame.yields.append(_pop())
+
+            elif op == _Op.YIELD_FROM:
+                # v7.2: hasilkan semua nilai dari iterable.
+                iterable = _pop()
+                try:
+                    frame.yields.extend(list(iterable))
+                except TypeError:
+                    raise RuntimeError_(
+                        message=f"Objek '{iterable}' tidak bisa di-iterasi untuk hasilkandari."
+                    )
 
             elif op == _Op.MAKE_LIST:
                 _append([_pop() for _ in range(arg)][::-1])
@@ -380,10 +776,13 @@ class VM:
                 _append(set([_pop() for _ in range(arg)][::-1]))
 
             elif op == _Op.MAKE_DICT:
+                # Kompiler mendorong (kunci, nilai) berurutan; pop membalik
+                # urutan, jadi kumpulkan dulu lalu isi dict dari belakang
+                # agar urutan kunci dipertahankan (v7.2 fix).
+                items = [_pop() for _ in range(arg * 2)][::-1]
                 pairs = {}
-                for _ in range(arg):
-                    val = _pop()
-                    pairs[_pop()] = val
+                for i in range(0, len(items), 2):
+                    pairs[items[i]] = items[i + 1]
                 _append(pairs)
 
             elif op == _Op.INDEX_GET:
@@ -484,14 +883,23 @@ class VM:
             elif op == _Op.HALT:
                 break
 
+        frame.ip = ip
         return stack[-1] if stack else None
 
     # ============= Function Calls =============
 
-    def _call_function(self, func, args, instr=None):
+    def _call_function(self, func, args, instr=None, kwargs=None):
         """Call a VM function."""
+        # v7.1: pisahkan keyword-argumen (marker _VmKwargs) dari argumen
+        # posisional — konsisten dengan interpreter (`f(a, b=1)`).
+        if kwargs is None and args and isinstance(args[-1], _VmKwargs):
+            kwargs = dict(args[-1])
+            args = args[:-1]
+
         if callable(func) and not isinstance(func, VMFunction):
             try:
+                if kwargs:
+                    return func(*args, **kwargs)
                 return func(*args)
             except Exception as e:
                 if isinstance(e, (RuntimeError_, TypeError_, NameError_)):
@@ -505,15 +913,42 @@ class VM:
                 column=getattr(instr, "column", 0) if instr else 0,
             )
 
-        # Create new frame
+        # VMFunction: ikat keyword-argumen berdasarkan nama parameter
+        # (v7.1) — konsisten dengan interpreter `_bind_params`.
+        if kwargs:
+            names = func.get_param_names()
+            args = list(args)
+            for key, val in kwargs.items():
+                if key not in names:
+                    raise RuntimeError_(
+                        message=f"Keyword argument '{key}' tidak dikenal.",
+                        line=getattr(instr, "line", 0) if instr else 0,
+                        column=getattr(instr, "column", 0) if instr else 0,
+                    )
+                idx = names.index(key)
+                while len(args) <= idx:
+                    args.append(None)
+                args[idx] = val
+
+        # Create new frame (v7.2: generator memakai buffer yield frame)
         new_frame = Frame(
             func.bytecode, parent=self._frame, globals_=self._frame.globals, closure=func.closure
         )
+        if func.is_generator:
+            new_frame.yields = []
 
-        # Bind parameters by index (params occupy slots 0..param_count-1)
+        # Bind parameters by index (params occupy slots 0..param_count-1).
+        # v7.1: argumen yang tidak diberikan diisi nilai default bila ada
+        # (konsisten dengan interpreter `_bind_params`).
+        args = list(args)
+        defaults = func.defaults
         for i in range(func.param_count):
             if i < len(args):
                 new_frame.locals[i] = args[i]
+            elif defaults and i < len(defaults) and defaults[i] is not None:
+                new_frame.locals[i] = defaults[i]
+            else:
+                new_frame.locals[i] = None
 
         # v6.7: rest parameter — semua argumen yang tidak terikat ke param
         # biasa (indeks >= jumlah param regular) dikumpulkan menjadi list.
@@ -527,6 +962,11 @@ class VM:
             result = self._execute(new_frame)
         finally:
             self._frame = old_frame
+
+        # v7.2: generator — hasil pemanggilan adalah daftar nilai `hasilkan`
+        # (konsisten dengan interpreter yang mengumpulkan semua yield).
+        if func.is_generator:
+            return new_frame.yields
 
         return result
 
@@ -589,11 +1029,12 @@ class VM:
                 if isinstance(method, VMFunction):
                     return method
                 if isinstance(method, tuple):
-                    # (bytecode, is_static, param_count, rest_pos)
+                    # (bytecode, is_static, param_count, rest_pos, param_names)
                     bc, is_static = method[0], method[1]
                     param_count = method[2] if len(method) > 2 else 0
                     rest_pos = method[3] if len(method) > 3 else -1
-                    func = VMFunction(bc, param_count, False, [], rest_pos)
+                    pnames = method[4] if len(method) > 4 else None
+                    func = VMFunction(bc, param_count, False, [], rest_pos, False, pnames)
                     if not is_static:
                         return lambda *a: self._call_function(func, [obj] + list(a))
                     return lambda *a: self._call_function(func, list(a))
@@ -628,9 +1069,18 @@ class VM:
                 line=getattr(instr, "line", 0) if instr else 0,
             )
 
-        # Python objects
+        # Dict: kunci diakses via atribut (`Warna.MERAH` untuk enum) —
+        # konsisten dengan interpreter visit_ObjectAccessNode.
+        if isinstance(obj, dict) and name in obj:
+            return obj[name]
+
+        # Python objects — coba atribut asli dulu, lalu method BroLang
+        # (list/dict/str) agar konsisten dengan interpreter & transpiler.
         if hasattr(obj, name):
             return getattr(obj, name)
+        mapped = _vm_brolang_method(obj, name)
+        if mapped is not None:
+            return mapped
 
         raise RuntimeError_(
             message=f"Tidak bisa mengakses '{name}' pada tipe {type(obj).__name__}.",
@@ -688,17 +1138,30 @@ class VM:
 class VMFunction:
     """Bytecode function object."""
 
-    __slots__ = ("bytecode", "param_count", "has_defaults", "closure", "rest_pos")
+    __slots__ = ("bytecode", "param_count", "has_defaults", "closure", "rest_pos",
+                 "is_async", "param_names", "defaults", "is_generator")
 
-    def __init__(self, bytecode, param_count, has_defaults, closure, rest_pos=-1):
+    def __init__(self, bytecode, param_count, has_defaults, closure, rest_pos=-1, is_async=False,
+                 param_names=None, is_generator=False):
         self.bytecode = bytecode
         self.param_count = param_count
         self.has_defaults = has_defaults
         self.closure = closure
         self.rest_pos = rest_pos  # v6.7: indeks slot rest parameter (-1 = tidak ada)
+        self.is_async = is_async  # v7.0: hasil pemanggilan dibungkus Tugas
+        # v7.1: nama parameter asli (dari CLOSURE) untuk mengikat keyword
+        # argumen. None untuk fungsi lama/kode bytecode tanpa info nama.
+        self.param_names = tuple(param_names) if param_names else None
+        # v7.1: nilai default parameter (set MAKE_FUNCTION) — panjangnya
+        # harus sama dengan param_count; None berarti tanpa default.
+        self.defaults = None
+        # v7.2: fungsi generator — hasil pemanggilan = list nilai `hasilkan`.
+        self.is_generator = is_generator
 
-    def param_names(self):
-        """Extract param names from bytecode."""
+    def get_param_names(self):
+        """Nama parameter asli bila tersedia; fallback ke p0..pN."""
+        if self.param_names:
+            return list(self.param_names)
         names = []
         for instr in self.bytecode.instructions[: self.param_count + 5]:
             if instr.op == Op.STORE_LOCAL:
@@ -726,7 +1189,8 @@ class VMClass:
             bc, is_static = method_data[0], method_data[1]
             param_count = method_data[2] if len(method_data) > 2 else 0
             rest_pos = method_data[3] if len(method_data) > 3 else -1
-            self.methods[method_name] = VMFunction(bc, param_count, False, [], rest_pos)
+            pnames = method_data[4] if len(method_data) > 4 else None
+            self.methods[method_name] = VMFunction(bc, param_count, False, [], rest_pos, False, pnames)
 
     def __repr__(self):
         return f"<VMClass {self.name}>"
@@ -742,4 +1206,9 @@ class VMInstance:
         self.dict = {}
 
     def __repr__(self):
-        return f"<{self.klass.name} instance>"
+        # Struct (kelas yang punya __repr__): tampilkan field sebagai
+        # `Titik(x=10, y=20)` — konsisten dengan interpreter & transpiler.
+        if "__repr__" in self.klass.methods and self.dict:
+            fields = ", ".join(k + "=" + str(v) for k, v in self.dict.items())
+            return self.klass.name + "(" + fields + ")"
+        return "<" + self.klass.name + " instance>"

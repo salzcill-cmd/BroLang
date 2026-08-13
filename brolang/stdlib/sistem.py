@@ -7,7 +7,7 @@ Informasi sistem & lingkungan (OS, Python, hardware).
 Contoh:
     impor sistem
 
-    tulis sistem.versi()        # 6.9.0  (versi BroLang)
+    tulis sistem.versi()        # 7.1.0  (versi BroLang)
     tulis sistem.platform()     # linux / windows / darwin
     tulis sistem.nama()         # Linux
 """
@@ -16,6 +16,7 @@ import os
 import platform as _platform
 import socket
 from types import SimpleNamespace
+from typing import Optional
 
 from brolang import __version__
 
@@ -24,7 +25,7 @@ def versi() -> str:
     """Versi BroLang yang sedang berjalan.
 
     Contoh:
-        tulis sistem.versi()    # 6.9.0
+        tulis sistem.versi()    # 7.1.0
     """
     return __version__
 
@@ -78,6 +79,42 @@ def lingkungan() -> str:
     return os.environ.get("BROLANG_ENV", "development")
 
 
+# ============= v7.1: hardware =============
+
+
+def jumlah_cpu() -> int:
+    """Jumlah CPU/logical cores."""
+    return os.cpu_count() or 1
+
+
+def memori() -> dict:
+    """Info memori (bytes): {total, tersedia}. None bila tidak tersedia."""
+    info = {"total": None, "tersedia": None}
+    try:
+        if hasattr(os, "sysconf"):
+            page = os.sysconf("SC_PAGE_SIZE")
+            info["total"] = page * os.sysconf("SC_PHYS_PAGES")
+            info["tersedia"] = page * os.sysconf("SC_AVPHYS_PAGES")
+    except (ValueError, OSError, KeyError):
+        pass
+    return info
+
+
+def memori_total() -> Optional[int]:
+    """Total memori fisik (bytes)."""
+    return memori()["total"]
+
+
+def memori_bebas() -> Optional[int]:
+    """Memori fisik tersedia (bytes)."""
+    return memori()["tersedia"]
+
+
+def arsitektur() -> str:
+    """Arsitektur + bitness prosesor (mis. "64bit")."""
+    return _platform.machine() + " " + _platform.architecture()[0]
+
+
 module = SimpleNamespace(
     versi=versi,
     platform=platform,
@@ -89,4 +126,10 @@ module = SimpleNamespace(
     cwd=cwd,
     home=home,
     lingkungan=lingkungan,
+    # v7.1
+    jumlah_cpu=jumlah_cpu,
+    memori=memori,
+    memori_total=memori_total,
+    memori_bebas=memori_bebas,
+    arsitektur=arsitektur,
 )

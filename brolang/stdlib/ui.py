@@ -89,6 +89,16 @@ class Label:
         self.teks = str(teks)
         return self
 
+    def set_ukuran(self, ukuran):
+        """Ubah ukuran font (v7.1)."""
+        self.ukuran = int(ukuran)
+        return self
+
+    def set_warna(self, warna):
+        """Ubah warna teks (v7.1) — nama atau tuple (r, g, b)."""
+        self.warna = _resolve_warna(warna)
+        return self
+
     def gambar(self, screen):
         """Gambar label ke layar."""
         if not self.terlihat or pygame is None:
@@ -1293,6 +1303,28 @@ def navigasi_fokus(komponen, arah, daftar):
     return baru
 
 
+# ============= v7.1: helper warna =============
+
+
+def warna(r, g, b, a=255):
+    """Buat tuple warna (r, g, b) — dengan alpha opsional (v7.1)."""
+    return (int(r), int(g), int(b), int(a)) if a != 255 else (int(r), int(g), int(b))
+
+
+def warna_hex(kode):
+    """Konversi kode hex ke tuple RGB (v7.1): warna_hex("#ff8800")."""
+    kode = str(kode).lstrip("#")
+    if len(kode) == 3:
+        kode = "".join(ch * 2 for ch in kode)
+    return tuple(int(kode[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def acak_warna():
+    """Tuple warna acak (v7.1)."""
+    import random as _random
+    return (_random.randint(0, 255), _random.randint(0, 255), _random.randint(0, 255))
+
+
 module = SimpleNamespace(
     Label=Label,
     Panel=Panel,
@@ -1305,4 +1337,8 @@ module = SimpleNamespace(
     Tooltip=Tooltip,
     DaftarSkor=DaftarSkor,
     navigasi_fokus=navigasi_fokus,
+    # v7.1
+    warna=warna,
+    warna_hex=warna_hex,
+    acak_warna=acak_warna,
 )

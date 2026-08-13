@@ -13,8 +13,10 @@ Contoh:
     tulis proses.kode_keluar("ls /tidak/ada")   # 2
 """
 
+import os
 import subprocess
 from types import SimpleNamespace
+from typing import List
 
 
 def jalankan(perintah: str, timeout: float = 30.0) -> SimpleNamespace:
@@ -79,10 +81,41 @@ def jalankan_di(perintah: str, direktori: str, timeout: float = 30.0) -> SimpleN
                                kode=-1, sukses=False)
 
 
+# ============= v7.1 =============
+
+
+def proses_id() -> int:
+    """PID (process ID) dari proses BroLang saat ini."""
+    return os.getpid()
+
+
+def jalankan_list(perintah: List[str], timeout: float = 30.0) -> SimpleNamespace:
+    """Jalankan perintah tanpa shell (list argumen) — lebih aman.
+
+    Contoh:
+        buat hasil = proses.jalankan_list(["echo", "halo"])
+    """
+    try:
+        res = subprocess.run(
+            perintah, capture_output=True, text=True, timeout=timeout,
+        )
+        return SimpleNamespace(
+            keluaran=res.stdout.strip(),
+            error=res.stderr.strip(),
+            kode=res.returncode,
+            sukses=res.returncode == 0,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        return SimpleNamespace(keluaran="", error=str(e), kode=-1, sukses=False)
+
+
 module = SimpleNamespace(
     jalankan=jalankan,
     kode_keluar=kode_keluar,
     keluaran=keluaran,
     error=error,
     jalankan_di=jalankan_di,
+    # v7.1
+    proses_id=proses_id,
+    jalankan_list=jalankan_list,
 )

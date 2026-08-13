@@ -34,6 +34,11 @@ def hapus(nama: str) -> bool:
     return os.environ.pop(nama, None) is not None
 
 
+# v7.1: alias aman-keyword (`hapus` adalah keyword bahasa) — level modul
+# agar berfungsi di interpreter DAN VM.
+hapus_var = hapus
+
+
 def ada(nama: str) -> bool:
     """Cek apakah variabel lingkungan ada."""
     return nama in os.environ
@@ -78,6 +83,7 @@ module = SimpleNamespace(
     get=get,
     set=set,
     hapus=hapus,
+    hapus_var=hapus_var,
     ada=ada,
     semua=semua,
     sistem=sistem,

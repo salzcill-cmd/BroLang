@@ -246,6 +246,11 @@ def harusnya(kondisi, pesan=""):
     _runner.harusnya(kondisi, pesan)
 
 
+# v7.1: alias aman-keyword (`harusnya` adalah keyword bahasa) — level modul
+# agar berfungsi di interpreter DAN VM.
+harus = harusnya
+
+
 def harusnya_sama(aktual, expected, pesan=""):
     """Assertion: equality."""
     _runner.harusnya_sama(aktual, expected, pesan)
@@ -293,6 +298,7 @@ module = SimpleNamespace(
     describe=describe,
     it=it,
     harusnya=harusnya,
+    harus=harusnya,  # v7.1: alias aman-keyword (`harusnya` adalah keyword)
     harusnya_sama=harusnya_sama,
     harusnya_berbeda=harusnya_berbeda,
     harusnya_true=harusnya_true,

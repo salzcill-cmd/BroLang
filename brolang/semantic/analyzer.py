@@ -41,12 +41,17 @@ from brolang.ast.nodes import (
     TupleNode, SetNode, DictComprehensionNode,
     PipelineNode, DestructuringAssignmentNode,
     # V4 Nodes
-    DecoratedFunctionNode,
+    DecoratedFunctionNode, AsyncFunctionDefNode,
     # V6.0 Nodes
     KelasErrorNode, ObjectPatternNode, BindingPatternNode,
     DestructuringPatternNode, TypeAliasNode,
     # V6.7 Nodes
     SpreadNode,
+    # V7.0 Nodes
+    MultiAssignNode, ErrorPropagationNode, SwitchExprNode, AwaitNode,
+    WalrusNode,
+    # V7.2 Nodes
+    NullSafeIndexNode, SetComprehensionNode,
 )
 from brolang.exceptions import SemanticError
 from brolang.suggestions import saran_keyword
@@ -609,11 +614,28 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_DictComprehensionNode(self, node: DictComprehensionNode) -> None:
         """Dict comprehension."""
-        self.visit(node.key_expr)
-        self.visit(node.value_expr)
         self.visit(node.iterable)
+        self._enter_scope("dict_comprehension")
+        self.current_scope.define(
+            name=node.key_var,
+            kind="variable",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+        if node.value_var:
+            self.current_scope.define(
+                name=node.value_var,
+                kind="variable",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
         if node.condition:
             self.visit(node.condition)
+        self.visit(node.key_expr)
+        self.visit(node.value_expr)
+        self._exit_scope()
 
     def visit_FunctionNode(self, node: FunctionNode) -> None:
         """Memeriksa deklarasi fungsi."""
@@ -700,6 +722,41 @@ class SemanticAnalyzer(ASTVisitor):
         for dec in node.decorators:
             self.visit(dec)
         self.visit_FunctionNode(node)
+
+    def visit_AsyncFunctionDefNode(self, node: AsyncFunctionDefNode) -> None:
+        """Memeriksa deklarasi fungsi asinkron (v7.0) — diperlakukan sebagai
+        konteks fungsi agar 'kembali'/'tunggu' di dalamnya valid."""
+        self.current_scope.define(
+            name=node.name,
+            kind="function",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+        old_function = self.current_function
+        self.current_function = node.name
+        self._enter_scope(f"async:{node.name}")
+        for i, param in enumerate(node.params):
+            self.current_scope.define(
+                name=param,
+                kind="parameter",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
+        rest_param = getattr(node, "rest_param", None)
+        if rest_param:
+            self.current_scope.define(
+                name=rest_param,
+                kind="parameter",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
+        for stmt in node.body:
+            self.visit(stmt)
+        self._exit_scope()
+        self.current_function = old_function
 
     def visit_ReturnNode(self, node: ReturnNode) -> None:
         """Memeriksa return statement (v6.0: cek cocok dengan `-> Tipe`).
@@ -1291,3 +1348,93 @@ class SemanticAnalyzer(ASTVisitor):
                 column=node.column,
                 is_initialized=True,
             )
+
+    def visit_MultiAssignNode(self, node: MultiAssignNode) -> None:
+        """Memeriksa multiple assignment (v7.0): a, b = 1, 2 / a, b = b, a."""
+        for v in node.values:
+            self.visit(v)
+        for name in node.targets:
+            if node.is_declaration:
+                self.current_scope.define(
+                    name=name,
+                    kind="variable",
+                    line=node.line,
+                    column=node.column,
+                    is_initialized=True,
+                )
+            else:
+                info = self.current_scope.lookup(name)
+                if info is None:
+                    raise self._error(
+                        message=f"Variabel '{name}' belum dideklarasikan.",
+                        line=node.line,
+                        column=node.column,
+                        solution=f"Deklarasikan '{name}' dengan 'buat {name} = ...' terlebih dahulu.",
+                    )
+                if info.is_const:
+                    raise self._error(
+                        message=f"Konstanta '{name}' tidak bisa diubah.",
+                        line=node.line,
+                        column=node.column,
+                        solution=f"Hapus assignment ke '{name}' atau ubah deklarasi menjadi 'buat {name} = ...'.",
+                    )
+                self.current_scope.mark_initialized(name)
+
+    def visit_ErrorPropagationNode(self, node: ErrorPropagationNode) -> str:
+        """Memeriksa error propagation (v7.0): ekspresi?"""
+        return self.visit(node.value)
+
+    def visit_WalrusNode(self, node: WalrusNode) -> str:
+        """Memeriksa walrus operator (v7.2): x := nilai — assignment di
+        dalam ekspresi; variabel didefinisikan di scope saat ini."""
+        self.visit(node.value)
+        if not self.current_scope.is_defined(node.name):
+            self.current_scope.define(
+                name=node.name,
+                kind="variable",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+            )
+        else:
+            self.current_scope.mark_initialized(node.name)
+        return "angka"
+
+    def visit_SetComprehensionNode(self, node: SetComprehensionNode) -> str:
+        """Memeriksa set comprehension (v7.2)."""
+        self.visit(node.iterable)
+        self._enter_scope("set_comprehension")
+        self.current_scope.define(
+            name=node.variable,
+            kind="variable",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+        if node.condition:
+            self.visit(node.condition)
+        self.visit(node.expr)
+        self._exit_scope()
+        return "set"
+
+    def visit_NullSafeIndexNode(self, node: NullSafeIndexNode) -> str:
+        """Memeriksa null-safe indexing (v7.2): ekspresi?[indeks]"""
+        self.visit(node.target)
+        self.visit(node.index)
+        return "kosong?"
+
+    def visit_AwaitNode(self, node: AwaitNode) -> str:
+        """Memeriksa await (v7.0): tunggu ekspresi."""
+        return self.visit(node.value)
+
+    def visit_SwitchExprNode(self, node: SwitchExprNode) -> str:
+        """Memeriksa switch expression (v7.0): cocokkan nilai { pola: ekspresi }."""
+        self.visit(node.value)
+        for pattern, body in node.cases:
+            if isinstance(pattern, ASTNode):
+                self.visit(pattern)
+            for stmt in body:
+                self.visit(stmt)
+        if node.default_case is not None:
+            self.visit(node.default_case)
+        return "tak dikenal"

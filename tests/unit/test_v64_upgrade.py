@@ -217,13 +217,13 @@ class TestTerminal:
 
 class TestCLIv64:
     def test_version_6_4(self):
-        # Versi terus naik: minimal masih memuat "6." (sebelumnya "6.4.0").
+        # Versi terus naik: minimal masih memuat "7." (v7.0.0).
         result = subprocess.run(
             [sys.executable, "-m", "brolang.cli", "--version"],
             capture_output=True, text=True,
         )
         assert result.returncode == 0
-        assert "6." in result.stdout
+        assert "7." in result.stdout
 
     def test_upgrade_terdaftar(self):
         result = subprocess.run(

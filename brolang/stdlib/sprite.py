@@ -341,6 +341,58 @@ class Sprite:
         self.kecepatan_y = 0.0
         return self
 
+    # ---------------- Posisi & Gerak (v7.1) ----------------
+
+    def set_posisi(self, x, y):
+        """Pindahkan sprite ke koordinat (x, y)."""
+        self.x = float(x)
+        self.y = float(y)
+        return self
+
+    def gerakkan(self, dx, dy):
+        """Geser sprite relatif sebesar (dx, dy)."""
+        self.x += float(dx)
+        self.y += float(dy)
+        return self
+
+    def set_kecepatan(self, vx, vy):
+        """Set kecepatan gerak sprite (pixel/detik)."""
+        self.kecepatan_x = float(vx)
+        self.kecepatan_y = float(vy)
+        return self
+
+    def kejar(self, target, kecepatan=100.0):
+        """Arahkan kecepatan menuju target (objek dengan .x/.y atau tuple).
+
+        Kombinasikan dengan update(dt) agar sprite bergerak mengejar.
+        """
+        if isinstance(target, (list, tuple)):
+            tx, ty = target[0], target[1]
+        else:
+            tx, ty = target.x, target.y
+        self.arah_ke(tx, ty, kecepatan)
+        return self
+
+    def set_skala(self, faktor):
+        """Set skala gambar (satu nilai untuk x & y)."""
+        self.skala_x = float(faktor)
+        self.skala_y = float(faktor)
+        return self
+
+    def set_rotasi(self, sudut_derajat):
+        """Set sudut rotasi sprite (derajat)."""
+        self.sudut = float(sudut_derajat)
+        return self
+
+    def visibel(self):
+        """Cek apakah sprite terlihat."""
+        return bool(self.terlihat)
+
+    def set_visibel(self, terlihat=True):
+        """Tampilkan/sembunyikan sprite (alias tampilkan/sembunyikan)."""
+        self.terlihat = bool(terlihat)
+        return self
+
     # ---------------- Patroli Waypoint (v6.6) ----------------
 
     def ikuti_patroli(self, titik_titik, kecepatan=100.0, mode="loop"):

@@ -81,6 +81,30 @@ def bersihkan() -> None:
         os.remove(_file_tujuan)
 
 
+# ============= v7.1 =============
+
+
+def catat(level: str, pesan: str) -> None:
+    """Log umum dengan level dinamis: catat("info", "pesan")."""
+    lvl = level.lower()
+    if lvl not in _LEVELS:
+        raise ValueError(f"Level '{level}' tidak dikenal. Gunakan: {', '.join(_LEVELS)}")
+    _tulis(lvl, pesan)
+
+
+def sukses(pesan: str) -> None:
+    """Log sukses (level INFO)."""
+    _tulis("info", f"[SUKSES] {pesan}")
+
+
+def level_saat_ini() -> str:
+    """Level minimum yang sedang aktif (nama level)."""
+    for nama, kode in _LEVELS.items():
+        if kode == _tingkat_min:
+            return nama
+    return "info"
+
+
 module = SimpleNamespace(
     atur_level=atur_level,
     atur_file=atur_file,
@@ -90,4 +114,8 @@ module = SimpleNamespace(
     error=error,
     kritis=kritis,
     bersihkan=bersihkan,
+    # v7.1
+    catat=catat,
+    sukses=sukses,
+    level_saat_ini=level_saat_ini,
 )

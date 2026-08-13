@@ -942,6 +942,253 @@ def histogram_svg(data, jumlah_bin=10, judul="", warna="#6366f1", lebar=800, tin
     return "".join(parts)
 
 
+def _norm_tabel(data):
+    """Normalisasi input tabel -> (kolom, baris) dengan baris sebagai dict.
+
+    Mendukung:
+      1. List of dict:  [{"nama": "A", "nilai": 10}, ...]  (kunci jadi kolom)
+      2. List of list:  [["nama", "nilai"], ["A", 10], ...] (baris pertama = header)
+      3. List of list tanpa header: [["A", 10], ["B", 20]]  (kolom diberi nomor)
+      4. Dict tunggal:  {"nama": "A", "nilai": 10}         (satu baris)
+    """
+    if isinstance(data, dict):
+        kolom = [str(k) for k in data.keys()]
+        return kolom, [{str(k): v for k, v in data.items()}]
+    data = list(data)
+    if not data:
+        return [], []
+    if isinstance(data[0], dict):
+        kolom = []
+        seen = set()
+        for row in data:
+            for k in row.keys():
+                if k not in seen:
+                    seen.add(k)
+                    kolom.append(str(k))
+        baris = [{str(k): v for k, v in row.items()} for row in data]
+        return kolom, baris
+    # list of list
+    rows = [list(r) for r in data]
+    if rows and all(isinstance(c, str) for c in rows[0]) and not all(
+        _is_num(c) for c in rows[0]
+    ) and len(set(rows[0])) == len(rows[0]):
+        # Baris pertama berisi teks unik -> dianggap header
+        kolom = [str(c) for c in rows[0]]
+        baris = []
+        for r in rows[1:]:
+            d = {}
+            for i, c in enumerate(kolom):
+                d[c] = r[i] if i < len(r) else ""
+            baris.append(d)
+        return kolom, baris
+    n_col = max(len(r) for r in rows)
+    kolom = [f"Kolom {i + 1}" for i in range(n_col)]
+    baris = []
+    for r in rows:
+        d = {}
+        for i, c in enumerate(kolom):
+            d[c] = r[i] if i < len(r) else ""
+        baris.append(d)
+    return kolom, baris
+
+
+def _is_num(v):
+    try:
+        float(v)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _fmt_cell(v):
+    """Format sel tabel: angka dirapikan, sisanya str."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return _fmt(v)
+    return str(v)
+
+
+def tabel(data, judul="", nomor=False):
+    """Tabel teks (ASCII) — render data sebagai tabel berbingkai rapi.
+
+    Args:
+        data: List of dict / list of list / dict tunggal.
+        judul: Judul tabel.
+        nomor: Tambahkan kolom nomor baris.
+
+    Contoh:
+        buat data = [
+            {"nama": "Budi", "nilai": 90},
+            {"nama": "Siti", "nilai": 85},
+        ]
+        tulis visualisasi.tabel(data, judul="Nilai Siswa")
+    """
+    kolom, baris = _norm_tabel(data)
+    if not kolom:
+        return "(data kosong)"
+    if nomor:
+        kolom = ["#"] + kolom
+    cells = [[_fmt_cell(r.get(k, "")) for k in kolom[1:]] for r in baris] if nomor else [
+        [_fmt_cell(r.get(k, "")) for k in kolom] for r in baris
+    ]
+    if nomor:
+        cells = [[str(i + 1)] + c for i, c in enumerate(cells)]
+    widths = [len(k) for k in kolom]
+    for c in cells:
+        for i, v in enumerate(c):
+            widths[i] = max(widths[i], len(v))
+    sep = "+" + "+".join("-" * (w + 2) for w in widths) + "+"
+    lines = []
+    if judul:
+        lines.append(str(judul))
+    lines.append(sep)
+    lines.append("|" + "|".join(f" {k:<{widths[i]}} " for i, k in enumerate(kolom)) + "|")
+    lines.append(sep)
+    for c in cells:
+        lines.append("|" + "|".join(f" {v:<{widths[i]}} " for i, v in enumerate(c)) + "|")
+    lines.append(sep)
+    return "\n".join(lines)
+
+
+def tabel_svg(data, judul="", warna=None, lebar=800):
+    """Tabel (SVG) — render data sebagai tabel HTML yang bisa dibuka di browser.
+
+    Args:
+        data: List of dict / list of list / dict tunggal.
+        judul: Judul tabel.
+        warna: Warna aksen header (hex).
+        lebar: Lebar maksimum tabel dalam pixel.
+
+    Mengembalikan string HTML (bukan SVG murni) yang bisa disimpan lewat
+    `simpan_html` atau langsung dibuka.
+    """
+    kolom, baris = _norm_tabel(data)
+    if not kolom:
+        return _svg_kosong(lebar, 120, judul)
+    aksen = warna or _PALETTE[0]
+    header = "".join(f"<th>{_esc(k)}</th>" for k in kolom)
+    body = ""
+    for r in baris:
+        body += "<tr>" + "".join(
+            f"<td>{_esc(_fmt_cell(r.get(k, '')))}</td>" for k in kolom
+        ) + "</tr>"
+    baris_html = len(baris)
+    judul_html = f"<h3>{_esc(judul)}</h3>" if judul else ""
+    return f"""<div style="max-width:{int(lebar)}px;margin:0 auto;font-family:Segoe UI,Arial,sans-serif;">
+{judul_html}
+<div style="overflow-x:auto;border-radius:12px;border:1px solid #e2e8f0;box-shadow:0 2px 12px rgba(15,23,42,0.06);">
+<table style="border-collapse:collapse;width:100%;font-size:14px;">
+<thead><tr style="background:{aksen};color:#fff;text-align:left;">{header}</tr></thead>
+<tbody>{body}</tbody>
+</table>
+</div>
+<small style="color:#94a3b8;">{baris_html} baris &times; {len(kolom)} kolom</small>
+</div>"""
+
+
+def area_svg(data, x=None, label=None, judul="", warna=None, lebar=800, tinggi=430):
+    """Chart area (SVG) — seperti garis, tapi dengan area terisi di bawah kurva.
+
+    Mendukung multi-seri (list of lists).
+
+    Args:
+        data: List nilai, atau list berisi beberapa seri.
+        x: Nilai sumbu X (opsional).
+        label: Nama seri (untuk legend).
+        judul: Judul chart.
+        warna: Warna hex tunggal atau list warna.
+    """
+    if data and isinstance(data[0], (list, tuple)):
+        series = [list(s) for s in data]
+        labels = list(label) if label else [f"Seri {i + 1}" for i in range(len(series))]
+    else:
+        series = [list(data)]
+        labels = list(label) if label else [""]
+    if not series or not series[0]:
+        return _svg_kosong(lebar, tinggi, judul)
+    W, H = int(lebar), int(tinggi)
+    L, R, T, B = 70, 40, 70, 60
+    pw, ph = W - L - R, H - T - B
+    colors = [warna] * len(series) if isinstance(warna, str) else (warna or _PALETTE)
+    n = len(series[0])
+    for s in series:
+        if len(s) != n:
+            raise ValueError(f"Semua seri harus memiliki panjang yang sama ({n} titik).")
+    if x is None:
+        xs = [float(i) for i in range(n)]
+    else:
+        xs = [float(v) for v in x]
+        if len(xs) != n:
+            raise ValueError(f"Panjang 'x' ({len(xs)}) harus sama dengan jumlah data ({n}).")
+    all_y = [float(v) for s in series for v in s]
+    ymin, ymax = min(all_y), max(all_y)
+    if ymax == ymin:
+        ymax = ymin + 1
+    ticks = _nice_ticks(ymin, ymax, 4)
+    lo, hi = ticks[0], ticks[-1]
+
+    def y(v):
+        return T + ph - (v - lo) / (hi - lo) * ph
+
+    def xpx(v):
+        return L + (v - xs[0]) / (xs[-1] - xs[0]) * pw if xs[-1] != xs[0] else L + pw / 2
+
+    parts = [_svg_header(W, H), f'<rect width="100%" height="100%" fill="#ffffff"/>']
+    if judul:
+        parts.append(
+            f'<text x="{W / 2}" y="32" text-anchor="middle" font-size="19" '
+            f'font-weight="bold" fill="#0f172a">{_esc(judul)}</text>'
+        )
+    if len(series) > 1 and labels:
+        ly = 55
+        for i, name in enumerate(labels):
+            parts.append(
+                f'<rect x="{W - R - 130}" y="{ly - 11}" width="13" height="13" rx="3" '
+                f'fill="{colors[i % len(colors)]}"/>'
+            )
+            parts.append(
+                f'<text x="{W - R - 112}" y="{ly}" font-size="12" fill="#475569">'
+                f"{_esc(name)}</text>"
+            )
+            ly += 20
+    for t in ticks:
+        parts.append(
+            f'<line x1="{L}" y1="{y(t):.1f}" x2="{W - R}" y2="{y(t):.1f}" '
+            f'stroke="#e2e8f0" stroke-width="1"/>'
+        )
+        parts.append(
+            f'<text x="{L - 10}" y="{y(t) + 4:.1f}" text-anchor="end" font-size="12" '
+            f'fill="#64748b">{_fmt(t)}</text>'
+        )
+    for si, s in enumerate(series):
+        c = colors[si % len(colors)]
+        pts = " ".join(f"{xpx(xs[i]):.1f},{y(float(v)):.1f}" for i, v in enumerate(s))
+        area = (
+            f'M {xpx(xs[0]):.1f},{T + ph:.1f} L ' + " L ".join(
+                f"{xpx(xs[i]):.1f},{y(float(v)):.1f}" for i, v in enumerate(s)
+            ) + f" L {xpx(xs[-1]):.1f},{T + ph:.1f} Z"
+        )
+        # Area dengan gradasi transparan
+        gid = _uid("ag")
+        parts.append(
+            f'<defs><linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1">'
+            f'<stop offset="0%" stop-color="{c}" stop-opacity="0.45"/>'
+            f'<stop offset="100%" stop-color="{c}" stop-opacity="0.03"/>'
+            f"</linearGradient></defs>"
+        )
+        parts.append(f'<path d="{area}" fill="url(#{gid})"/>')
+        parts.append(
+            f'<polyline points="{pts}" fill="none" stroke="{c}" stroke-width="3" '
+            f'stroke-linejoin="round" stroke-linecap="round"/>'
+        )
+        for i, v in enumerate(s):
+            parts.append(
+                f'<circle cx="{xpx(xs[i]):.1f}" cy="{y(float(v)):.1f}" r="4" '
+                f'fill="#ffffff" stroke="{c}" stroke-width="2.5"/>'
+            )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
 # =============================================================================
 # Export ke file
 # =============================================================================
@@ -1737,12 +1984,15 @@ module = SimpleNamespace(
     kue=kue,
     sebar=sebar,
     histogram=histogram,
+    tabel=tabel,
     # SVG
     batang_svg=batang_svg,
     garis_svg=garis_svg,
     kue_svg=kue_svg,
     sebar_svg=sebar_svg,
     histogram_svg=histogram_svg,
+    tabel_svg=tabel_svg,
+    area_svg=area_svg,
     # Export
     simpan_svg=simpan_svg,
     simpan_html=simpan_html,

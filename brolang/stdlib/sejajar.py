@@ -133,9 +133,15 @@ def tutup():
         _executor = None
 
 
+# v7.1: alias aman-keyword (`tunggu` adalah keyword bahasa) — level modul
+# agar berfungsi di interpreter DAN VM.
+tunggu_tugas = tunggu
+
+
 module = SimpleNamespace(
     jalankan=jalankan,
     tunggu=tunggu,
+    tunggu_tugas=tunggu,  # v7.1: alias aman-keyword (`tunggu` adalah keyword)
     tunggu_semua=tunggu_semua,
     peta_sejajar=peta_sejajar,
     atur_thread=atur_thread,

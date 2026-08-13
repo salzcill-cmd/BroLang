@@ -69,6 +69,22 @@ class Vektor2D:
     def copy(self):
         return Vektor2D(self.x, self.y)
 
+    def lerp(self, other, t):
+        """Interpolasi linier menuju vektor lain (t: 0..1)."""
+        t = max(0.0, min(1.0, float(t)))
+        return Vektor2D(
+            self.x + (other.x - self.x) * t,
+            self.y + (other.y - self.y) * t,
+        )
+
+    def panjang_kuadrat(self):
+        """Kuadrat panjang vektor (lebih cepat dari magnitude)."""
+        return self.x * self.x + self.y * self.y
+
+    def arah(self):
+        """Vektor satuan (alias normalisasi)."""
+        return self.normalisasi()
+
     def __repr__(self):
         return f"Vektor2D({self.x}, {self.y})"
 
@@ -168,6 +184,25 @@ class Bodi:
                 Vektor2D(impulse_x, impulse_y).bagi(self.massa)
             )
 
+    def set_massa(self, massa):
+        """Set massa bodi."""
+        self.massa = float(massa)
+        return self
+
+    def berhenti(self):
+        """Hentikan bodi: kecepatan & percepatan jadi nol."""
+        self.kecepatan = Vektor2D(0, 0)
+        self.percepatan = Vektor2D(0, 0)
+        self.gaya = Vektor2D(0, 0)
+        return self
+
+    def batasi_kecepatan(self, maks):
+        """Batasi besar kecepatan (speed) ke nilai maksimum."""
+        mag = self.kecepatan.magnitude()
+        if mag > maks > 0:
+            self.kecepatan = self.kecepatan.kali(maks / mag)
+        return self
+
 
 class FisikaWorld:
     """Dunia fisika untuk simulasi."""
@@ -196,6 +231,14 @@ class FisikaWorld:
     def bersihkan(self):
         """Hapus semua bodi dari dunia."""
         self.bodies.clear()
+
+    def jumlah_bodi(self):
+        """Jumlah bodi dalam dunia."""
+        return len(self.bodies)
+
+    def gravitasi_sekarang(self):
+        """Salinan vektor gravitasi saat ini."""
+        return self.gravitasi.copy()
 
     def update(self, dt):
         """Update seluruh dunia fisika."""
@@ -629,6 +672,26 @@ def buat_vektor(x=0, y=0):
     return Vektor2D(x, y)
 
 
+def vektor_dari_sudut(sudut, panjang=1.0):
+    """Vektor 2D dari sudut (radian) dan panjang (v7.1).
+
+    Contoh:
+        buat v = fisika.vektor_dari_sudut(0)      # (1, 0)
+        buat v = fisika.vektor_dari_sudut(1.5708, 5)  # ~(0, 5)
+    """
+    return Vektor2D(math.cos(sudut) * panjang, math.sin(sudut) * panjang)
+
+
+def gravitasi_bumi():
+    """Vektor gravitasi bumi standar (~9.8 m/s² diskala ke pixel)."""
+    return Vektor2D(0, 490.0)
+
+
+def gravitasi_bulan():
+    """Vektor gravitasi bulan (~1.62 m/s² diskala ke pixel)."""
+    return Vektor2D(0, 81.0)
+
+
 module = SimpleNamespace(
     Vektor2D=Vektor2D,
     Bodi=Bodi,
@@ -636,4 +699,8 @@ module = SimpleNamespace(
     buat_bodi=buat_bodi,
     buat_dunia=buat_dunia,
     buat_vektor=buat_vektor,
+    # v7.1
+    vektor_dari_sudut=vektor_dari_sudut,
+    gravitasi_bumi=gravitasi_bumi,
+    gravitasi_bulan=gravitasi_bulan,
 )

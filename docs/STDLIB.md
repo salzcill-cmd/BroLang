@@ -33,11 +33,14 @@ visualisasi.simpan_html("laporan.html", [svg], judul="Laporan Bulanan")
 | `kue(data, label?, judul?, radius?, satuan?, desimal?)` | Pie/donut chart (ASCII) |
 | `sebar(x_data, y_data, judul?, tinggi?, lebar?)` | Scatter plot (ASCII) |
 | `histogram(data, jumlah_bin?, judul?, tinggi?)` | Histogram (ASCII) |
+| `tabel(data, judul?, nomor?)` | Tabel ASCII berbingkai (list of dict / list of list / dict) |
 | `batang_svg(data, label?, judul?, warna?, lebar?, tinggi?)` | Bar chart (SVG) |
 | `garis_svg(data, x?, label?, judul?, warna?)` | Line chart (SVG), dukung multi-seri |
 | `kue_svg(data, label?, judul?, warna?)` | Pie/donut chart (SVG) |
 | `sebar_svg(x_data, y_data, judul?, label_x?, label_y?, warna?)` | Scatter plot (SVG) |
 | `histogram_svg(data, jumlah_bin?, judul?, warna?)` | Histogram (SVG) |
+| `tabel_svg(data, judul?, warna?, lebar?)` | Tabel HTML responsif (v7.1) |
+| `area_svg(data, x?, label?, judul?, warna?)` | Chart area ber-gradasi, dukung multi-seri (v7.1) |
 | `simpan_svg(nama_file, svg)` | Simpan SVG ke file |
 | `simpan_html(nama_file, svg_list, judul?)` | Simpan 1+ chart ke halaman HTML |
 | `simpan_txt(nama_file, teks)` | Simpan chart ASCII ke file |
@@ -73,19 +76,6 @@ Spec chart: `{"jenis": "batang|garis|kue|sebar|histogram", "data": ..., "label":
 
 ---
 
-## `angka` — Matematika Lanjut
-
-```
-muat angka
-
-tulis angka.pi           # 3.14159...
-tulis angka.e            # 2.71828...
-tulis angka.sqr(16)      # 4.0
-tulis angka.abs(-5)      # 5
-tulis angka.min(3, 7)    # 3
-tulis angka.max(3, 7)    # 7
-```
-
 ## `vektor` — Vektor Matematika
 
 ```
@@ -108,35 +98,128 @@ audio.muat("efek_lompat", "assets/lompat.mp3")
 audio.mainkan("efek_lompat")
 ```
 
-## `angka` — Matematika Lanjut
+## `matematika` — Matematika Lanjut (v7.1)
 
-Konstanta & fungsi matematika cepat. `pi` dan `e` langsung sebagai nilai
-(tanpa kurung).
+Fungsi matematika dasar, statistik, teori bilangan, dan utilitas.
 
 ```
-impor angka
+impor matematika
 
-tulis angka.pi           # 3.141592653589793
-tulis angka.e            # 2.718281828459045
-tulis angka.sqr(16)      # 4.0
-tulis angka.abs(-5)      # 5
-tulis angka.min(3, 7)    # 3
-tulis angka.max(3, 7)    # 7
+tulis matematika.akar(25)                    # 5.0
+tulis matematika.rata_rata([2, 4, 6])        # 4.0
+tulis matematika.fpb(12, 18)                 # 6
+tulis matematika.clamp(50, 0, 10)            # 10
+```
+
+**Dasar:**
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `akar(x)` | Akar kuadrat |
+| `sin(x)` / `cos(x)` / `tan(x)` | Trigonometri (radian) |
+| `pangkat(x, y)` | x pangkat y |
+| `absolut(x)` | Nilai absolut |
+| `bulat(x, n?)` | Pembulatan ke n digit |
+| `lantai(x)` / `langit(x)` | Floor / ceil |
+| `log(x, base?)` | Logaritma |
+| `log2(x)` / `log10(x)` | Logaritma basis 2 / 10 |
+| `pi()` / `e()` | Konstanta matematika (fungsi) |
+| `max(a, b)` / `min(a, b)` | Maksimum/minimum dua bilangan |
+| `maksimal(...)` / `minimal(...)` | Maksimum/minimum dari banyak argumen |
+| `faktorial(n)` | Faktorial |
+
+**Statistik (v7.1):**
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `rata_rata(list)` | Rata-rata (mean) |
+| `median(list)` | Median |
+| `modus(list)` | Modus — nilai paling sering muncul |
+| `varians(list)` | Varians populasi |
+| `standar_deviasi(list)` | Standar deviasi populasi |
+
+**Teori bilangan (v7.1):**
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `fpb(a, b)` | Faktor persekutuan terbesar (GCD) |
+| `kpk(a, b)` | Kelipatan persekutuan terkecil (LCM) |
+| `prima(n)` | Cek bilangan prima |
+| `bilangan_prima(n)` | Daftar semua bilangan prima ≤ n |
+| `fibonacci(n)` | Bilangan Fibonacci ke-n |
+
+**Utilitas (v7.1):**
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `clamp(x, bawah, atas)` | Kunci nilai ke rentang |
+| `hipotenusa(a, b)` | Sisi miring segitiga (Pythagoras) |
+| `derajat_ke_radian(x)` / `radian_ke_derajat(x)` | Konversi sudut |
+| `kombinasi(n, r)` / `permutasi(n, r)` | Kombinatorik |
+
+---
+
+## `teks` — Manipulasi String (v7.1)
+
+```
+impor teks
+
+tulis teks.balik("abc")                  # "cba"
+tulis teks.hitung_kata("Halo dunia")    # 2
+tulis teks.regex_cari("Halo 123", "\\d+")  # "123"
 ```
 
 | Fungsi | Keterangan |
 |--------|------------|
-| `pi`, `e` | Konstanta matematika (nilai) |
-| `sqr(x)` / `akar(x)` | Akar kuadrat |
-| `abs(x)` | Nilai absolut |
-| `min(...)` / `max(...)` | Minimum/maksimum (2+ angka atau satu list) |
-| `pangkat(x, y)` | x pangkat y |
-| `lantai(x)` / `langit(x)` | Floor / ceil |
-| `bulat(x, n?)` | Pembulatan ke n digit |
-| `log(x, base?)` | Logaritma |
-| `sin(x)` / `cos(x)` / `tan(x)` | Trigonometri (radian) |
-| `faktorial(n)` | Faktorial |
-| `acak_antara(a, b)` | Angka acak antara a dan b |
+| `upper(s)` / `lower(s)` | Huruf kapital / kecil |
+| `kapital(s)` / `judul(s)` | Kapitalisasi huruf pertama / setiap kata |
+| `potong(s, delimiter?)` / `gabung(parts, sep?)` | Split / join |
+| `ganti(s, lama, baru)` | Ganti substring |
+| `panjang(s)` | Panjang string |
+| `strip(s)` / `potong_kiri(s)` / `potong_kanan(s)` | Hapus spasi |
+| `cari(s, sub)` | Posisi substring |
+| `mulai(s, prefix)` / `berakhir(s, suffix)` | Cek awalan / akhiran |
+| `balik(s)` | Balik urutan karakter (v7.1) |
+| `berulang(s, n)` | Ulangi string n kali (v7.1) |
+| `hapus_spasi(s)` | Hapus semua spasi (v7.1) |
+| `pad_kiri(s, lebar, ch?)` / `pad_kanan(s, lebar, ch?)` / `terpusat(s, lebar, ch?)` | Ratakan teks (v7.1) |
+| `jumlah(s, sub)` | Hitung kemunculan substring (v7.1) |
+| `hitung_kata(s)` | Jumlah kata (v7.1) |
+| `pecah_baris(s)` | Pecah per baris (v7.1) |
+| `regex_cari(s, pola)` | Teks pertama yang cocok regex (v7.1) |
+| `regex_cari_semua(s, pola)` | Semua kecocokan regex (v7.1) |
+| `regex_ganti(s, pola, baru)` | Ganti semua kecocokan regex (v7.1) |
+| `regex_cocok(s, pola)` | Cek cocok penuh dengan regex (v7.1) |
+
+> Pola regex ditulis dengan escape: `"\\d+"` (bukan raw string).
+
+---
+
+## `tanggal` — Tanggal & Waktu (v7.1)
+
+```
+impor tanggal
+
+tulis tanggal.hari_ini()                  # 2026-08-07
+tulis tanggal.nama_hari("2026-08-07")    # Jumat
+tulis tanggal.tambah_bulan("2026-01-31", 1)  # 2026-02-28
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `hari_ini()` / `sekarang()` | Tanggal / datetime sekarang |
+| `parse(teks)` | Parse berbagai format tanggal |
+| `format(iso, pola?)` | Format dengan strftime |
+| `komponen(iso)` | {tahun, bulan, hari, nama_bulan, hari_dalam_minggu} |
+| `tambah_hari(iso, n)` / `selisih_hari(a, b)` | Aritmatika hari |
+| `umur(tanggal_lahir)` | Umur dalam tahun |
+| `hari_besar(nama)` | Tanggal hari besar nasional |
+| `nama_hari(iso)` / `nama_bulan(iso)` | Nama hari/bulan Indonesia (v7.1) |
+| `kabisat(tahun)` | Cek tahun kabisat (v7.1) |
+| `akhir_bulan(iso)` | Tanggal terakhir bulan (v7.1) |
+| `tambah_bulan(iso, n)` / `tambah_tahun(iso, n)` | Aritmatika bulan/tahun (v7.1) |
+| `selisih_jam(a, b)` | Selisih jam antara dua datetime (v7.1) |
+| `tanggal_baru(tahun, bulan, hari)` | Bangun tanggal ISO (v7.1) |
 
 ---
 
@@ -491,6 +574,125 @@ murni kalkulasi: `p.nilai()` mengembalikan 0..1.
 
 ---
 
+## `acak` — Random (v7.1)
+
+```
+impor acak
+
+acak.seed(42)                      # reproducibel
+buat n = acak.bulat(1, 100)        # integer acak
+buat pilihan = acak.pilih(["a", "b", "c"])
+buat k = acak.kata(5)              # "xqflm" (huruf acak)
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `angka(a?, b?)` / `bulat(a?, b?)` | Float / integer acak |
+| `pilih(list)` / `pilih_beberapa(list, n)` | Pilih item acak |
+| `acak_list(list)` | Acak urutan list (salinan baru) |
+| `seed(n)` | Seed untuk reproducibilitas |
+| `boolean()` | Benar/salah acak (v7.1) |
+| `huruf()` / `huruf_besar()` | Satu huruf acak (v7.1) |
+| `kata(n?)` | Kata acak huruf kecil (v7.1) |
+| `antara(a, b)` | Integer acak — alias `bulat` (v7.1) |
+
+---
+
+## `angka` — Angka & Basis (v7.1)
+
+Konstanta `pi`/`e` + fungsi cepat + teori bilangan + konversi basis.
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `pi`, `e` | Konstanta (nilai) |
+| `sqr(x)` / `akar(x)`, `abs(x)`, `min(...)`, `max(...)` | Fungsi cepat |
+| `pangkat`, `lantai`, `langit`, `bulat`, `log`, trigonometri, `faktorial`, `acak_antara` | Matematika dasar |
+| `genap(n)` / `ganjil(n)` | Cek genap/ganjil (v7.1) |
+| `fpb(a, b)` / `kpk(a, b)` | GCD / LCM (v7.1) |
+| `prima(n)` / `angka_prima(n)` | Cek & daftar bilangan prima (v7.1) |
+| `fibonacci(n)` | Fibonacci ke-n (v7.1) |
+| `digit(n)` / `jumlah_digit(n)` / `terbalik(n)` | Digit & membalik bilangan (v7.1) |
+| `ke_biner(n)` / `dari_biner(s)`, `ke_oktal`, `ke_heksa` + kebalikannya | Konversi basis (v7.1) |
+
+---
+
+## `dasar` — Konversi & Utilitas (v7.1)
+
+Encoding (base64/32, hex, bin, url, html) + konversi tipe.
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `ke_base64/dari_base64`, `ke_base32/dari_base32` | Encoding base (v6.0) |
+| `ke_hex/dari_hex`, `ke_bin/dari_bin`, `ke_url/dari_url`, `ke_html/dari_html` | Encoding lain |
+| `ke_angka(teks)` | Teks ke angka (v7.1) |
+| `ke_teks(nilai)` | Nilai ke teks — boolean jadi "benar"/"salah" (v7.1) |
+| `ke_boolean(teks)` | Teks ke boolean (v7.1) |
+| `jenis(nilai)` | Nama tipe BroLang (v7.1) |
+| `panjang(nilai)` / `adalah_kosong(nilai)` | Panjang & cek kosong (v7.1) — `kosong` adalah keyword, jadi dinamai `adalah_kosong` |
+
+---
+
+## `file` — Baca/Tulis & Jalur (v7.1)
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `baca(path)` / `tulis(path, isi)` / `tambah(path, isi)` / `baca_baris(path)` | Baca-tulis teks |
+| `ada(path)` / `hapus(path)` / `ukuran(path)` / `daftar(path?)` / `buat_folder(path)` | Operasi dasar |
+| `salin(dari, ke)` / `pindah(dari, ke)` / `hapus_folder(path)` | Manajemen (v7.1) |
+| `nama_dasar(jalur)` / `folder(jalur)` / `ekstensi(nama)` / `gabung_jalur(...)` / `absolute(jalur)` | Jalur (v7.1) |
+
+---
+
+## `json` — JSON (v7.1)
+
+`parsing(teks)`, `string(data, indent?)`, `baca(path)`, `tulis(path, data)`, dan `valid(teks)` — cek apakah teks JSON valid (v7.1).
+
+---
+
+## `jaringan` — HTTP & Info (v7.1)
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `dapatkan(url)` / `kirim(url, data?)` | HTTP GET / POST JSON |
+| `muat(url)` | Ambil halaman sebagai teks polos (v7.1) |
+| `kirim_json(url, data)` / `status(url)` | POST JSON / kode status saja (v7.1) |
+| `ip_local()` / `hostname()` | Info mesin (v7.1) |
+
+---
+
+## `sistem` — Info Sistem (v7.1)
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `versi()`, `platform()`, `nama()`, `versi_os()`, `prosesor()`, `python()`, `hostname()`, `cwd()`, `home()`, `lingkungan()` | Info dasar |
+| `jumlah_cpu()` | Jumlah CPU/logical cores (v7.1) |
+| `memori()` / `memori_total()` / `memori_bebas()` | Info memori bytes (v7.1) |
+| `arsitektur()` | Arsitektur + bitness (v7.1) |
+
+---
+
+## `proses` — Perintah Sistem (v7.1)
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `jalankan(cmd)` / `kode_keluar(cmd)` / `keluaran(cmd)` / `error(cmd)` / `jalankan_di(cmd, dir)` | Jalankan perintah shell |
+| `proses_id()` | PID proses BroLang (v7.1) |
+| `jalankan_list([...])` | Jalankan tanpa shell (lebih aman) (v7.1) |
+
+---
+
+## `catat` — Logging (v7.1)
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `debug` / `info` / `peringatan` / `error` / `kritis` | Level log |
+| `atur_level(level)` / `atur_file(path)` / `bersihkan()` | Konfigurasi |
+| `catat(level, pesan)` | Log umum level dinamis (v7.1) |
+| `sukses(pesan)` | Log sukses (v7.1) |
+| `level_saat_ini()` | Level aktif (v7.1) |
+
+---
+
 ## Module List
 
 | Module | Fungsi |
@@ -504,20 +706,24 @@ murni kalkulasi: `p.nilai()` mengembalikan 0..1.
 | `efek` | Efek layar — Flash, Vignette, TeksMelayang, Pulsa (v6.6) |
 | `web` | HTTP requests (client) |
 | `sistem_operasi` | OS operations |
-| `sistem` | System info |
+| `sistem` | Info sistem — cpu, memori, arsitektur (v7.1) |
 | `debug` | Debugging tools |
-| `random` | Angka random |
+| `acak` | Random — boolean, huruf, kata, pilih, seed (v7.1) |
 | `waktu` | Waktu & sleep |
-| `crypto` | Encryption |
-| `database` | SQLite wrapper — buka, query, eksekusi_sql, tabel |
-| `web_server` | Web framework — routing, JSON, static files (v6.3) |
 | `kripto` | Keamanan — hash md5/sha1/sha256/sha512, base64, password PBKDF2, token (v6.4) |
 | `arsip` | ZIP — buat/tambah/ekstrak/daftar, kompresi teks zlib+base64 (v6.4) |
 | `terminal` | UX CLI — warna ANSI, gaya teks, progress bar, prompt, pesan status (v6.4) |
-| `regex` | Regular expressions |
-| `json` | JSON parsing |
-| `csv` | CSV parsing |
-| `math` | Math functions |
+| `matematika` | Matematika — trigonometri, statistik, FPB/KPK, prima, fibonacci (v7.1) |
+| `teks` | String — balik, pad, hitung kata, regex (v7.1) |
+| `tanggal` | Tanggal & waktu — nama hari/bulan, kabisat, tambah bulan/tahun (v7.1) |
+| `event_loop` | Async — tidur kooperatif, tunggu_semua, tunggu_apa_saja (v7.0) |
+| `sejajar` | Paralelisme — Tugas, tunggu, tunggu_semua, Peta (v5.5) |
+| `pencocok` | Regex — cocok, cari, ganti, escape (v6.0) |
+| `json` | JSON — parse, string, baca, tulis, valid (v7.1) |
+| `csv` | CSV — parse, string, muat, simpan |
+| `dasar` | Konversi — encoding + ke_angka/teks/boolean, jenis, kosong (v7.1) |
+| `file` | File — baca/tulis + salin, pindah, ekstensi, gabung_jalur (v7.1) |
+| `jaringan` | HTTP & info — dapatkan, kirim, muat, ip_local, hostname (v7.1) |
+| `proses` | Perintah sistem — jalankan + proses_id, jalankan_list (v7.1) |
+| `catat` | Logging — level, file, catat, sukses, level_saat_ini (v7.1) |
 | `visualisasi` | Chart & grafik data (ASCII, SVG, HTML) |
-| `statistics` | Statistical analysis |
-| `collections` | Data structures |

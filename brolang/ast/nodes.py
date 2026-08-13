@@ -459,6 +459,79 @@ class DestructuringAssignmentNode(ASTNode):
         return [self.value]
 
 
+# ============= V7.0: Multiple Assignment =============
+
+@dataclass
+class MultiAssignNode(ASTNode):
+    """Node untuk multiple assignment (v7.0):
+
+        a, b = 1, 2          # reassignment ganda
+        a, b = b, a          # swap — nilai kanan dievaluasi DULU semua
+        buat a, b = 1, 2     # deklarasi ganda
+
+    Semua nilai kanan dievaluasi sebelum assignment (swap aman).
+    """
+    targets: List[str] = field(default_factory=list)
+    values: List[ASTNode] = field(default_factory=list)
+    is_declaration: bool = False
+
+    def get_children(self) -> List[Any]:
+        return self.values
+
+
+@dataclass
+class ErrorPropagationNode(ASTNode):
+    """Node untuk error propagation operator (v7.0): ekspresi?
+
+    Membuka (unwrap) nilai Result (`Benar`/`Salah`) atau Option
+    (`Ada`/`Kosong`):
+        buat data = baca_file()?     # Salah(e) -> lempar e; Benar(v) -> v
+        buat nama = cari_nama()?     # Kosong()  -> lempar error; Ada(v) -> v
+
+    Nilai non-Result/Option dikembalikan apa adanya.
+    """
+    value: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+
+    def get_children(self) -> List[Any]:
+        return [self.value]
+
+
+@dataclass
+class SetComprehensionNode(ASTNode):
+    """Node untuk set comprehension (v7.2): {expr lalu var dalam iterable}
+
+    Mirror list comprehension tapi menghasilkan set (unik):
+        buat s = {x * 2 lalu x dalam [1, 2, 2, 3]}   # {2, 4, 6}
+    """
+    expr: ASTNode = field(default_factory=lambda: NumberNode(0))
+    variable: str = ""
+    iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    condition: Optional[ASTNode] = None  # optional filter
+
+    def get_children(self) -> List[Any]:
+        children = [self.expr, self.iterable]
+        if self.condition:
+            children.append(self.condition)
+        return children
+
+
+@dataclass
+class NullSafeIndexNode(ASTNode):
+    """Node untuk null-safe indexing (v7.2): ekspresi?[indeks]
+
+    Mirror `objek?.atribut` tapi untuk index:
+        buat x = data?[0]         # data kosong -> kosong; selain itu data[0]
+        buat y = data?[0] ?? 0    # aman digabung dengan null-coalescing
+
+    Target kosong (None) menghasilkan None tanpa error.
+    """
+    target: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    index: ASTNode = field(default_factory=lambda: NumberNode(0))
+
+    def get_children(self) -> List[Any]:
+        return [self.target, self.index]
+
+
 # ============= Classes =============
 
 @dataclass

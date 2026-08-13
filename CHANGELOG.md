@@ -4,6 +4,283 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [7.2.0] - 2026-08-13
+
+### Added — Fitur Bahasa Baru
+
+- **List/dict/set comprehension** — sintaks `lalu` kini bekerja di semua
+  konteks koleksi:
+  ```bro
+  buat kuadrat = [x * x lalu x dalam data]
+  buat genap = {k: v lalu k dalam data jika k % 2 == 0}   # dict-comp
+  buat unik = {x lalu x dalam daftar}                      # set-comp
+  ```
+  (Sebelumnya list-comp rusak/no-op di VM; dict & set-comp baru didukung.)
+- **Walrus operator** `x := nilai` — assignment di dalam ekspresi/kondisi
+  (sebelumnya rusak di VM):
+  ```bro
+  jika (buat_hasil := kirim()) != kosong { ... }
+  ```
+- **Null-safe indexing** `data?[0]` — mengembalikan `kosong` bila target
+  kosong, mirror dari `a?.b` untuk atribut.
+- **Dict comprehension** — `{k: v lalu k dalam sumber}` (dengan guard
+  `jika`) sebagai ekspresi bernilai di semua mesin.
+
+### Fixed — Konsistensi VM (semua sudah jalan di interpreter/transpiler)
+
+- **Generator di VM** — `hasilkan`/`hasilkandari` (sebelumnya di-skip
+  diam-diam): fungsi ber-yield dideteksi otomatis dari body, hasil
+  dikumpulkan dan dikembalikan sebagai list.
+- **`dengan` statement di VM** — konteks manager (`masuk`/`keluar`) kini
+  dipanggil benar; mendukung objek BroLang (`obj.masuk()`) maupun Python
+  (`.masuk`/`.keluar` atau `__enter__`/`__exit__`).
+- **`dengan` di interpreter** — method konteks pada instance BroLang
+  (`obj.get("masuk")`) kini dipanggil dengan `self` yang benar (bug
+  pre-existing: `hasattr` gagal pada `BroLangInstance`).
+
+### Added — Perluasan Library (v7.2)
+
+- **`waktu`** — `waktu_iso()`, `timestamp()`, `milidetik()`, `zona_waktu()`,
+  `dari_timestamp(ts)`, `hari_ini()`, `tambah_hari(tgl, n)`, `umur(tgl_lahir)`,
+  `selisih_waktu(a, b)`, `detik_sejak(epoch)`.
+- **`file`** — utilitas jalur (`gabung_jalur`, `absolute`, `nama_dasar`,
+  `folder`, `ekstensi`), biner (`baca_biner`, `tulis_biner`, `salin_biner`),
+  plus `ubah_nama`, `ubah_waktu`.
+- **`dasar`** — koleksi: `urutkan`, `terbalik`, `unik`, `kunci`, `nilai`,
+  `item`, `panjang`, `adalah_kosong`.
+- **`acak`** — `pilih`, `pilih_beberapa`, `kocok`, `unik`, `kata`, `huruf`,
+  `huruf_besar`, `antara`, `koin`, `dadu`.
+
+### Fixed — Konsistensi Lintas Mesin (audit otomatis 73 fitur)
+
+Audit otomatis (`tools/audit_konsistensi.py`) menjalankan 73 snippet fitur
+bahasa di ketiga mesin (interpreter/transpiler/VM) dan membandingkan output.
+Bug yang ditemukan & diperbaiki:
+
+- **Slicing string & list** (`s[1:3]`, `a[::2]`) rusak di transpiler (di-emit
+  sebagai string `"1 : 3"`) dan di VM (hanya PUSH_NONE placeholder). Kini
+  slicing asli `target[start:stop:step]` di kedua mesin.
+- **Method list/dict/str di VM** — `tambah`, `sisipkan`, `urutkan`, `balik`,
+  `kunci`, `nilai`, `item`, `punya`, `ambil`, dll tidak dikenal di VM
+  (hanya `VMInstance` yang didukung). Kini diterjemahkan ke method Python
+  via `_vm_brolang_method` (konsisten dengan interpreter).
+- **`d.kunci()`/`d.nilai()` di transpiler** — mengembalikan `dict_keys`/
+  `dict_values` (view) bukan list; kini dibungkus `list()`.
+- **`a.urutkan()` di transpiler** — mengembalikan `None` (Python `sort()`);
+  kini mengembalikan list terurut (konsisten dengan interpreter).
+- **Closure di VM** — variabel fungsi enclosing tidak terlihat (compiler
+  tidak pernah mengisi `free_vars`; `_resolve_name` hanya tahu local/global).
+  Kini scope enclosing dilacak dan `LOAD_DEREF` memakai slot lokal parent.
+- **Multiple return unpack** — `buat a, b, c = f()` (satu tuple) gagal di
+  interpreter (`(1,2,3) None None`) dan di VM; kini di-unpack otomatis ke
+  target di ketiga mesin.
+- **Index assignment dict** `d[kunci] = nilai` ditolak interpreter
+  ("Hanya list yang bisa di-index assignment"); kini dict didukung
+  (konsisten dengan transpiler/VM).
+- **Urutan kunci dict di VM** — `MAKE_DICT` membalik urutan pasangan;
+  kini dipertahankan.
+
+### Notes
+
+- 32 test baru di `tests/unit/test_v72_language.py` — total **1205 test passing**.
+- Dokumentasi: `docs/FITUR_V72.md`, contoh `examples/fitur_v72.bro`,
+  audit `tools/audit_konsistensi.py` (73 fitur, 69 konsisten).
+
+## [7.1.0] - 2026-08-13
+
+### Added — Perluasan Library
+
+Modul stdlib yang sudah ada diperluas dengan fungsi-fungsi baru (tanpa
+perubahan sintaks bahasa, versi tetap 7.1.0):
+
+- **`matematika`** — statistik (`rata_rata`, `median`, `modus`, `varians`,
+  `standar_deviasi`), teori bilangan (`fpb`, `kpk`, `prima`,
+  `bilangan_prima`, `fibonacci`), utilitas (`maksimal`/`minimal` multi-arg,
+  `clamp`, `hipotenusa`, konversi sudut, `kombinasi`, `permutasi`),
+  plus `log2`/`log10`.
+- **`teks`** — `balik`, `berulang`, `hapus_spasi`, `pad_kiri`/`pad_kanan`,
+  `terpusat`, `jumlah`, `hitung_kata`, `pecah_baris`, dan regex
+  (`regex_cari`, `regex_cari_semua`, `regex_ganti`, `regex_cocok`).
+- **`tanggal`** — `nama_hari`, `nama_bulan` (Indonesia), `kabisat`,
+  `akhir_bulan`, `tambah_bulan`, `tambah_tahun`, `selisih_jam`,
+  `tanggal_baru`.
+- **`acak`** — `boolean`, `huruf`, `huruf_besar`, `kata`, `antara`.
+- **`angka`** — `genap`, `ganjil`, `fpb`, `kpk`, `prima`, `angka_prima`,
+  `fibonacci`, `digit`, `jumlah_digit`, `terbalik`, konversi basis
+  (`ke_biner`/`dari_biner`, `ke_oktal`/`dari_oktal`, `ke_heksa`/`dari_heksa`).
+- **`dasar`** — `ke_angka`, `ke_teks`, `ke_boolean`, `jenis`, `panjang`,
+  `kosong`.
+- **`file`** — `salin`, `pindah`, `hapus_folder`, `nama_dasar`, `folder`,
+  `ekstensi`, `gabung_jalur`, `absolute`.
+- **`json`** — `valid`.
+- **`jaringan`** — `muat`, `kirim_json`, `status`, `ip_local`, `hostname`.
+- **`sistem`** — `jumlah_cpu`, `memori`, `memori_total`, `memori_bebas`,
+  `arsitektur`.
+- **`proses`** — `proses_id`, `jalankan_list` (tanpa shell, lebih aman).
+- **`catat`** — `catat`, `sukses`, `level_saat_ini`.
+- **Alias aman-keyword** — fungsi stdlib yang namanya bentrok dengan keyword
+  bahasa tidak bisa dipanggil dari BroLang (`tulis`, `hapus`, `buat`,
+  `tunggu`, `harusnya`). Kini tersedia alias: `file.tulis_file`/
+  `file.hapus_file`, `json.tulis_file`, `csv.tulis_file`,
+  `sejajar.tunggu_tugas`, `antrian.buat_antrian`, `tumpukan.buat_tumpukan`,
+  `lingkungan.hapus_var`, `tes.harus`.
+- **Fix import di transpiler** — `impor json`/`impor csv` dulu mengambil
+  modul Python stdlib dengan nama sama (yang tidak punya fungsi BroLang);
+  kini modul stdlib BroLang dicoba lebih dulu, fallback ke Python bila
+  tidak ada.
+
+### Added — Perluasan Modul Game
+
+- **`fisika`** — `vektor_dari_sudut(sudut, panjang)` (buat vektor dari
+  sudut radian + panjang), `gravitasi_bumi()` / `gravitasi_bulan()`
+  (konstanta gravitasi standar dalam skala pixel).
+- **`sprite`** — `Sprite`: `set_fps_animasi`, `daftar_animasi`, `cek_titik`,
+  `di_dalam_bounds`, `arah_ke`, `jarak_ke`, `ke_awal`, `set_skala`,
+  `set_rotasi`, `visibel`/`set_visibel`/`tampilkan`/`sembunyikan`,
+  `ikuti_patroli`/`berhenti_patroli`/`patroli_aktif`, `rotasi_ke_titik`;
+  `GrupSprite`: `hapus_tidak_aktif`, `apakah_kosong`, `kosongkan`,
+  `dapatkan_semua`, `pertama` (plus alias Python `kosong`).
+- **`ui`** — helper warna level modul: `warna(r, g, b, a)`, `warna_hex(kode)`,
+  `acak_warna()`; `Label` kini punya `set_ukuran` & `set_warna`.
+- **`visualisasi`** — `tabel(data)` (tabel ASCII berbingkai; menerima list of
+  dict / list of list / dict tunggal, opsi `nomor` & `judul`), `tabel_svg(data)`
+  (tabel HTML responsif beraksen warna), `area_svg(data)` (chart area dengan
+  gradasi transparan; mendukung multi-seri, sumbu X kustom, legend).
+
+### Fixed — VM & Transpiler (bug lama yang menghalangi modul game)
+
+- **Keyword-argumen (`f(a, b=1)`) kini bekerja di VM** — sebelumnya
+  compiler mendorong nilai kwargs tanpa dict nama (stack rusak) dan
+  `_call_function` hanya memanggil `f(*args)`. Kini kwargs dibungkus
+  marker `_vm_kwargs` (dict + nama) dan diikat berdasarkan nama
+  parameter — untuk fungsi BroLang, method, maupun fungsi/modul Python.
+- **Default parameter (`fungsi f(a, b=10)`) kini bekerja di VM** —
+  sebelumnya nilai default didorong ke stack tanpa pernah dipakai (bug
+  sejak awal; opcode `MAKE_FUNCTION` tidak terpakai). Kini `MAKE_FUNCTION`
+  menggabungkan closure + daftar default, dan pemanggilan mengisi
+  parameter yang tidak diberikan dengan default-nya.
+- **Transpiler: method stdlib asli tidak lagi di-map ke method Python** —
+  `grup.kosongkan()` (method `GrupSprite`) dulu diterjemahkan jadi
+  `grup.clear()` yang tidak ada. Kini dipanggil method BroLang asli bila
+  ada, fallback ke method Python (`list.clear`) bila tidak.
+
+### Docs
+
+- `docs/STDLIB.md`: bagian `matematika`, `teks`, `tanggal`, `acak`, `angka`,
+  `dasar`, `file`, `json`, `jaringan`, `sistem`, `proses`, `catat` +
+  Module List diperbarui; duplikat bagian `angka` dihapus.
+- `docs/GAME.md`: bagian `fisika` (helper v7.1), `sprite` (metode baru),
+  `ui` (helper warna), `visualisasi` (tabel & area).
+
+### Notes
+
+- 83 test baru (`tests/unit/test_v71_library.py`) + 14 test game
+  (`tests/unit/test_visualisasi.py`) — total **1173 test passing**.
+
+## [7.0.0] - 2026-08-12
+
+### Added — Fitur Bahasa Modern
+
+- **Multiple assignment** — deklarasi & reassignment berpasangan:
+  ```bro
+  buat a, b = 1, 2        # deklarasi ganda
+  a, b = b, a             # swap (nilai kanan dievaluasi dulu, jadi aman)
+  buat x, y, z = 1, 2, 3
+  ```
+  Bisa di dalam fungsi; nilai kanan yang kurang mengisi target dengan `kosong`.
+- **Switch expression** — `cocokkan` kini bisa jadi ekspresi bernilai:
+  ```bro
+  buat status = cocokkan kode {
+      1: "satu",
+      2: "dua",
+      _: "lainnya"          # default
+  }
+  ```
+  Mendukung pola literal, binding (`{ "x": a, "y": b }: a + b`), dan wildcard.
+- **Error propagation `?`** — buka Result/Option tanpa boilerplate:
+  ```bro
+  fungsi cari(id)
+      kembali Benar("ditemukan") jika id == 1
+      kembali Salah("tidak ada")
+  selesai
+
+  buat hasil = cari(1)?     # Benar(v)  -> v
+  # Salah(e)? -> lempar e | Ada(v)? -> v | Kosong()? -> lempar error
+  ```
+  Nilai biasa (bukan Result/Option) diteruskan apa adanya (no-op).
+
+### Added — Async/Await Sejati
+
+`asinkron fungsi` kini benar-benar asinkron: pemanggilan mengembalikan
+objek **`Tugas`** yang berjalan di background thread (daemon), dan
+`tunggu` memblokir sampai selesai:
+
+```bro
+asinkron fungsi muat(url)
+    event_loop.tidur(0.1)              # IO simulasi — tidak memblokir task lain
+    kembali "data dari " + url
+selesai
+
+buat a = muat("api/1")
+buat b = muat("api/2")
+buat hasil = tunggu a                 # blokir sampai a selesai
+tulis event_loop.tunggu_semua([a, b]) # tunggu semua → list hasil
+```
+
+- Eksekusi body task di-serialisasi dengan lock (interpreter tidak
+  thread-safe) dan berjalan di **sub-interpreter terpisah** — program
+  utama tidak terganggu, dan task dalam task (`tunggu` di dalam async)
+  tidak deadlock (lock dilepas sambil menunggu).
+- Modul stdlib baru **`event_loop`**: `tidur(detik)` (kooperatif — task
+  lain maju saat tidur), `tunggu_semua([...])`, `tunggu_apa_saja([...])`,
+  `jalankan(fn, ...)`, kelas `Tugas`.
+- API `Tugas`: `selesai()` (tanpa blokir), `hasil(timeout=None)`,
+  `tunggu(timeout=None)`, `batal()`.
+
+### Fixed — VM Bytecode
+
+- **try/catch di VM benar-benar bekerja** (bug pre-existing): `TRY_PUSH`
+  hanya menaruh marker di stack tanpa pernah dipakai — exception menerobos
+  keluar dan mematikan program. Kini `_execute` melakukan exception
+  routing: stack dipotong sampai handler teratas, nilai exception didorong
+  untuk di-bind `catch_var`, eksekusi lanjut dari handler (mendukung
+  handler bertingkat).
+- **`coba/tangkap` & `coba/kecuali` kini dikompilasi di VM** (sebelumnya
+  `MultiExceptNode` di-skip diam-diam): klausa ber-tipe dicocokkan lewat
+  `_vm_jenis` (cocok dengan nama tipe + subkelas), tidak cocok → re-raise.
+- **`Kosong()` (Option) bisa diparse** — keyword `Kosong` terdaftar di
+  lexer (sebelumnya `Ada(v)` berfungsi tapi `Kosong()` jatuh ke
+  "fungsi tidak ditemukan").
+- **`a, b = 1, 2` & `?` didukung VM** — `MultiAssignNode` (store terbalik
+  agar swap aman) dan `ErrorPropagationNode` (helper `_vm_propagate`,
+  aman untuk nilai primitif seperti `7?`).
+- **`impor` di VM diperbaiki** — `_emit_import` memakai `.module` (bukan
+  `.parts` yang tidak pernah ada), jadi `impor event_loop` berfungsi.
+- **Switch expression didukung VM** — `cocokkan x { pola: ekspresi }`
+  bernilai via `_vm_switch_match` + binding pola.
+- **`asinkron fungsi` didukung VM & transpiler** — VM mengeksekusi body
+  sinkron lalu membungkus hasil dalam objek `Tugas` (API konsisten);
+  transpiler menjalankan body di background thread (helper
+  `_brolang_async_run`) dengan hasil identik interpreter.
+- **Escape string di transpiler** — `\n`/`\t`/`\r`/`\0` kini ditulis ulang
+  dengan benar (dulu jadi newline literal → SyntaxError).
+- **Panggilan fungsi modul stdlib di VM** — fungsi polos pada objek modul
+  (`event_loop.tidur(d)`) tidak lagi dioper `obj` berlebih (regresi
+  `method(obj, *args)` untuk callable non-bound).
+- **Pola enum di `cocokkan` bisa diparse (bug lama)** — `Warna.MERAH` dulu
+  gagal parse (identifier dianggap binding lalu token `.` ditolak); kini
+  member access diparse sebagai ekspresi, termasuk guard
+  (`Warna.HIJAU jika c`). Didukung interpreter, transpiler, dan VM.
+- **`cocokkan` statement didukung VM** (sebelumnya di-skip diam-diam) —
+  pola terstruktur (dict binding), literal/ekspresi, guard, dan default;
+  `enum` & `struktur` di VM diperbaiki (`node.members`/`node.fields`,
+  `__init__` otomatis + `__repr__`).
+
+### Notes
+
+- 60 test baru (`tests/unit/test_v70_language.py`) — total **1075 test passing**.
+- Dokumentasi: `docs/FITUR_V70.md`, contoh `examples/fitur_v70.bro`.
+
 ## [6.9.0] - 2026-08-12
 
 ### Added — Guard Clause untuk Semua Statement

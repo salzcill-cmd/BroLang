@@ -45,7 +45,7 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 6.9.0
+bro --version    # BroLang 7.2.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```

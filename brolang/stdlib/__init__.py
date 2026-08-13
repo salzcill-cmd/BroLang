@@ -184,6 +184,11 @@ def _load_module(name: str) -> None:
         from brolang.stdlib.sejajar import module as sejajar_module
 
         register_module("sejajar", sejajar_module)
+    # v7.0 modules
+    elif name == "event_loop":
+        from brolang.stdlib.event_loop import module as event_loop_module
+
+        register_module("event_loop", event_loop_module)
     # v6.0 modules
     elif name == "tanggal":
         from brolang.stdlib.tanggal import module as tanggal_module
