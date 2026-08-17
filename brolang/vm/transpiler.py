@@ -730,7 +730,11 @@ class Transpiler:
             self._emit_stmt(stmt)
         self._indent -= 1
         for clause in node.except_clauses:
-            exc_type = clause.exception_type or 'Exception'
+            # v8.0: dukung multi-tipe kecuali (A, B) sebagai e
+            if clause.exception_types:
+                exc_type = '(' + ', '.join(clause.exception_types) + ')'
+            else:
+                exc_type = clause.exception_type or 'Exception'
             self._line(f'except {exc_type} as {clause.variable}:')
             self._indent += 1
             for stmt in clause.body:
@@ -776,6 +780,11 @@ class Transpiler:
     def _emit_augmented_assignment(self, node: AugmentedAssignmentNode):
         target = self._emit_expr(node.target)
         value = self._emit_expr(node.value)
+        if node.operator == '??=':
+            # v8.0: x ??= v → x = x jika x bukan kosong, selain itu v.
+            # Ternary Python short-circuit: `v` hanya dievaluasi bila x None.
+            self._line(f'{target} = {target} if {target} is not None else {value}')
+            return
         self._line(f'{target} {node.operator} {value}')
 
     def _emit_match(self, node):
@@ -1070,11 +1079,21 @@ class Transpiler:
             elems = ', '.join(self._emit_expr(e) for e in node.elements)
             return f'{{{elems}}}'
         elif isinstance(node, ObjectNode):
-            pairs = []
-            for k, v in node.entries.items():
-                val = self._emit_expr(v)
-                pairs.append(f'"{k}": {val}')
-            return '{' + ', '.join(pairs) + '}'
+            if not node.spreads:
+                pairs = []
+                for k, v in node.entries.items():
+                    val = self._emit_expr(v)
+                    pairs.append(f'"{k}": {val}')
+                return '{' + ', '.join(pairs) + '}'
+            # v8.0: spread objek {...a, "b": 1} — pertahankan urutan sumber.
+            parts = []
+            for kind, payload in node.order:
+                if kind == "spread":
+                    parts.append(f'**{self._emit_expr(node.spreads[payload])}')
+                else:
+                    val = self._emit_expr(node.entries[payload])
+                    parts.append(f'"{payload}": {val}')
+            return '{' + ', '.join(parts) + '}'
         elif isinstance(node, LambdaNode):
             params = ', '.join(node.params)
             rest_param = getattr(node, 'rest_param', None)

@@ -59,6 +59,7 @@ class Op(IntEnum):
     JUMP_IF_FALSE = auto()  # Jump if top is false
     JUMP_IF_TRUE = auto()   # Jump if top is true
     POP_JUMP_IF_FALSE = auto()  # Pop and jump if false
+    POP_JUMP_IF_TRUE = auto()   # v8.0: Pop and jump if true (kecuali multi-tipe)
 
     # Stack
     POP_TOP = auto()
@@ -101,6 +102,7 @@ class Op(IntEnum):
     MAKE_TUPLE = auto()     # Create tuple from N elements
     MAKE_SET = auto()       # Create set from N elements
     MAKE_DICT = auto()      # Create dict from N key-value pairs
+    MAKE_DICT_SPREAD = auto()  # v8.0: Create dict from N (is_spread, key, value) triples
     INDEX_GET = auto()      # Get index: obj[key]
     INDEX_SET = auto()      # Set index: obj[key] = value
     DICT_GET = auto()       # dict.get(key) dengan default None (v6.7 destructuring objek)
@@ -156,6 +158,8 @@ class Bytecode:
         self.names: list[str] = []       # Global variable names
         self.var_names: list[str] = []    # Local variable names
         self.free_vars: list[str] = []    # Closure variable names
+        self.has_handlers: bool = False  # v8.0: ada TRY_PUSH? (fast path VM)
+        self.local_count: int = 0        # v8.0: jumlah slot lokal (alokasi frame)
 
     def add(self, op: Op, arg=None, line=0, column=0):
         self.instructions.append(Instruction(op=op, arg=arg, line=line, column=column))
@@ -204,6 +208,10 @@ class Bytecode:
             self.args_flat[i] = ri.arg
             self.lines_flat[i] = ri.line
             self.cols_flat[i] = ri.column
+        # v8.0: flag fast-path — tidak ada handler exception → `_execute`
+        # bisa memanggil `_run_loop` langsung tanpa wrapper try/except
+        # (per-call overhead besar untuk fungsi yang tidak pakai coba/kecuali).
+        self.has_handlers = any(ins.op == Op.TRY_PUSH for ins in self.instructions)
 
     def __len__(self):
         return len(self.instructions)

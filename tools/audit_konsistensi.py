@@ -142,6 +142,53 @@ SNIPPETS = {
     "spread_call": "fungsi f(a, b, c)\n    kembali a + b + c\nselesai\nbuat args = [1, 2, 3]\ntulis f(...args)\n",
     "spread_list": "buat a = [1, 2]\nbuat b = [...a, 3]\ntulis b\n",
 
+    # ---------- v8.0: spread objek ----------
+    "spread_objek_dasar": 'buat a = {"x": 1, "y": 2}\nbuat b = {...a, "z": 3}\ntulis b\n',
+    "spread_objek_timpa": 'buat a = {"x": 1, "y": 2}\nbuat b = {...a, "y": 99}\ntulis b\n',
+    "spread_objek_tengah": 'buat a = {"x": 1}\nbuat b = {"awal": 0, ...a, "z": 3}\ntulis b\n',
+    "spread_objek_belakang": 'buat a = {"x": 99}\nbuat b = {"x": 1, ...a}\ntulis b\n',
+    "spread_objek_multi": 'buat a = {"x": 1}\nbuat b = {"y": 2}\nbuat c = {...a, ...b}\ntulis c\n',
+
+    # ---------- v8.0: null-coalescing assignment ??= ----------
+    "qq_assign_kosong": "buat x = kosong\nx ??= 5\ntulis x\n",
+    "qq_assign_terisi": "buat x = 10\nx ??= 5\ntulis x\n",
+    "qq_assign_falsy": "buat x = 0\nx ??= 99\ntulis x\n",
+    "qq_assign_atribut": "kelas K\n    fungsi __init__(self)\n        self.nama = kosong\n    selesai\nselesai\nbuat k = K()\nk.nama ??= \"Budi\"\ntulis k.nama\n",
+    "qq_assign_index": "buat d = [kosong, 2]\nd[0] ??= 99\ntulis d\n",
+    "qq_assign_short_circuit": "buat hitung = [0]\nfungsi f()\n    hitung[0] = hitung[0] + 1\n    kembali 5\nselesai\nbuat x = 10\nx ??= f()\ntulis hitung[0]\n",
+
+    # ---------- v8.0: kecuali multi-tipe ----------
+    "kecuali_multi_tipe": "coba\n    buat x = 1 / 0\nkecuali (TypeError, ZeroDivisionError) sebagai e\n    tulis \"caught\"\nselesai\n",
+    "kecuali_multi_tipe_kedua": "coba\n    buat x = 1 / 0\nkecuali (KeyError, ZeroDivisionError) sebagai e\n    tulis \"caught\"\nselesai\n",
+    "kecuali_multi_lalu_tunggal": "coba\n    buat x = 1 / 0\nkecuali (KeyError, AttributeError) sebagai e\n    tulis \"salah\"\nkecuali ZeroDivisionError sebagai e2\n    tulis \"benar\"\nselesai\n",
+
+    # ---------- v8.1: object pooling ----------
+    "pool_basic": 'impor kumpulan_objek\nbuat pool = kumpulan_objek.KumpulanObjek(lalu() {"aktif": salah}, ukuran_awal=3)\nbuat a = pool.ambil()\nbuat b = pool.ambil()\ntulis pool.jumlah_aktif()\ntulis pool.jumlah_tersedia()\npool.kembalikan(a)\ntulis pool.jumlah_aktif()\ntulis pool.jumlah_tersedia()\n',
+    "pool_kosongkan": 'impor kumpulan_objek\nbuat pool = kumpulan_objek.KumpulanObjek(lalu() {"aktif": salah}, ukuran_awal=2)\nbuat a = pool.ambil()\nbuat b = pool.ambil()\npool.kosongkan()\ntulis pool.jumlah_aktif()\ntulis pool.total()\n',
+
+    # ---------- v8.1: simpan/muat game ----------
+    "simpan_muat": 'impor simpan_game\nsimpan_game.simpan("cek_audit", {"level": 3, "kunci": ["emas"]}, folder="/tmp/bro_audit_81")\nbuat d = simpan_game.muat("cek_audit", default={}, folder="/tmp/bro_audit_81")\ntulis d["level"]\ntulis d["kunci"]\ntulis simpan_game.ada("cek_audit", folder="/tmp/bro_audit_81")\ntulis simpan_game.hapus("cek_audit", folder="/tmp/bro_audit_81")\n',
+    "simpan_checkpoint": 'impor simpan_game\nsimpan_game.checkpoint({"l": 4}, folder="/tmp/bro_audit_81")\ntulis simpan_game.muat_checkpoint(folder="/tmp/bro_audit_81")["l"]\nsimpan_game.hapus("checkpoint", folder="/tmp/bro_audit_81")\n',
+
+    # ---------- v8.1: dialog ----------
+    "dialog_typewriter": 'impor dialog\nbuat d = dialog.Dialog(["Halo dunia!"], kecepatan=10)\nd.update(0.3)\ntulis d.teks_terlihat()\nd.lanjut()\ntulis d.selesai_mengetik()\nd.lanjut()\ntulis d.selesai()\n',
+    "dialog_pilihan": 'impor dialog\nbuat d = dialog.Dialog(["Pilih"])\nd.atur_pilihan(["A", "B"])\ntulis d.pilihan_sekarang()\nbuat (teks, selesai) = d.pilih(1)\ntulis teks\ntulis selesai\n',
+
+    # ---------- v8.1: ai FSM & steering ----------
+    "ai_fsm": 'impor ai\nfungsi masuk_kejar()\n    tulis "mengejar!"\nselesai\nbuat mesin = ai.FSM("diam")\nmesin.tambah_status("kejar", masuk=masuk_kejar)\nmesin.ganti_status("kejar")\ntulis mesin.status_sekarang()\ntulis mesin.status_sebelumnya()\n',
+    "ai_steering": 'impor ai\nbuat (vx, vy) = ai.kejar(0, 0, 100, 0, 50)\ntulis vx\ntulis vy\nbuat (a, b) = ai.lari(0, 0, 100, 0, 50)\ntulis a\nbuat (c, d) = ai.tiba(0, 0, 10, 0, 50, radius=16)\ntulis c\ntulis d\n',
+    "ai_agen": 'impor ai\nbuat agen = ai.Agen(100, 100, kecepatan_maks=120)\nagen.atur_target((200, 100), mode="kejar")\nagen.update(1.0)\ntulis agen.x\ntulis agen.y\n',
+
+    # ---------- v8.1: tilemap platform satu arah & bergerak ----------
+    "tilemap_satu_arah": 'impor tilemap\nbuat ts = tilemap.buat_tileset("ts", ukuran_tile=32)\nts.tambah_tile(1, solid=benar)\nts.atur_satu_arah(2)\nbuat lantai = tilemap.buat_peta(10, 10, ukuran_tile=32)\nlantai.set_tileset(ts)\nlantai.atur(1, 5, 2)\ntulis lantai.cek_lantai_satu_arah(48, 159, kecepatan_y=100)\ntulis lantai.cek_lantai_satu_arah(48, 159, kecepatan_y=-100)\n',
+    "tilemap_platform": 'impor tilemap\nbuat lantai = tilemap.buat_peta(10, 10, ukuran_tile=32)\nbuat p = lantai.tambah_platform_bergerak(0, 100, 320, 100, kecepatan=100)\nlantai.update(1.0)\ntulis p.x\nlantai.update(4.0)\ntulis p.x\n',
+
+    # ---------- v8.1: quest & achievement ----------
+    "misi_quest": 'impor misi\nbuat q = misi.Misi("kunci", "Cari Kunci", tujuan=3)\nq.tambah_progres(2)\ntulis q.progres()\ntulis q.tambah_progres(1)\ntulis q.selesai()\ntulis q.status()\n',
+    "misi_pencapaian": 'impor misi\nbuat a = misi.Pencapaian("p1", "Ach 1")\ntulis a.buka_kunci()\ntulis a.buka_kunci()\ntulis a.terbuka()\n',
+    "misi_manajer": 'impor misi\nbuat m = misi.ManajerMisi()\nm.buat_misi("m1", "Misi 1", tujuan=2)\nm.tambah_progres("m1", 2)\ntulis m.dapatkan("m1").status()\nbuat data = m.ke_dict()\ntulis panjang(data["misi"])\n',
+
+
     # ---------- with ----------
     "with_basic": "dengan 5 sebagai x\n    tulis x\nselesai\n",
     "with_class": "kelas K\n    fungsi masuk(self)\n        tulis \"masuk\"\n    selesai\n    fungsi keluar(self)\n        tulis \"keluar\"\n    selesai\nselesai\ndengan K() sebagai k\n    tulis \"body\"\nselesai\n",

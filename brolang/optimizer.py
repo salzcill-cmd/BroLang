@@ -417,7 +417,9 @@ class Optimizer(ASTVisitor):
 
     def visit_ObjectNode(self, node: ObjectNode) -> ObjectNode:
         entries = {k: self.visit(v) for k, v in node.entries.items()}
-        return ObjectNode(entries=entries, line=node.line, column=node.column)
+        spreads = [self.visit(s) for s in node.spreads]
+        return ObjectNode(entries=entries, spreads=spreads, order=node.order,
+                          line=node.line, column=node.column)
 
     def visit_PassNode(self, node: PassNode) -> PassNode:
         return node

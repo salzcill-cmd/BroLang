@@ -574,6 +574,174 @@ murni kalkulasi: `p.nilai()` mengembalikan 0..1.
 
 ---
 
+## `kumpulan_objek` — Object Pooling (v8.1)
+
+Gunakan ulang objek (bullet, partikel, musuh) alih-alih membuat & membuang
+baru setiap frame — menghindari lag akibat garbage collection.
+
+```
+impor kumpulan_objek
+
+buat pool = kumpulan_objek.KumpulanObjek(
+    lalu() {"aktif": salah},        # pabrik objek
+    ukuran_awal=20,
+    aktifkan=lalu(o) o["aktif"] = benar,
+    nonaktifkan=lalu(o) o["aktif"] = salah)
+
+buat peluru = pool.ambil()      # pinjam (buat baru bila kosong)
+# ...pakai peluru...
+pool.kembalikan(peluru)         # kembalikan ke pool
+pool.kosongkan()                # kembalikan semua (ganti scene)
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `KumpulanObjek(buat, ukuran_awal?, aktifkan?, nonaktifkan?)` | Pool objek |
+| `ambil(...)` | Pinjam objek (aktifkan dulu) |
+| `kembalikan(obj)` | Kembalikan objek ke pool (nonaktifkan dulu) |
+| `aktif()` / `jumlah_aktif()` / `jumlah_tersedia()` / `total()` | Status pool |
+| `kosongkan()` | Kembalikan semua objek aktif |
+| `hapus_semua()` | Buang semua objek |
+| `buat_kumpulan(...)` / `buat_pool_flag(n)` | Alias ringkas / pool dict `aktif` |
+
+---
+
+## `simpan_game` — Simpan/Muat Progres (v8.1)
+
+Simpan & muat progres game ke disk (JSON): slot save, checkpoint,
+auto-save, metadata (waktu, label, versi).
+
+```
+impor simpan_game
+
+simpan_game.simpan("slot1", {"level": 3, "nyawa": 5}, label="Level 3")
+buat data = simpan_game.muat("slot1", default={"level": 1})
+simpan_game.checkpoint({"level": 4, "posisi": [100, 200]})  # auto-save
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `simpan(nama, data, folder?, label?, versi?)` | Simpan data → JSON; kembalikan path |
+| `muat(nama, default?, folder?)` | Muat data (default bila tak ada) |
+| `ada(nama, folder?)` / `hapus(nama, folder?)` | Cek / hapus save |
+| `daftar(folder?)` | Semua save (terbaru dulu) dengan metadata |
+| `checkpoint(data, folder?, nama?, label?)` | Auto-save cepat |
+| `muat_checkpoint(...)` | Muat checkpoint terakhir |
+| `info(nama, folder?)` | Metadata (waktu, label, versi) |
+| `bersihkan(folder?)` | Hapus semua save; kembalikan jumlah |
+
+Kunci dict dikonversi otomatis ke teks (JSON); tuple menjadi list. Folder
+default `"tersimpan"` di direktori kerja.
+
+---
+
+## `dialog` — Sistem Dialog (v8.1)
+
+Kotak dialog RPG: efek mesin ketik (typewriter), nama pembicara, dan
+pilihan bercabang (branching choices).
+
+```
+impor dialog
+
+buat d = dialog.Dialog(["Halo, pengembara!", "Selamat datang."],
+                       nama_pembicara="Kepala Desa", kecepatan=40)
+d.update(dt)       # tiap frame — majukan mesin ketik
+d.gambar(screen)   # render (pygame)
+buat habis = d.lanjut()   # tekan tombol lanjut
+
+# Pilihan bercabang:
+buat d2 = dialog.Dialog(["Apa yang kamu cari?"])
+d2.atur_pilihan(["Tempa", "Belanja", "Keluar"])
+buat (teks, selesai) = d2.pilih(1)   # pilih "Belanja"
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `Dialog(kalimat?, nama_pembicara?, kecepatan?, ...)` | Kotak dialog |
+| `update(dt)` | Majukan efek mesin ketik |
+| `lanjut()` | Selesaikan baris / baris berikutnya; True bila habis |
+| `selesai_mengetik()` / `teks_terlihat()` | Status & teks typewriter |
+| `atur_pilihan(list)` / `pilih(i)` / `pilihan_sekarang()` | Pilihan bercabang |
+| `geser_pilihan(arah)` / `indeks_pilihan()` | Navigasi pilihan |
+| `on_selesai(fungsi)` | Callback saat dialog habis |
+| `reset()` / `tambah_baris(teks)` / `baris_sekarang()` | Utilitas |
+| `buat_dialog(...)` | Alias ringkas |
+
+---
+
+## `ai` — FSM & Steering (v8.1)
+
+AI musuh: mesin status (FSM) + steering behaviors (kejar, lari, tiba,
+jelajah) — murni matematika, tanpa dependensi pygame.
+
+```
+impor ai
+
+buat mesin = ai.FSM("jaga")
+mesin.tambah_status("jaga", update=lalu(dt, agen) ... )
+mesin.tambah_status("kejar", masuk=lalu() ... )
+mesin.ganti_status("kejar")
+mesin.update(dt)
+
+buat (vx, vy) = ai.kejar(100, 100, 300, 300, 120)   # kejar target
+buat (vx, vy) = ai.lari(100, 100, 300, 300, 120)    # lari menjauh
+buat (vx, vy) = ai.tiba(100, 100, 300, 300, 120)    # tiba + melambat
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `FSM(awal?)` | Mesin status terbatas |
+| `tambah_status(nama, masuk?, update?, keluar?)` | Daftarkan status |
+| `ganti_status(nama)` / `update(dt, ...)` | Pindah status / jalankan |
+| `status_sekarang()` / `status_sebelumnya()` / `sudah_di(nama)` | Query status |
+| `kejar(x, y, tx, ty, maks)` / `lari(...)` | Seek / flee → (vx, vy) |
+| `tiba(..., radius?, radius_lambat?)` | Arrive — melambat mendekat |
+| `jelajah(..., arah, dt, ...)` | Wander acak halus → (vx, vy, arah) |
+| `hindari(x, y, rintangan, radius?)` | Hindari rintangan terdekat |
+| `Agen(x, y, kecepatan_maks?)` | Agen AI: posisi + mode steering |
+| `jarak(...)` / `arah_ke(...)` / `gabung(v1, v2, ...)` | Utilitas vektor |
+
+---
+
+## `misi` — Quest & Achievement (v8.1)
+
+Quest dengan progres & status (aktif/selesai/gagal), achievement yang
+terbuka, dan manajer untuk melacak semuanya sekaligus. Status bisa
+disimpan & dimuat (JSON-safe).
+
+```
+impor misi
+
+buat q = misi.Misi("cari_kunci", "Cari 5 Kunci", tujuan=5)
+q.tambah_progres(2)          # 2/5
+q.tambah_progres(3)          # 5/5 → selesai (kembali True)
+
+buat a = misi.Pencapaian("pembunuh", "Pembunuh Pertama")
+a.buka_kunci()               # True (baru terbuka)
+
+buat manajer = misi.ManajerMisi()
+manajer.buat_misi("m1", "Misi 1", tujuan=3)
+manajer.tambah_progres("m1", 3)
+buat data = manajer.ke_dict()       # simpan (JSON-safe)
+manajer2 = misi.ManajerMisi()
+manajer2.muat(data)                 # muat
+```
+
+| Fungsi | Keterangan |
+|--------|------------|
+| `Misi(id, nama, deskripsi?, tujuan?, hadiah?)` | Satu quest |
+| `tambah_progres(n?)` / `atur_progres(n)` | Progres quest |
+| `selesai()` / `gagal()` / `status()` / `sisa()` | Status quest |
+| `Pencapaian(id, nama, deskripsi?, tersembunyi?)` | Achievement |
+| `buka_kunci()` / `terbuka()` | Unlock achievement |
+| `ManajerMisi()` | Kelola banyak quest & achievement |
+| `tambah_misi` / `buat_misi` / `dapatkan` / `semua()` / `aktif()` / `selesai()` | Manajemen quest |
+| `tambah_pencapaian` / `buat_pencapaian` / `buka_pencapaian` | Manajemen achievement |
+| `ke_dict()` / `muat(data)` | Simpan & muat status |
+| `buat_manajer()` | Alias ringkas |
+
+---
+
 ## `acak` — Random (v7.1)
 
 ```
@@ -727,3 +895,8 @@ Encoding (base64/32, hex, bin, url, html) + konversi tipe.
 | `proses` | Perintah sistem — jalankan + proses_id, jalankan_list (v7.1) |
 | `catat` | Logging — level, file, catat, sukses, level_saat_ini (v7.1) |
 | `visualisasi` | Chart & grafik data (ASCII, SVG, HTML) |
+| `kumpulan_objek` | Object pooling — KumpulanObjek, ambil/kembalikan, kosongkan (v8.1) |
+| `simpan_game` | Simpan/muat progres — slot, checkpoint, metadata, daftar (v8.1) |
+| `dialog` | Sistem dialog — mesin ketik, nama pembicara, pilihan bercabang (v8.1) |
+| `ai` | AI musuh — FSM + steering kejar/lari/tiba/jelajah/hindari (v8.1) |
+| `misi` | Quest & achievement — Misi, Pencapaian, ManajerMisi (v8.1) |

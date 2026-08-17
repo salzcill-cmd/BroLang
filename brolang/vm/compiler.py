@@ -39,6 +39,7 @@ from brolang.ast.nodes import (
     LambdaNode,
     ListNode,
     MatchNode, SwitchNode, MethodNode,
+    AccessModifierNode, KelasErrorNode,
     NonlocalNode,
     NullCoalescingNode,
     NumberNode,
@@ -248,6 +249,9 @@ class Compiler:
         self.locals = []  # [(name, scope_depth), ...]
         self.free_vars = []  # Closure variable names
         self.breakpoints = []
+        # v8.0: jumlah slot lokal PUNCAK (loop var dihapus setelah loop,
+        # tapi slot-nya tetap dipakai — alokasi frame harus cukup).
+        self._peak_locals = 0
         # v7.2: closure capture — stack {nama: indeks_lokal} per fungsi
         # enclosing, supaya _resolve_name bisa menemukan free var dan
         # LOAD_DEREF memakai slot lokal parent (frame.closure = snapshot
@@ -267,6 +271,10 @@ class Compiler:
             self._emit_stmt(node)
             self.bytecode.add(Op.HALT)
         apply_peephole(self.bytecode)
+        # v8.0: catat jumlah slot lokal untuk alokasi frame yang pas
+        # (loop var dihapus setelah loop, jadi pakai PUNCAK — bukan jumlah
+        # lokal yang tersisa — agar frame punya slot untuk STORE_LOCAL).
+        self.bytecode.local_count = self._peak_locals
         self.bytecode.finalize()
         return self.bytecode
 
@@ -382,6 +390,11 @@ class Compiler:
             self._emit_enum(node)
         elif isinstance(node, StructNode):
             self._emit_struct(node)
+        elif isinstance(node, KelasErrorNode):
+            # v8.0: kelas_error dikompilasi sebagai VMClass — sebelumnya
+            # dibuang diam-diam sehingga `lempar` + `kecuali` untuk error
+            # kustom tidak berfungsi di VM.
+            self._emit_kelas_error(node)
         elif isinstance(node, AugmentedAssignmentNode):
             self._emit_augmented_assignment(node)
         elif isinstance(node, TryNode):
@@ -713,10 +726,12 @@ class Compiler:
         saved_free = self.free_vars
         saved_depth = self.scope_depth
         saved_enclosing = self._enclosing_locals
+        saved_peak = self._peak_locals
 
         self.bytecode = Bytecode()
         self.scope_depth += 1
         self.locals = []
+        self._peak_locals = 0
         self.free_vars = []
         # v7.2: scope fungsi enclosing = lokal saat ini (indeks = slot lokal
         # di frame parent — VM memakai ini untuk closure).
@@ -743,11 +758,13 @@ class Compiler:
 
         func_bytecode = self.bytecode
         apply_peephole(func_bytecode)
+        func_bytecode.local_count = self._peak_locals
         func_bytecode.finalize()
 
         # Restore state
         self.bytecode = saved
         self.locals = saved_locals
+        self._peak_locals = saved_peak
         self.free_vars = saved_free
         self.scope_depth = saved_depth
         self._enclosing_locals = saved_enclosing
@@ -807,10 +824,12 @@ class Compiler:
             saved_free = self.free_vars
             saved_depth = self.scope_depth
             saved_enclosing = self._enclosing_locals
+            saved_peak = self._peak_locals
 
             self.bytecode = Bytecode()
             self.scope_depth += 1
             self.locals = []
+            self._peak_locals = 0
             self.free_vars = []
             # v7.2: method juga bisa menangkap variabel enclosing (closure).
             self._enclosing_locals = list(self._enclosing_locals)
@@ -844,10 +863,12 @@ class Compiler:
 
             method_bc = self.bytecode
             apply_peephole(method_bc)
+            method_bc.local_count = self._peak_locals
             method_bc.finalize()
 
             self.bytecode = saved
             self.locals = saved_locals
+            self._peak_locals = saved_peak
             self.free_vars = saved_free
             self.scope_depth = saved_depth
             self._enclosing_locals = saved_enclosing
@@ -1679,10 +1700,27 @@ class Compiler:
             self.bytecode.add(Op.MAKE_SET, len(node.elements), node.line, node.column)
 
         elif isinstance(node, ObjectNode):
-            for k, v in node.entries.items():
-                self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const(k))
-                self._emit_expr(v)
-            self.bytecode.add(Op.MAKE_DICT, len(node.entries), node.line, node.column)
+            if not node.spreads:
+                for k, v in node.entries.items():
+                    self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const(k))
+                    self._emit_expr(v)
+                self.bytecode.add(Op.MAKE_DICT, len(node.entries), node.line, node.column)
+            else:
+                # v8.0: spread objek {...a, "b": 1} — setiap item didorong
+                # sebagai triple (is_spread, key, value): spread -> (True, None, dict),
+                # entry -> (False, kunci, nilai). Urutan sumber dipertahankan.
+                for kind, payload in node.order:
+                    if kind == "spread":
+                        self._emit_expr(node.spreads[payload])
+                        self.bytecode.add(Op.PUSH_NONE, node.line, node.column)
+                        self.bytecode.add(Op.PUSH_TRUE, node.line, node.column)
+                    else:
+                        self.bytecode.add(Op.PUSH_CONST, self.bytecode.add_const(payload),
+                                          node.line, node.column)
+                        self._emit_expr(node.entries[payload])
+                        self.bytecode.add(Op.PUSH_FALSE, node.line, node.column)
+                self.bytecode.add(Op.MAKE_DICT_SPREAD, len(node.order),
+                                  node.line, node.column)
 
         elif isinstance(node, ObjectAccessNode):
             self._emit_expr(node.object)
@@ -2126,9 +2164,55 @@ class Compiler:
         name_idx = self.bytecode.add_name(node.name)
         self.bytecode.add(Op.DEFINE_GLOBAL, name_idx, node.line, node.column)
 
+    def _emit_kelas_error(self, node: KelasErrorNode):
+        """kelas_error Nama extends Induk ... selesai -> VMClass (v8.0).
+
+        Sebelumnya `KelasErrorNode` tidak ditangani di `_emit_stmt` —
+        deklarasi kelas error dibuang diam-diam di VM. Kini dibangun
+        VMClass dengan parent (default `Kesalahan`, terdaftar sebagai
+        kelas dasar bawaan VM) supaya `lempar` + `kecuali` untuk error
+        kustom konsisten dengan interpreter & transpiler.
+        """
+        # Method: node.methods + fungsi di body (termasuk yang dibungkus
+        # AccessModifierNode) — mirror interpreter.
+        method_nodes = list(node.methods)
+        for stmt in node.body:
+            target = stmt
+            if isinstance(stmt, AccessModifierNode):
+                target = stmt.target
+            if isinstance(target, FunctionNode):
+                method_nodes.append(MethodNode(
+                    name=target.name,
+                    params=target.params,
+                    body=target.body,
+                    is_static=target.is_static,
+                    rest_param=target.rest_param,
+                    line=target.line,
+                    column=target.column,
+                ))
+        methods = self._compile_methods(method_nodes)
+
+        # Parent: node.parent atau 'Kesalahan' (kelas dasar bawaan VM).
+        parent_name = node.parent or "Kesalahan"
+        p_idx = self.bytecode.add_name(parent_name)
+        self.bytecode.add(Op.LOAD_GLOBAL, p_idx, node.line, node.column)
+
+        data = (node.name, methods)
+        idx = self.bytecode.add_const(data)
+        self.bytecode.add(Op.MAKE_CLASS, idx, node.line, node.column)
+        name_idx = self.bytecode.add_name(node.name)
+        self.bytecode.add(Op.DEFINE_GLOBAL, name_idx, node.line, node.column)
+
     def _emit_augmented_assignment(self, node: AugmentedAssignmentNode):
-        """Augmented assignment: x += 1, self.x += 1, data[i] //= 2 (v6.8)."""
+        """Augmented assignment: x += 1, self.x += 1, data[i] //= 2 (v6.8).
+
+        v8.0: `x ??= v` — null-coalescing assignment: nilai kanan hanya
+        dievaluasi & disimpan bila nilai saat ini kosong (None).
+        """
         target = node.target
+        if node.operator == "??=":
+            self._emit_null_coalescing_assign(node)
+            return
         op_map = {
             "+=": Op.AUG_ADD,
             "-=": Op.AUG_SUB,
@@ -2187,6 +2271,86 @@ class Compiler:
 
         raise NotImplementedError("Augmented assignment untuk target ini belum didukung.")
 
+    def _emit_null_coalescing_assign(self, node: AugmentedAssignmentNode):
+        """Null-coalescing assignment (v8.0): `x ??= v`, `self.x ??= v`, `d[i] ??= v`.
+
+        Semantik: bila nilai saat ini None → evaluasi & simpan v; bila tidak,
+        no-op (nilai kanan TIDAK dievaluasi — short-circuit).
+        """
+        target = node.target
+        if isinstance(target, IdentifierNode):
+            name = target.name
+            # [cur] → IS_OP memakan cur & None → [cur is None]
+            self._emit_expr(target)
+            self.bytecode.add(Op.PUSH_NONE, node.line, node.column)
+            self.bytecode.add(Op.IS_OP, node.line, node.column)
+            skip = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0)  # tidak None → skip
+            self._emit_expr(node.value)
+            loc = self._resolve_name(name)
+            if loc == "local":
+                idx = self._get_local_idx(name)
+                self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
+            else:
+                idx = self.bytecode.add_name(name)
+                self.bytecode.add(Op.STORE_GLOBAL, idx, node.line, node.column)
+            self.bytecode.instructions[skip].arg = len(self.bytecode.instructions)
+            return
+
+        if isinstance(target, ObjectAccessNode):
+            # self.x ??= v → [obj] DUP LOAD_ATTR → [obj, cur]; cek None.
+            # Bila None: [obj, v] STORE_ATTR. Bila tidak: buang [obj].
+            self._emit_expr(target.object)
+            self.bytecode.add(Op.DUP, line=node.line, column=node.column)
+            prop_idx = self.bytecode.add_name(target.property)
+            self.bytecode.add(Op.LOAD_ATTR, prop_idx, node.line, node.column)
+            self.bytecode.add(Op.PUSH_NONE, node.line, node.column)
+            self.bytecode.add(Op.IS_OP, node.line, node.column)
+            skip = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0)  # [obj] tersisa
+            # Kasus None: [obj]
+            self._emit_expr(node.value)
+            self.bytecode.add(Op.STORE_ATTR, prop_idx, node.line, node.column)
+            self.bytecode.add(Op.POP_TOP, node.line, node.column)  # buang hasil STORE_ATTR
+            end = len(self.bytecode.instructions)
+            self.bytecode.add(Op.JUMP, 0, node.line, node.column)
+            # Kasus tidak-None: [obj] → buang
+            self.bytecode.instructions[skip].arg = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_TOP, node.line, node.column)
+            self.bytecode.instructions[end].arg = len(self.bytecode.instructions)
+            return
+
+        if isinstance(target, IndexNode):
+            # d[i] ??= v → [data, i] INDEX_GET → [data, cur]; cek None.
+            # Bila None: [data, v, i] → INDEX_SET. Bila tidak: buang [data].
+            self._ensure_local("_aug_idx")
+            tmp_idx = self._get_local_idx("_aug_idx")
+            self._emit_expr(target.target)
+            self.bytecode.add(Op.DUP, line=node.line, column=node.column)
+            self._emit_expr(target.index)
+            self.bytecode.add(Op.STORE_LOCAL, tmp_idx, node.line, node.column)
+            self.bytecode.add(Op.LOAD_LOCAL, tmp_idx, node.line, node.column)
+            self.bytecode.add(Op.INDEX_GET, line=node.line, column=node.column)
+            self.bytecode.add(Op.PUSH_NONE, node.line, node.column)
+            self.bytecode.add(Op.IS_OP, node.line, node.column)
+            skip = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0)  # [data] tersisa
+            # Kasus None: [data]
+            self._emit_expr(node.value)
+            self.bytecode.add(Op.LOAD_LOCAL, tmp_idx, node.line, node.column)
+            self.bytecode.add(Op.SWAP, line=node.line, column=node.column)  # [data, i, v]
+            self.bytecode.add(Op.INDEX_SET, line=node.line, column=node.column)
+            self.bytecode.add(Op.POP_TOP, line=node.line, column=node.column)
+            end = len(self.bytecode.instructions)
+            self.bytecode.add(Op.JUMP, 0, node.line, node.column)
+            # Kasus tidak-None: [data] → buang
+            self.bytecode.instructions[skip].arg = len(self.bytecode.instructions)
+            self.bytecode.add(Op.POP_TOP, node.line, node.column)
+            self.bytecode.instructions[end].arg = len(self.bytecode.instructions)
+            return
+
+        raise NotImplementedError("??= untuk target ini belum didukung.")
+
     def _emit_try(self, node: TryNode):
         """Emit try/except (legacy TryNode: catch_var + catch_body)."""
         push_idx = len(self.bytecode.instructions)
@@ -2237,16 +2401,33 @@ class Compiler:
         clauses = list(node.except_clauses)
         for idx, clause in enumerate(clauses):
             is_last = idx == len(clauses) - 1
-            if clause.exception_type:
-                # Cek tipe: _vm_jenis(exc, nama) -> bool
-                self.bytecode.add(Op.DUP)
-                n_idx = self.bytecode.add_const(clause.exception_type)
-                self.bytecode.add(Op.PUSH_CONST, n_idx)
-                g_idx = self.bytecode.add_name("_vm_jenis")
-                self.bytecode.add(Op.LOAD_GLOBAL, g_idx)
-                self.bytecode.add(Op.CALL, 2)
+            # v8.0: dukung multi-tipe `kecuali (A, B) sebagai e`
+            exc_types = clause.exception_types or (
+                [clause.exception_type] if clause.exception_type else None
+            )
+            if exc_types:
+                # Cek tipe: _vm_jenis(exc, nama) -> bool untuk tiap tipe.
+                # Cocok bila SALAH SATU tipe cocok. Stack per cek: [exc, bool].
+                # POP_JUMP_IF_TRUE membuang bool → bila True, lompat ke body
+                # dengan [exc] tetap di stack (siap di-bind catch_var).
+                check_jumps = []
+                for i, tname in enumerate(exc_types):
+                    self.bytecode.add(Op.DUP)
+                    n_idx = self.bytecode.add_const(tname)
+                    self.bytecode.add(Op.PUSH_CONST, n_idx)
+                    g_idx = self.bytecode.add_name("_vm_jenis")
+                    self.bytecode.add(Op.LOAD_GLOBAL, g_idx)
+                    self.bytecode.add(Op.CALL, 2)
+                    if i < len(exc_types) - 1:
+                        # Bila cocok (True) → langsung ke body; bila tidak,
+                        # lanjut cek tipe berikutnya (exc masih di stack).
+                        jmp = len(self.bytecode.instructions)
+                        self.bytecode.add(Op.POP_JUMP_IF_TRUE, 0)
+                        check_jumps.append(jmp)
                 skip = len(self.bytecode.instructions)
                 self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0)
+                for j in check_jumps:
+                    self.bytecode.instructions[j].arg = len(self.bytecode.instructions)
                 self._emit_catch_body(clause.variable, clause.body)
                 clause_jumps.append(len(self.bytecode.instructions))
                 self.bytecode.add(Op.JUMP, 0, node.line, node.column)
@@ -2305,10 +2486,12 @@ class Compiler:
         saved_free = self.free_vars
         saved_depth = self.scope_depth
         saved_enclosing = self._enclosing_locals
+        saved_peak = self._peak_locals
 
         self.bytecode = Bytecode()
         self.scope_depth += 1
         self.locals = []
+        self._peak_locals = 0
         self.free_vars = []
         # v7.2: lambda juga bisa menangkap variabel enclosing (closure).
         self._enclosing_locals = list(self._enclosing_locals)
@@ -2326,9 +2509,12 @@ class Compiler:
 
         func_bc = self.bytecode
         apply_peephole(func_bc)
+        func_bc.local_count = self._peak_locals
         func_bc.finalize()
+
         self.bytecode = saved
         self.locals = saved_locals
+        self._peak_locals = saved_peak
         self.free_vars = saved_free
         self.scope_depth = saved_depth
         self._enclosing_locals = saved_enclosing
@@ -2349,6 +2535,8 @@ class Compiler:
 
     def _add_local(self, name: str) -> int:
         self.locals.append((name, self.scope_depth))
+        if len(self.locals) > self._peak_locals:
+            self._peak_locals = len(self.locals)
         return len(self.locals) - 1
 
     def _get_local_idx(self, name: str) -> int:

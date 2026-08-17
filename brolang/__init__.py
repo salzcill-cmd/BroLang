@@ -26,6 +26,41 @@ Fitur v6.9 (Fitur Bahasa):
   (sebelumnya yield di try memicu handler catch; yield hanya di `tangkap`
   error karena fungsi tidak terdeteksi sebagai generator)
 
+Fitur v8.1 (Game Dev Upgrade):
+- `kumpulan_objek` — object pooling: gunakan ulang bullet/partikel/musuh
+  (hindari lag GC); callback fungsi/lambda BroLang kini bisa dipanggil dari
+  kode Python stdlib di VM (`VMFunction.__call__`)
+- `simpan_game` — simpan/muat progres game ke JSON: slot save, checkpoint,
+  auto-save, metadata (waktu/label/versi), daftar, info
+- `dialog` — sistem dialog RPG: efek mesin ketik, nama pembicara, pilihan
+  bercabang (branching choices), callback on_selesai
+- `ai` — AI musuh: FSM (mesin status) + steering behaviors murni matematika
+  (kejar/lari/tiba/jelajah/hindari) + kelas Agen siap pakai
+- `tilemap` — platform satu arah (mendarat saat jatuh, tembus saat lompat)
+  & platform bergerak bolak-balik yang bisa membawa pemain (`dorong_bodi`)
+- `misi` — quest & achievement: Misi (progres/status), Pencapaian,
+  ManajerMisi dengan simpan/muat status (JSON-safe)
+- Perbaikan parser: `obj.hapus(...)` kini valid (kata kunci `hapus` di
+  posisi nama atribut) — mis. `simpan_game.hapus`, `file.hapus`
+
+Fitur v8.0 (Fitur Bahasa Modern + Performa VM):
+- Spread objek: `{...a, "b": 1}` — campur spread dengan pasangan kunci-nilai
+  dalam urutan apa pun; kunci item belakang menimpa item depan (konsisten
+  interpreter/transpiler/VM, urutan sumber dipertahankan via `order`)
+- Null-coalescing assignment: `x ??= v`, `self.x ??= v`, `d[i] ??= v` —
+  hanya diisi bila nilai saat ini kosong; nilai kanan TIDAK dievaluasi
+  saat tidak perlu (short-circuit)
+- `kecuali (TipeA, TipeB) sebagai e` — multi-tipe exception (cocok bila
+  salah satu tipe cocok; selain itu re-raise) — konsisten di ketiga mesin
+- Perbaikan VM: `kelas_error` kustom kini berfungsi penuh di VM —
+  `lempar ValidasiGagal("x")` + `kecuali ValidasiGagal` (termasuk hierarki
+  induk, `e.pesan`) konsisten dengan interpreter & transpiler (sebelumnya
+  deklarasi kelas error dibuang diam-diam di VM)
+- Performa VM: fast path `_execute` tanpa try/except bila bytecode tak punya
+  handler; alokasi frame sesuai `local_count` (bukan selalu 64); fast path
+  `_call_function` (tanpa kwargs/default/rest); LOAD_GLOBAL satu dict op +
+  tanpa invalidasi cache per STORE_GLOBAL — Fibonacci ~15% lebih cepat
+
 Fitur v7.2.1 (Konsistensi Output Object):
 - `tulis k.x` (method object) → `<method K.x>` di interpreter/transpiler/VM
   (sebelumnya repr masing-masing berisi alamat memori acak)
@@ -123,7 +158,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "7.2.1"
+__version__ = "8.1.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

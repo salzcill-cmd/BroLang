@@ -514,6 +514,12 @@ class Lexer:
         if char == "?" and self._current() == ".":
             self._advance()
             return Token(TokenType.TOKEN_QUESTION_DOT, "?.", start_line, start_col)
+        if char == "?" and self._current() == "?" and self._peek() == "=":
+            # v8.0: ??= (null-coalescing assignment) — harus dicek SEBELUM ??
+            self._advance()  # ? pertama
+            self._advance()  # ? kedua
+            self._advance()  # =
+            return Token(TokenType.TOKEN_QUESTION_ASSIGN, "??=", start_line, start_col)
         if char == "?" and self._current() == "?":
             self._advance()
             return Token(TokenType.TOKEN_QUESTION, "??", start_line, start_col)

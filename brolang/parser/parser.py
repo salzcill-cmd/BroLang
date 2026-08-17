@@ -107,12 +107,12 @@ class Parser:
         current_token: Token saat ini
     """
 
-    # Operator augmented assignment (v6.8: + //=)
+    # Operator augmented assignment (v6.8: + //=; v8.0: ??=)
     AUGMENTED_OPS = (
         TokenType.TOKEN_PLUS_ASSIGN, TokenType.TOKEN_MINUS_ASSIGN,
         TokenType.TOKEN_MULTIPLY_ASSIGN, TokenType.TOKEN_DIVIDE_ASSIGN,
         TokenType.TOKEN_MODULO_ASSIGN, TokenType.TOKEN_POWER_ASSIGN,
-        TokenType.TOKEN_FLOOR_DIV_ASSIGN,
+        TokenType.TOKEN_FLOOR_DIV_ASSIGN, TokenType.TOKEN_QUESTION_ASSIGN,
     )
 
     def __init__(self, tokens: List[Token], file_path: str = ""):
@@ -567,6 +567,7 @@ class Parser:
             TokenType.TOKEN_MODULO_ASSIGN: "%=",
             TokenType.TOKEN_POWER_ASSIGN: "**=",
             TokenType.TOKEN_FLOOR_DIV_ASSIGN: "//=",
+            TokenType.TOKEN_QUESTION_ASSIGN: "??=",  # v8.0
         }
         operator = op_map[op_token.type]
 
@@ -2130,6 +2131,10 @@ class Parser:
                     TokenType.TOKEN_KELAS, TokenType.TOKEN_IMPOR,
                     TokenType.TOKEN_TIPE, TokenType.TOKEN_COBA,
                     TokenType.TOKEN_TANGKAP, TokenType.TOKEN_KECUALI,
+                    # v8.1: `obj.hapus(...)` valid (mis. simpan_game.hapus,
+                    # file.hapus) — kata kunci hapus tidak ambigu di posisi
+                    # nama atribut.
+                    TokenType.TOKEN_HAPUS,
                 )
                 if not self._check(*_method_tokens):
                     raise self._error(
@@ -2318,35 +2323,49 @@ class Parser:
         return left
 
     def _parse_object_literal(self):
-        """{string: expression} for dict, or {expr, expr} for set"""
+        """{string: expression} untuk dict, {expr, expr} untuk set,
+        dan (v8.0) {..ekspresi, "kunci": nilai} untuk objek dengan spread."""
         token = self._advance()  # {
         
         # Check for empty dict/set
         if self._check(TokenType.TOKEN_RBRACE):
             self._advance()
             return ObjectNode(entries={}, line=token.line, column=token.column)
-        
-        # Peek at first element to determine if it's a dict or set
-        # Dict: {"key": value} - string followed by colon
-        # Set: {value, value} - any expression followed by comma or }
-        if self._check(TokenType.TOKEN_STRING) and self._peek(1) == TokenType.TOKEN_COLON:
-            # It's a dict
-            entries = {}
-            key_token = self._advance()  # string key
-            self._expect(TokenType.TOKEN_COLON)
-            value = self._parse_expression()
-            entries[key_token.value] = value
 
-            while self._match(TokenType.TOKEN_COMMA):
+        # v8.0: objek dengan spread — {...a}, {...a, "b": 1}, {"b": 1, ...a},
+        # {"a": 0, ...x, "z": 3}. Spread boleh campur dengan pasangan kunci-nilai;
+        # urutan sumber dipertahankan lewat `order` (kunci item belakang menimpa).
+        # (Tanpa spread, jalur cepat di bawah tetap dipakai untuk dict biasa.)
+        if self._check(TokenType.TOKEN_ELLIPSIS) or \
+                (self._check(TokenType.TOKEN_STRING) and self._peek(1) == TokenType.TOKEN_COLON):
+            entries = {}
+            spreads = []
+            order = []
+            while True:
+                if self._check(TokenType.TOKEN_ELLIPSIS):
+                    self._advance()  # ...
+                    expr = self._parse_expression()
+                    spreads.append(expr)
+                    order.append(("spread", len(spreads) - 1))
+                elif self._check(TokenType.TOKEN_STRING) and self._peek(1) == TokenType.TOKEN_COLON:
+                    key_token = self._advance()
+                    self._expect(TokenType.TOKEN_COLON)
+                    value = self._parse_expression()
+                    entries[key_token.value] = value
+                    order.append(("entry", key_token.value))
+                else:
+                    raise self._error(
+                        message="Objek literal hanya bisa berisi spread (...a) atau pasangan \"kunci\": nilai.",
+                        solution="Tulis spread sebagai '...nama_variabel' dan pasangan sebagai '\"kunci\": nilai'.",
+                        example='{...dasar, "nama": "Budi"}',
+                    )
+                if not self._match(TokenType.TOKEN_COMMA):
+                    break
                 if self._check(TokenType.TOKEN_RBRACE):
                     break  # trailing comma
-                key_token = self._expect(TokenType.TOKEN_STRING)
-                self._expect(TokenType.TOKEN_COLON)
-                value = self._parse_expression()
-                entries[key_token.value] = value
-
             self._expect(TokenType.TOKEN_RBRACE)
-            return ObjectNode(entries=entries, line=token.line, column=token.column)
+            return ObjectNode(entries=entries, spreads=spreads, order=order,
+                              line=token.line, column=token.column)
         else:
             # It's a set (atau dict comprehension v7.2: {k: v lalu ...})
             first_expr = self._parse_expression()
@@ -2597,7 +2616,42 @@ class Parser:
             if self._check(TokenType.TOKEN_KECUALI):
                 self._advance()  # kecuali
                 exc_type = None
+                exc_types = None
                 var_name = "error"
+
+                # v8.0: kecuali (TipeA, TipeB) sebagai e — multi-tipe
+                if self._check(TokenType.TOKEN_LPAREN):
+                    self._advance()  # (
+                    types = []
+                    t = self._expect(
+                        TokenType.TOKEN_IDENTIFIER,
+                        message="Setelah 'kecuali (', harus ada nama tipe error.",
+                    )
+                    types.append(t.value)
+                    while self._match(TokenType.TOKEN_COMMA):
+                        t = self._expect(
+                            TokenType.TOKEN_IDENTIFIER,
+                            message="Setelah koma, harus ada nama tipe error.",
+                        )
+                        types.append(t.value)
+                    self._expect(
+                        TokenType.TOKEN_RPAREN,
+                        message="Daftar tipe 'kecuali' harus ditutup dengan ')'.",
+                    )
+                    exc_types = types
+                    if self._match(TokenType.TOKEN_SEBAGAI):
+                        var_token = self._expect(
+                            TokenType.TOKEN_IDENTIFIER,
+                            message="Setelah 'sebagai', harus ada nama variabel error.",
+                        )
+                        var_name = var_token.value
+                    clause_body = self._parse_block()
+                    except_clauses.append(TypedExceptNode(
+                        exception_type=exc_type, exception_types=exc_types,
+                        variable=var_name, body=clause_body,
+                        line=token.line, column=token.column,
+                    ))
+                    continue
 
                 if self._check(TokenType.TOKEN_IDENTIFIER):
                     if self._peek(1) == TokenType.TOKEN_SEBAGAI:

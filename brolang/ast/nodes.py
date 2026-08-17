@@ -673,11 +673,20 @@ class IndexNode(ASTNode):
 
 @dataclass
 class ObjectNode(ASTNode):
-    """Node untuk object/dict literal: {"kunci": nilai}"""
+    """Node untuk object/dict literal: {"kunci": nilai} (v8.0: + spread {...a})
+
+    - `entries`: pasangan kunci -> ekspresi nilai.
+    - `spreads`: daftar ekspresi dict yang di-spread (`{...a, "x": 1}`).
+    - `order`: urutan sumber item — tiap elemen berupa ("entry", kunci) atau
+      ("spread", indeks_ke_spreads). Kosong => semua entries (kompatibilitas
+      dengan kode lama yang membangun ObjectNode tanpa order).
+    """
     entries: Dict[str, ASTNode] = field(default_factory=dict)
+    spreads: List[ASTNode] = field(default_factory=list)
+    order: List[tuple] = field(default_factory=list)  # [("entry", k) | ("spread", i)]
 
     def get_children(self) -> List[Any]:
-        return list(self.entries.values())
+        return list(self.entries.values()) + list(self.spreads)
 
 
 @dataclass
@@ -1020,8 +1029,13 @@ class WithNode(ASTNode):
 
 @dataclass
 class TypedExceptNode(ASTNode):
-    """Node untuk typed except: kecuali TipeError sebagai e ... selesai"""
+    """Node untuk typed except: kecuali TipeError sebagai e ... selesai
+
+    v8.0: `exception_types` untuk multi-tipe `kecuali (A, B) sebagai e`
+    (None bila klausa memakai `exception_type` tunggal / tanpa tipe).
+    """
     exception_type: Optional[str] = None
+    exception_types: Optional[List[str]] = None  # v8.0: kecuali (A, B)
     variable: str = "error"
     body: List[ASTNode] = field(default_factory=list)
 

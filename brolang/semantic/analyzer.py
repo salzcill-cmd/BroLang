@@ -1074,9 +1074,11 @@ class SemanticAnalyzer(ASTVisitor):
         return None
 
     def visit_ObjectNode(self, node: ObjectNode) -> str:
-        """Memeriksa object literal."""
+        """Memeriksa object literal (v8.0: + spread {...a})."""
         for value in node.entries.values():
             self.visit(value)
+        for spread in node.spreads:
+            self.visit(spread)
         return "objek"
 
     def visit_PrintNode(self, node: PrintNode) -> None:

@@ -2392,8 +2392,30 @@ class Interpreter(ASTVisitor):
         )
 
     def visit_ObjectNode(self, node: ObjectNode) -> Dict[str, Any]:
-        """Object/dict literal."""
-        return {k: self.visit(v) for k, v in node.entries.items()}
+        """Object/dict literal (v8.0: dukung spread {...a}).
+
+        Urutan sumber dipertahankan lewat `order` — kunci dari item belakang
+        menimpa kunci yang sama dari item depan (konsisten dengan Python/JS).
+        Bila `order` kosong (kode lama), semua entries dievaluasi biasa.
+        """
+        if not node.spreads:
+            return {k: self.visit(v) for k, v in node.entries.items()}
+
+        result = {}
+        for kind, payload in node.order:
+            if kind == "spread":
+                spread = self.visit(node.spreads[payload])
+                if not isinstance(spread, dict):
+                    raise TypeError_(
+                        message=f"Spread objek harus berupa objek/dict, bukan {type(spread).__name__}.",
+                        line=node.line,
+                        column=node.column,
+                        solution="Spread hanya bisa dipakai pada variabel bertipe objek.",
+                    )
+                result.update(spread)
+            else:  # "entry"
+                result[payload] = self.visit(node.entries[payload])
+        return result
 
     def visit_PrintNode(self, node: PrintNode) -> None:
         """Print statement."""
@@ -2697,8 +2719,28 @@ class Interpreter(ASTVisitor):
                 column=node.column,
             )
 
-        right = self.visit(node.value)
         op = node.operator
+
+        # v8.0: ??= — null-coalescing assignment. Nilai kanan HANYA
+        # dievaluasi bila nilai saat ini kosong (None) — short-circuit
+        # konsisten dengan interpreter/transpiler/VM.
+        if op == "??=":
+            if current is not None:
+                return current
+            right = self.visit(node.value)
+            result = right
+            if isinstance(target, IdentifierNode):
+                self.current_env.set_variable(name, result)
+            elif isinstance(target, ObjectAccessNode):
+                if isinstance(obj, BroLangInstance):
+                    obj.set(target.property, result)
+                else:
+                    setattr(obj, target.property, result)
+            elif isinstance(target, IndexNode):
+                obj[index] = result
+            return result
+
+        right = self.visit(node.value)
         if op == "+=":
             result = current + right
         elif op == "-=":
@@ -3244,7 +3286,10 @@ class Interpreter(ASTVisitor):
             self._pop_env()
             matched = False
             for clause in node.except_clauses:
-                if clause.exception_type is None:
+                # v8.0: klausa multi-tipe (kecuali (A, B)) punya
+                # exception_type=None tapi exception_types terisi — bukan
+                # bare except.
+                if clause.exception_type is None and not clause.exception_types:
                     # Bare except
                     self._push_env()
                     self.current_env.define_variable(clause.variable, e)
@@ -3254,8 +3299,8 @@ class Interpreter(ASTVisitor):
                     matched = True
                     break
                 else:
-                    # Typed except
-                    exc_type_name = clause.exception_type
+                    # Typed except (v8.0: dukung multi-tipe kecuali (A, B))
+                    exc_type_names = clause.exception_types or [clause.exception_type]
                     exc_type_map = {
                         "RuntimeError": RuntimeError_,
                         "TypeError": TypeError_,
@@ -3266,41 +3311,42 @@ class Interpreter(ASTVisitor):
                         "KeyError": KeyError,
                         "AttributeError": AttributeError,
                     }
-                    exc_class = exc_type_map.get(exc_type_name)
-                    # V6.0: error kustom (kelas_error) — cocokkan nama kelas
-                    # beserta hierarki induknya (kecuali Induk menangkap semua turunan)
-                    inst = getattr(e, "error_instance", None)
-                    if inst is not None and isinstance(inst, BroLangInstance):
-                        k = inst.klass
-                        while k is not None:
-                            if k.name == exc_type_name:
-                                self._push_env()
-                                self.current_env.define_variable(clause.variable, inst)
-                                for stmt in clause.body:
-                                    result = self.visit(stmt)
-                                self._pop_env()
-                                matched = True
-                                break
-                            k = k.parent
-                        if matched:
+
+                    def _matches_any(exc_type_name: str) -> bool:
+                        """Apakah exception cocok dengan satu nama tipe."""
+                        if exc_type_name == "semua":
+                            return True
+                        exc_class = exc_type_map.get(exc_type_name)
+                        # V6.0: error kustom (kelas_error) — cocokkan nama kelas
+                        # beserta hierarki induknya (kecuali Induk menangkap semua turunan)
+                        inst = getattr(e, "error_instance", None)
+                        if inst is not None and isinstance(inst, BroLangInstance):
+                            k = inst.klass
+                            while k is not None:
+                                if k.name == exc_type_name:
+                                    return True
+                                k = k.parent
+                        if exc_class and isinstance(e, exc_class):
+                            return True
+                        # v8.0: cocokkan juga nama kelas Python (konsisten
+                        # dengan `_vm_jenis` di VM): `kecuali RuntimeError_`
+                        # menangkap RuntimeError_ dari `lempar "x"`.
+                        t = type(e)
+                        if t.__name__ == exc_type_name:
+                            return True
+                        return any(c.__name__ == exc_type_name for c in t.__mro__)
+
+                    for exc_type_name in exc_type_names:
+                        if _matches_any(exc_type_name):
+                            val = getattr(e, "error_instance", None) or e
+                            self._push_env()
+                            self.current_env.define_variable(clause.variable, val)
+                            for stmt in clause.body:
+                                result = self.visit(stmt)
+                            self._pop_env()
+                            matched = True
                             break
-                    if exc_class and isinstance(e, exc_class):
-                        self._push_env()
-                        self.current_env.define_variable(clause.variable, e)
-                        for stmt in clause.body:
-                            result = self.visit(stmt)
-                        self._pop_env()
-                        matched = True
-                        break
-                    elif exc_type_name == "semua":
-                        # Catch-all: binding instance error kustom (kalau ada)
-                        val = getattr(e, "error_instance", None) or e
-                        self._push_env()
-                        self.current_env.define_variable(clause.variable, val)
-                        for stmt in clause.body:
-                            result = self.visit(stmt)
-                        self._pop_env()
-                        matched = True
+                    if matched:
                         break
 
             if not matched:

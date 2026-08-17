@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-6.9-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-8.1-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v6.9</h1>
+<h1 align="center">BroLang v8.1</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/1015-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/1288-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/115+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/135+Token%20Types-purple?style=flat-square" alt="tokens"/>
-  <img src="https://img.shields.io/badge/43+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
+  <img src="https://img.shields.io/badge/48+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
 </p>
 
 ---
@@ -45,10 +45,132 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 7.2.0
+bro --version    # BroLang 8.1.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v8.1? 🎮
+
+### Game Dev Upgrade
+
+**Object Pooling** — gunakan ulang bullet/partikel/musuh, hindari lag GC:
+
+```bro
+impor kumpulan_objek
+buat pool = kumpulan_objek.KumpulanObjek(lalu() {"aktif": salah}, ukuran_awal=20)
+buat peluru = pool.ambil()     # pinjam
+pool.kembalikan(peluru)        # kembalikan
+```
+
+**Simpan/Muat Game** — slot save, checkpoint, metadata:
+
+```bro
+impor simpan_game
+simpan_game.simpan("slot1", {"level": 3, "nyawa": 5}, label="Level 3")
+buat data = simpan_game.muat("slot1", default={"level": 1})
+simpan_game.checkpoint({"level": 4})   # auto-save
+```
+
+**Sistem Dialog** — efek mesin ketik + pilihan bercabang:
+
+```bro
+impor dialog
+buat d = dialog.Dialog(["Halo, pengembara!", "Selamat datang."],
+                       nama_pembicara="Kepala Desa", kecepatan=40)
+d.update(dt)
+buat habis = d.lanjut()
+```
+
+**AI Musuh (FSM + Steering)** — mesin status & kejar/lari/tiba/jelajah:
+
+```bro
+impor ai
+buat mesin = ai.FSM("jaga")
+mesin.tambah_status("kejar", masuk=lalu() tulis "Mengejar!" selesai)
+mesin.ganti_status("kejar")
+buat (vx, vy) = ai.kejar(100, 100, 300, 300, 120)
+```
+
+**Tilemap Lanjutan** — platform satu arah & platform bergerak:
+
+```bro
+impor tilemap
+tileset.atur_satu_arah(2)      # tile id 2 = platform satu arah
+buat mendarat = lantai.cek_lantai_satu_arah(px, py, kecepatan_y)
+buat plat = lantai.tambah_platform_bergerak(0, 300, 320, 300, kecepatan=80)
+lantai.dorong_bodi(pemain, dt)
+```
+
+**Quest & Achievement** — progres, status, simpan/muat:
+
+```bro
+impor misi
+buat q = misi.Misi("cari_kunci", "Cari 5 Kunci", tujuan=5)
+q.tambah_progres(5)            # True (baru selesai)
+buat manajer = misi.ManajerMisi()
+manajer.buat_misi("m1", "Misi 1", tujuan=3)
+```
+
+Semua modul v8.1 tersedia di interpreter, transpiler, dan VM.
+Detail: `docs/GAME_V81.md`.
+
+---
+
+## Apa yang Baru di v8.0?
+
+### Fitur Bahasa Modern 🧩
+
+**Spread objek** — sebarkan isi objek ke objek literal, campur bebas
+sama pasangan kunci-nilai:
+
+```bro
+buat pengaturan = {"suara": 80, "bahasa": "id"}
+buat pemain = {...pengaturan, "nama": "Budi"}
+# {'suara': 80, 'bahasa': 'id', 'nama': 'Budi'}
+
+buat a = {"x": 1, "y": 2}
+buat b = {...a, "y": 99}     # kunci item belakang menimpa
+# {'x': 1, 'y': 99}
+```
+
+**Null-coalescing assignment `??=`** — isi cuma kalau nilainya `kosong`
+(short-circuit, nilai kanan ga dievaluasi kalau ga perlu):
+
+```bro
+buat nama = kosong
+nama ??= "Anonim"          # Anonim
+
+buat skor = 100
+skor ??= 0                 # ga berubah (sudah terisi)
+
+akun.nama ??= "Budi"       # atribut objek
+cache[0] ??= 42            # index list
+```
+
+**`kecuali (TipeA, TipeB)`** — satu klausa buat banyak tipe error:
+
+```bro
+coba
+    buat hasil = 100 / x
+kecuali (TypeError, ZeroDivisionError) sebagai e
+    tulis "tertangkap"
+selesai
+```
+
+Mendukung tipe bawaan **dan `kelas_error` kustom** — dan v8.0 memperbaiki
+VM supaya `kelas_error` + `lempar` + `kecuali` berfungsi penuh di mesin
+bytecode (sebelumnya dibuang diam-diam), konsisten dengan interpreter &
+transpiler.
+
+### Performa VM ⚡
+Optimasi hot path bytecode VM: fast path `_execute` tanpa try/except,
+alokasi frame sesuai ukuran, fast path `_call_function`, dan `LOAD_GLOBAL`
+satu dict op. Fibonacci rekursif ~15% lebih cepat, loop ~10% lebih cepat.
+
+Detail: `docs/FITUR_V80.md`.
 
 ---
 
@@ -1248,6 +1370,8 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | [Dasar Bahasa](docs/DASAR.md) | Tipe data, variabel, operator |
 | [Fungsi](docs/FUNGSI.md) | Fungsi, lambda, closures |
 | [Class & OOP](docs/OOP.md) | OOP & inheritance |
+| [Fitur v8.1](docs/GAME_V81.md) | Game dev: object pooling, simpan/muat, dialog, AI (FSM+steering), platform satu arah & bergerak, quest/achievement |
+| [Fitur v8.0](docs/FITUR_V80.md) | Spread objek {...a}, null-coalescing assignment ??=, kecuali multi-tipe (A, B), performa VM |
 | [Fitur v6.9](docs/FITUR_V69.md) | Guard clause untuk semua statement (tulis, assignment, lempar, dst) |
 | [Fitur v6.8](docs/FITUR_V68.md) | Guard clause, floor division //, augmented pada atribut/index, BGM prosedural |
 | [Fitur v6.7](docs/FITUR_V67.md) | Rest/spread parameter, multiple return, VM lengkap, screen shake, synth audio |
@@ -1342,7 +1466,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**1015 test cases, semua passing!** (termasuk 10 test baru yield di dalam `coba`/`tangkap` di generator; 8 test perbaikan `hasilkandari` yield-from; 43 test v6.9: guard clause statement umum; 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
+**1288 test cases, semua passing!** (termasuk 48 test v8.1: object pooling, simpan/muat, dialog, AI FSM+steering, platform satu arah & bergerak, quest/achievement; 32 test v8.0: spread objek, ??=, kecuali multi-tipe + error kustom di VM, konsistensi VM; 32 test v7.2; 10 test yield di dalam `coba`/`tangkap` di generator; 8 test perbaikan `hasilkandari` yield-from; 43 test v6.9: guard clause statement umum; 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
 
 ---
 
@@ -1366,7 +1490,7 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v6.9** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v8.1** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>

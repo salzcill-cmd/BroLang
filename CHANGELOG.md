@@ -4,6 +4,147 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [8.1.0] - 2026-08-17
+
+### Added — Game Dev Upgrade 🎮
+
+- **`kumpulan_objek` — object pooling** — gunakan ulang objek (bullet,
+  partikel, musuh) alih-alih membuat & membuang baru setiap frame
+  (hindari lag GC). `KumpulanObjek(buat, ukuran_awal?, aktifkan?,
+  nonaktifkan?)` dengan `ambil()`, `kembalikan()`, `kosongkan()`,
+  `jumlah_aktif()`, `jumlah_tersedia()`, `total()`; alias `buat_kumpulan`
+  & `buat_pool_flag`. Konsisten di interpreter, transpiler, dan VM.
+
+- **`simpan_game` — simpan/muat progres** — slot save, checkpoint /
+  auto-save, metadata (waktu, label, versi). `simpan(nama, data, folder?,
+  label?, versi?)`, `muat(nama, default?)`, `ada`, `hapus`, `daftar`
+  (terbaru dulu), `checkpoint`, `muat_checkpoint`, `info`, `bersihkan`.
+  Data JSON-safe: dict/list/angka/teks/bool/None; kunci dict → teks,
+  tuple → list.
+
+- **`dialog` — sistem dialog RPG** — efek mesin ketik (kecepatan karakter
+  per detik), nama pembicara, pilihan bercabang. `Dialog(kalimat?,
+  nama_pembicara?, kecepatan?, ...)` dengan `update(dt)`, `lanjut()`
+  (selesaikan baris → baris berikutnya → True bila habis), `pilih(i)`,
+  `atur_pilihan`, `geser_pilihan`, `on_selesai`, `reset`.
+
+- **`ai` — AI musuh: FSM + steering** — `FSM(awal?)` (tambah_status dengan
+  callback masuk/update/keluar, ganti_status, waktu_di_status) + steering
+  murni matematika: `kejar` (seek), `lari` (flee), `tiba` (arrive +
+  melambat), `jelajah` (wander acak halus), `hindari` (obstacle avoidance),
+  `gabung` (blending), `jarak`, `arah_ke`; kelas `Agen` siap pakai.
+
+- **`tilemap` lanjutan — platform satu arah & bergerak** —
+  `Tileset.atur_satu_arah(id)` + `Tilemap.cek_lantai_satu_arah(px, py,
+  kecepatan_y)` (mendarat hanya saat jatuh; tembus saat lompat ke atas),
+  `tandai_satu_arah`/`cek_satu_arah` manual, `PlatformBergerak`
+  (bolak-balik dengan flip-dan-lanjut dalam satu frame) via
+  `tambah_platform_bergerak(x1, y1, x2, y2, kecepatan?)` + `dorong_bodi`
+  untuk membawa pemain.
+
+- **`misi` — quest & achievement** — `Misi(id, nama, tujuan?)` dengan
+  progres/status (aktif/selesai/gagal), `Pencapaian` (unlock sekali),
+  `ManajerMisi` (buat/dapatkan/semua/aktif/selesai/gagal, tambah_progres,
+  buka_pencapaian) + `ke_dict()`/`muat()` JSON-safe (bisa digabung dengan
+  `simpan_game`).
+
+### Changed / Fixed
+
+- **Parser**: kata kunci `hapus` kini valid sebagai nama atribut setelah
+  titik (`obj.hapus(...)`), mis. `simpan_game.hapus`, `file.hapus`.
+- **VM**: `VMFunction` kini punya `__call__` + referensi VM — fungsi &
+  lambda BroLang bisa dikirim sebagai callback ke kode Python stdlib
+  (diperlukan `KumpulanObjek` dengan pabrik `lalu() ...`).
+
+### Notes
+
+- 48 test baru di `tests/unit/test_v81_game.py` — total **1288 test passing**.
+- Dokumentasi: `docs/GAME_V81.md` (panduan 6 fitur), entri baru di
+  `docs/STDLIB.md`, contoh `examples/fitur_v81.bro` (output identik di
+  interpreter/transpiler/VM), 12 snippet baru di `tools/audit_konsistensi.py`.
+
+## [8.0.0] - 2026-08-17
+
+### Added — Fitur Bahasa Modern
+
+- **Spread objek** `{...a, "b": 1}` — sebarkan isi objek ke objek literal,
+  campur bebas dengan pasangan kunci-nilai dalam urutan apa pun. Urutan
+  sumber dipertahankan (`order` di ObjectNode): kunci dari item belakang
+  menimpa item depan — konsisten dengan Python `{**a}` dan JS `{...a}`.
+  ```bro
+  buat pemain = {...pengaturan, "nama": "Budi"}
+  buat gabung = {...a, ...b, "baru": 5}
+  ```
+  Berjalan konsisten di interpreter, transpiler, dan VM (opcode baru
+  `MAKE_DICT_SPREAD`). Error bila nilai yang di-spread bukan objek.
+
+- **Null-coalescing assignment** `x ??= v` — isi variabel/atribut/index
+  HANYA bila nilainya saat ini `kosong` (None), dengan short-circuit:
+  nilai kanan tidak dievaluasi bila tidak perlu.
+  ```bro
+  buat nama = kosong
+  nama ??= "Anonim"        # Anonim
+  buat skor = 100
+  skor ??= 0               # tidak berubah
+  akun.nama ??= "Budi"     # atribut objek
+  cache[0] ??= 42          # index list
+  opsi["mode"] ??= "cepat" # index objek
+  ```
+  Nilai falsy (0, "", False) BUKAN kosong — tetap dipertahankan. Tidak
+  ambigu dengan null-coalescing `??` (v5.0). Token baru `??=` di lexer;
+  konsisten di ketiga mesin.
+
+- **`kecuali (TipeA, TipeB)` — multi-tipe exception** — satu klausa
+  `kecuali` menangkap beberapa tipe error; cocok bila SALAH SATU tipe
+  cocok, selain itu re-raise.
+  ```bro
+  coba
+      buat hasil = 100 / x
+  kecuali (TypeError, ZeroDivisionError) sebagai e
+      tulis "tertangkap"
+  selesai
+  ```
+  Mendukung tipe bawaan maupun `kelas_error` kustom; bisa digabung dengan
+  klausa `kecuali` lain. Konsisten di interpreter, transpiler (`except (A, B)`),
+  dan VM (cek `_vm_jenis` per tipe + opcode `POP_JUMP_IF_TRUE`).
+
+### Fixed — Error Kustom di VM
+
+- **`kelas_error` + `lempar` + `kecuali` kini berfungsi di VM** — sebelumnya
+  `KelasErrorNode` tidak dikompilasi (deklarasi dibuang diam-diam) dan
+  `lempar` selalu membungkus nilai ke `RuntimeError_`, sehingga error kustom
+  tidak bisa dilempar maupun ditangkap di mesin bytecode. Kini `kelas_error`
+  dikompilasi sebagai `VMClass` (parent default `Kesalahan`, terdaftar sebagai
+  kelas dasar bawaan VM), `Op.RAISE` melampirkan `error_instance`/
+  `error_class`, dan `_vm_jenis` mencocokkan nama kelas beserta hierarki
+  induknya (kecuali Induk menangkap semua turunan) — konsisten dengan
+  interpreter & transpiler. Variabel `kecuali ... sebagai e` mengikat
+  instance error (bukan wrapper), jadi `e.pesan` berfungsi di ketiga mesin.
+
+### Changed — Performa Bytecode VM ⚡
+
+- **Fast path `_execute`** — bila bytecode tidak punya handler exception
+  (`Bytecode.has_handlers` dihitung saat finalize), wrapper try/except
+  untuk exception routing dilewati; exception langsung menyebar ke
+  pemanggil. Menghilangkan overhead try/except per pemanggilan fungsi.
+- **Alokasi frame sesuai ukuran** — `Frame` mengalokasikan slot lokal
+  sebanyak `bytecode.local_count` (jumlah puncak yang dihitung compiler),
+  bukan selalu 64.
+- **Fast path `_call_function`** — pemanggilan fungsi VM biasa (tanpa
+  keyword-argumen, tanpa default, tanpa rest param) mengikat parameter
+  langsung ke slot frame tanpa pemrosesan umum.
+- **`LOAD_GLOBAL` satu dict op** — variabel user dicari langsung di
+  `globals_dict` (builtin juga terdaftar di sana), bukan 2-3 dict op;
+  invalidasi builtin cache per `STORE_GLOBAL` dihapus (redundan).
+- Benchmark: Fibonacci rekursif **~15% lebih cepat** (~1260-1350 ms →
+  ~1060-1140 ms), loop + aritmatika **~10% lebih cepat**.
+  Perilaku eksekusi identik — seluruh suite test tetap hijau.
+
+### Notes
+
+- 32 test baru di `tests/unit/test_v80_language.py` — total **1240 test passing**.
+- Dokumentasi: `docs/FITUR_V80.md`, contoh `examples/fitur_v80.bro`.
+
 ## [7.2.1] - 2026-08-13
 
 ### Fixed — Konsistensi Output `tulis` untuk Object

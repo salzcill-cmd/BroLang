@@ -31,7 +31,21 @@ def _vm_jenis(exc, nama: str) -> bool:
 
     - Tipe Python langsung (RuntimeError_, TypeError_, NameError_, ...).
     - Kelas error kustom BroLang (subclass RuntimeError_ / Kesalahan).
+
+    v8.0: error kustom (kelas_error) dicocokkan lewat nama kelas beserta
+    hierarki induknya (kecuali Induk menangkap semua turunan) — mirror
+    interpreter. `exc` bisa berupa VMInstance (nilai yang di-bind handler)
+    atau exception dengan atribut `.error_instance`.
     """
+    if nama == "semua":
+        return True
+    inst = exc if isinstance(exc, VMInstance) else getattr(exc, "error_instance", None)
+    if inst is not None:
+        k = inst.klass
+        while k is not None:
+            if k.name == nama:
+                return True
+            k = k.parent
     t = type(exc)
     if t.__name__ == nama:
         return True
@@ -315,7 +329,10 @@ class Frame:
         self.bytecode = bytecode
         self.ip = 0
         self.stack = []
-        self.locals = [None] * 64  # Pre-allocate for speed
+        # v8.0: alokasikan sesuai jumlah slot lokal yang sebenarnya dipakai
+        # (bytecode.local_count diisi compiler) — jauh lebih kecil dari 64
+        # untuk fungsi sederhana (alokasi frame = hot path pemanggilan).
+        self.locals = [None] * (bytecode.local_count or 64)
         self.parent = parent
         self.globals = globals_ or (parent.globals if parent else {})
         self.closure = closure
@@ -345,6 +362,9 @@ class VM:
         # Helper untuk klausa `kecuali Tipe` (v7.0): cocokkan nama tipe
         # exception (termasuk subkelas RuntimeError_ kustom).
         self.globals["_vm_jenis"] = _vm_jenis
+        # v8.0: kelas dasar error kustom `Kesalahan` (default parent
+        # `kelas_error`) — konsisten dengan interpreter & transpiler.
+        self.globals["Kesalahan"] = VMClass("Kesalahan", None, {})
         # Helper `tunggu` (v7.0): buka Tugas -> hasil (no-op untuk nilai biasa).
         self.globals["_vm_tunggu"] = _vm_tunggu
         # Helper error propagation '?' (v7.0): buka Result/Option dict.
@@ -401,7 +421,14 @@ class VM:
         mati. Kini exception dicari handler teratas di stack: stack dipotong
         sampai marker, nilai exception didorong (untuk di-bind catch_var),
         lalu eksekusi dilanjutkan dari target handler.
+
+        v8.0 fast path: bila bytecode TIDAK punya handler exception
+        (`has_handlers` dihitung saat finalize), wrapper try/except tidak
+        perlu — exception langsung menyebar ke pemanggil. Ini menghilangkan
+        overhead try/except per pemanggilan fungsi (hot path rekursif).
         """
+        if not frame.bytecode.has_handlers:
+            return self._run_loop(frame)
         while True:
             try:
                 return self._run_loop(frame)
@@ -413,7 +440,10 @@ class VM:
                     if isinstance(entry, tuple) and len(entry) == 2 and entry[0] == "handler":
                         target = entry[1]
                         del stack[i:]
-                        stack.append(e)
+                        # v8.0: untuk error kustom, bind instance BroLang
+                        # (bukan exception wrapper) — `e.pesan` dsb. berfungsi
+                        # konsisten dengan interpreter.
+                        stack.append(getattr(e, "error_instance", None) or e)
                         frame.ip = target
                         found = True
                         break
@@ -444,6 +474,9 @@ class VM:
         _append = stack.append
         _pop = stack.pop
         _Op = Op
+        _frame = self._frame
+        _bcache = self._builtin_cache
+        _missing = _MISSING
 
         while ip < n:
             op = ops[ip]
@@ -483,29 +516,32 @@ class VM:
 
             elif op == _Op.LOAD_GLOBAL:
                 name = names[arg]
-                # Fast path: builtin cache (avoid dict lookup)
-                cached = self._builtin_cache.get(name, _MISSING)
-                if cached is not _MISSING:
-                    _append(cached)
-                elif name in globals_dict:
-                    _append(globals_dict[name])
+                # v8.0: cek globals DULU (builtin juga terdaftar di
+                # globals_dict, jadi satu dict.get cukup untuk kasus umum
+                # variabel user — menghindari 2-3 dict op per load).
+                val = globals_dict.get(name, _missing)
+                if val is not _missing:
+                    _append(val)
                 else:
-                    raise RuntimeError_(
-                        message=f"Variabel '{name}' belum didefinisikan.",
-                        line=lines_arr[ip - 1],
-                        column=cols_arr[ip - 1],
-                        solution=f"Deklarasikan '{name}' dengan 'buat {name} = ...'.",
-                    )
+                    cached = _bcache.get(name, _missing)
+                    if cached is not _missing:
+                        _append(cached)
+                    else:
+                        raise RuntimeError_(
+                            message=f"Variabel '{name}' belum didefinisikan.",
+                            line=lines_arr[ip - 1],
+                            column=cols_arr[ip - 1],
+                            solution=f"Deklarasikan '{name}' dengan 'buat {name} = ...'.",
+                        )
 
             elif op == _Op.STORE_GLOBAL:
+                # v8.0: tidak perlu invalidasi builtin cache — LOAD_GLOBAL
+                # memeriksa globals_dict DULU (builtin juga terdaftar di
+                # sana), jadi nilai user selalu menang tanpa pop per store.
                 globals_dict[names[arg]] = _pop()
-                # Invalidate builtin cache jika nama ditimpa oleh user
-                self._builtin_cache.pop(names[arg], None)
 
             elif op == _Op.DEFINE_GLOBAL:
                 globals_dict[names[arg]] = _pop()
-                # Invalidate builtin cache jika nama ditimpa oleh user
-                self._builtin_cache.pop(names[arg], None)
 
             elif op == _Op.LOAD_DEREF:
                 _append(frame.closure[arg] if frame.closure else None)
@@ -591,6 +627,11 @@ class VM:
                 if not _pop():
                     ip = arg
 
+            elif op == _Op.POP_JUMP_IF_TRUE:
+                # v8.0: pop & lompat bila True (kecuali multi-tipe (A, B))
+                if _pop():
+                    ip = arg
+
             elif op == _Op.JUMP_IF_FALSE:
                 if not stack[-1]:
                     ip = arg
@@ -618,6 +659,8 @@ class VM:
                     func_bc, param_count, has_defaults, _locals[: len(_locals)],
                     rest_pos, is_async, param_names, is_generator=is_generator,
                 )
+                # v8.1: referensi VM → fungsi bisa dipanggil dari kode Python
+                closure.vm = self
                 _append(closure)
 
             elif op == _Op.MAKE_FUNCTION:
@@ -660,6 +703,9 @@ class VM:
                 name, methods_data = data
                 parent = _pop()
                 vm_class = VMClass(name, parent, methods_data)
+                # v8.1: method class juga bisa dipanggil dari kode Python
+                for _m in vm_class.methods.values():
+                    _m.vm = self
                 _append(vm_class)
 
             elif op == _Op.MAKE_INSTANCE:
@@ -785,6 +831,26 @@ class VM:
                     pairs[items[i]] = items[i + 1]
                 _append(pairs)
 
+            elif op == _Op.MAKE_DICT_SPREAD:
+                # v8.0: {..a, "b": 1} — tiap item = triple (nilai, kunci/None, is_spread):
+                #   spread -> (dict, None, True), entry -> (kunci, nilai, False)
+                # Pop membalik urutan → reverse dulu, lalu isi dict berurutan
+                # (kunci dari item belakang menimpa item depan).
+                count = arg
+                items = [_pop() for _ in range(count * 3)][::-1]
+                pairs = {}
+                for i in range(0, len(items), 3):
+                    a, b, is_spread = items[i], items[i + 1], items[i + 2]
+                    if is_spread:
+                        if not isinstance(a, dict):
+                            raise RuntimeError_(
+                                message=f"Spread objek harus berupa objek/dict, bukan {type(a).__name__}."
+                            )
+                        pairs.update(a)
+                    else:
+                        pairs[a] = b
+                _append(pairs)
+
             elif op == _Op.INDEX_GET:
                 index = _pop()
                 _append(_pop()[index])
@@ -823,6 +889,22 @@ class VM:
 
             elif op == _Op.RAISE:
                 val = _pop() if stack else "Error"
+                if isinstance(val, VMInstance):
+                    # v8.0: error kustom (kelas_error) — bungkus instance
+                    # BroLang di RuntimeError_ dengan atribut error_class /
+                    # error_instance (mirror interpreter) supaya `kecuali
+                    # Nama` bisa mencocokkan nama kelas & hierarki induk.
+                    klass_name = val.klass.name
+                    pesan = val.dict.get("pesan")
+                    if pesan is None:
+                        pesan = val.dict.get("message")
+                    msg = f"{klass_name}: {pesan}" if pesan is not None else klass_name
+                    err = RuntimeError_(
+                        message=msg, line=lines_arr[ip - 1], column=cols_arr[ip - 1]
+                    )
+                    err.error_class = klass_name
+                    err.error_instance = val
+                    raise err
                 raise RuntimeError_(
                     message=str(val), line=lines_arr[ip - 1], column=cols_arr[ip - 1]
                 )
@@ -890,6 +972,33 @@ class VM:
 
     def _call_function(self, func, args, instr=None, kwargs=None):
         """Call a VM function."""
+        # v8.0 fast path: pemanggilan fungsi VM biasa tanpa keyword-argumen
+        # dan tanpa nilai default/rest — hindari pemrosesan umum (hot path
+        # rekursi & loop). Kondisi dicek murah: kwargs None + args bukan
+        # marker _VmKwargs + tidak ada default/rest.
+        if kwargs is None and func is not None and isinstance(func, VMFunction) \
+                and not func.has_defaults and func.rest_pos < 0 \
+                and (not args or not isinstance(args[-1], _VmKwargs)):
+            new_frame = Frame(
+                func.bytecode, parent=self._frame, globals_=self._frame.globals,
+                closure=func.closure,
+            )
+            if func.is_generator:
+                new_frame.yields = []
+            # Ikat parameter langsung (slot 0..param_count-1).
+            pc = func.param_count
+            for i in range(pc):
+                new_frame.locals[i] = args[i] if i < len(args) else None
+            old_frame = self._frame
+            self._frame = new_frame
+            try:
+                result = self._execute(new_frame)
+            finally:
+                self._frame = old_frame
+            if func.is_generator:
+                return new_frame.yields
+            return result
+
         # v7.1: pisahkan keyword-argumen (marker _VmKwargs) dari argumen
         # posisional — konsisten dengan interpreter (`f(a, b=1)`).
         if kwargs is None and args and isinstance(args[-1], _VmKwargs):
@@ -1041,6 +1150,8 @@ class VM:
                     func = VMFunction(bc, param_count, False, [], rest_pos, False, pnames)
                     func.owner_name = obj.klass.name
                     func.method_name = name
+                    # v8.1: referensi VM untuk panggilan dari kode Python
+                    func.vm = self
                     if not is_static:
                         return lambda *a: self._call_function(func, [obj] + list(a))
                     return lambda *a: self._call_function(func, list(a))
@@ -1146,7 +1257,7 @@ class VMFunction:
 
     __slots__ = ("bytecode", "param_count", "has_defaults", "closure", "rest_pos",
                  "is_async", "param_names", "defaults", "is_generator",
-                 "owner_name", "method_name")
+                 "owner_name", "method_name", "vm")
 
     def __init__(self, bytecode, param_count, has_defaults, closure, rest_pos=-1, is_async=False,
                  param_names=None, is_generator=False):
@@ -1156,6 +1267,9 @@ class VMFunction:
         self.closure = closure
         self.rest_pos = rest_pos  # v6.7: indeks slot rest parameter (-1 = tidak ada)
         self.is_async = is_async  # v7.0: hasil pemanggilan dibungkus Tugas
+        # v8.1: referensi VM — memungkinkan fungsi BroLang dipanggil dari
+        # kode Python (mis. callback stdlib seperti kumpulan_objek.KumpulanObjek).
+        self.vm = None
         # v7.1: nama parameter asli (dari CLOSURE) untuk mengikat keyword
         # argumen. None untuk fungsi lama/kode bytecode tanpa info nama.
         self.param_names = tuple(param_names) if param_names else None
@@ -1181,6 +1295,19 @@ class VMFunction:
             if len(names) >= self.param_count:
                 break
         return names
+
+    def __call__(self, *args, **kwargs):
+        """v8.1: panggil fungsi BroLang dari kode Python (callback stdlib).
+
+        Memungkinkan fungsi/lambda BroLang dikirim sebagai callback ke
+        fungsi stdlib (mis. pabrik objek `kumpulan_objek.KumpulanObjek`)
+        dan dieksekusi oleh VM yang sama.
+        """
+        if self.vm is None:
+            raise RuntimeError_(
+                message="Fungsi BroLang tidak bisa dipanggil dari luar VM."
+            )
+        return self.vm._call_function(self, list(args), None, kwargs=kwargs or None)
 
     def __repr__(self):
         # v7.2: method punya repr deterministik `<method K.x>` (konsisten

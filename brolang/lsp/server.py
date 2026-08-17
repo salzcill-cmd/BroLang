@@ -204,7 +204,8 @@ class BroLangLSP:
         "vektor", "grafis", "audio", "input", "game", "pencocok", "antrian",
         "tumpukan", "serialisasi", "dasar", "sprite", "animasi", "tilemap",
         "kamera", "partikel", "ui", "fisika", "debugger", "profil", "tes",
-        "visualisasi", "sejajar",
+        "visualisasi", "sejajar", "jalur", "efek", "kumpulan_objek",
+        "simpan_game", "dialog", "ai", "misi",
     ]
 
     def _build_symbols(self, text: str) -> Dict[str, Dict[str, Any]]:

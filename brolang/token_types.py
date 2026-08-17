@@ -94,6 +94,7 @@ class TokenType(Enum):
     TOKEN_LSHIFT = auto()      # <<
     TOKEN_RSHIFT = auto()      # >>
     TOKEN_WALRUS = auto()      # := (walrus operator)
+    TOKEN_QUESTION_ASSIGN = auto() # ??= (null-coalescing assignment, v8.0)
     TOKEN_AT = auto()          # @ (decorator)
     TOKEN_QUESTION = auto()    # ? (null coalescing, optional chaining)
     TOKEN_QUESTION_DOT = auto() # ?. (optional chaining)

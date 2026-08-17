@@ -261,3 +261,24 @@ def _load_module(name: str) -> None:
         from brolang.stdlib.efek import module as efek_module
 
         register_module("efek", efek_module)
+    # v8.1 game dev modules
+    elif name == "kumpulan_objek":
+        from brolang.stdlib.kumpulan_objek import module as ko_module
+
+        register_module("kumpulan_objek", ko_module)
+    elif name == "simpan_game":
+        from brolang.stdlib.simpan_game import module as sg_module
+
+        register_module("simpan_game", sg_module)
+    elif name == "dialog":
+        from brolang.stdlib.dialog import module as dialog_module
+
+        register_module("dialog", dialog_module)
+    elif name == "ai":
+        from brolang.stdlib.ai import module as ai_module
+
+        register_module("ai", ai_module)
+    elif name == "misi":
+        from brolang.stdlib.misi import module as misi_module
+
+        register_module("misi", misi_module)

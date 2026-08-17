@@ -48,10 +48,13 @@ def _resolve_warna(warna):
 class Tile:
     """Tile individual."""
 
-    def __init__(self, id=0, solid=False, animasi=None):
+    def __init__(self, id=0, solid=False, animasi=None, satu_arah=False):
         self.id = id
         self.solid = solid
         self.animasi = animasi
+        # v8.1: platform satu arah — hanya mendarat saat jatuh (bisa
+        # dilompati dari bawah).
+        self.satu_arah = satu_arah
         self.data = {}
 
 
@@ -85,15 +88,16 @@ class Tileset:
         }
         return self
 
-    def tambah_tile(self, id, solid=False, warna=None):
+    def tambah_tile(self, id, solid=False, warna=None, satu_arah=False):
         """Menambahkan tile type.
 
         Args:
             id: ID tile.
             solid: True jika tile tidak bisa ditembus.
             warna: Warna fallback untuk rendering tanpa gambar.
+            satu_arah: True untuk platform satu arah (v8.1).
         """
-        self.tiles[id] = Tile(id=id, solid=solid)
+        self.tiles[id] = Tile(id=id, solid=solid, satu_arah=satu_arah)
         if warna is not None:
             self.warna[id] = warna
 
@@ -103,6 +107,13 @@ class Tileset:
             self.tiles[id] = Tile(id=id, solid=solid)
         else:
             self.tiles[id].solid = solid
+
+    def atur_satu_arah(self, id, satu_arah=True):
+        """Set properti platform satu arah untuk tile id (v8.1)."""
+        if id not in self.tiles:
+            self.tiles[id] = Tile(id=id, solid=True, satu_arah=satu_arah)
+        else:
+            self.tiles[id].satu_arah = satu_arah
 
     def atur_warna(self, id, warna):
         """Set warna fallback untuk tile id."""
@@ -131,10 +142,15 @@ class Tilemap:
 
         # Collision layer
         self.solid_map = [[False] * lebar for _ in range(tinggi)]
+        # v8.1: layer platform satu arah (bisa dilompati dari bawah)
+        self.satu_arah_map = [[False] * lebar for _ in range(tinggi)]
 
         # v6.6: animasi & objek
         self._waktu_animasi = 0.0
         self.objek = []  # layer objek: SimpleNamespace(nama, x, y, ...)
+
+        # v8.1: platform bergerak
+        self.platform_bergerak = []
 
     def set_tileset(self, tileset):
         """Set tileset untuk tilemap."""
@@ -142,7 +158,7 @@ class Tilemap:
         self._refresh_solid_map()
 
     def _refresh_solid_map(self):
-        """Sinkronkan solid_map dari data + tileset. Dipanggil setelah load."""
+        """Sinkronkan solid_map & satu_arah_map dari data + tileset."""
         if not self.tileset:
             return
         for y in range(self.tinggi):
@@ -150,15 +166,17 @@ class Tilemap:
                 tile_id = self.data[y][x]
                 tile = self.tileset.dapatkan_tile(tile_id)
                 self.solid_map[y][x] = bool(tile and tile.solid)
+                self.satu_arah_map[y][x] = bool(tile and tile.satu_arah)
 
     def atur(self, x, y, tile_id):
         """Mengatur tile di posisi (x, y)."""
         if 0 <= x < self.lebar and 0 <= y < self.tinggi:
             self.data[y][x] = tile_id
-            # Update solid map
+            # Update solid map & satu arah map
             if self.tileset:
                 tile = self.tileset.dapatkan_tile(tile_id)
                 self.solid_map[y][x] = bool(tile and tile.solid)
+                self.satu_arah_map[y][x] = bool(tile and tile.satu_arah)
 
     def dapatkan(self, x, y):
         """Mendapatkan tile id di posisi (x, y)."""
@@ -278,9 +296,78 @@ class Tilemap:
         tx, ty = self.pixel_ke_tile(px, py)
         return self.is_solid(tx, ty + 1)
 
+    # ================= Platform Satu Arah (v8.1) =================
+
+    def tandai_satu_arah(self, tx, ty, satu_arah=True):
+        """Tandai tile (koordinat tile) sebagai platform satu arah.
+
+        Platform satu arah: bisa dipijak saat jatuh, tapi bisa dilompati
+        dari bawah (umum di platformer).
+        """
+        if 0 <= tx < self.lebar and 0 <= ty < self.tinggi:
+            self.satu_arah_map[ty][tx] = bool(satu_arah)
+        return self
+
+    def cek_satu_arah(self, tx, ty):
+        """Apakah tile (koordinat tile) adalah platform satu arah?"""
+        if 0 <= tx < self.lebar and 0 <= ty < self.tinggi:
+            return self.satu_arah_map[ty][tx]
+        return False
+
+    def cek_lantai_satu_arah(self, px, py, kecepatan_y=0.0):
+        """Cek pijakan platform satu arah tepat di bawah titik (px, py).
+
+        Hanya mendarat saat JATUH (kecepatan_y >= 0) — saat melompat ke
+        atas (kecepatan_y < 0) platform ditembus.
+
+        Returns:
+            True bila ada platform satu arah di bawah & karakter jatuh.
+        """
+        if kecepatan_y < 0:
+            return False  # melompat ke atas -> tembus
+        tx, ty = self.pixel_ke_tile(px, py)
+        return self.cek_satu_arah(tx, ty + 1)
+
+    # ================= Platform Bergerak (v8.1) =================
+
+    def tambah_platform_bergerak(self, x1, y1, x2, y2, kecepatan=60.0,
+                                 lebar=96, tinggi=16, warna="hijau"):
+        """Tambah platform yang bergerak bolak-balik antara dua titik.
+
+        Args:
+            x1, y1: Titik awal (pixel).
+            x2, y2: Titik akhir (pixel).
+            kecepatan: Kecepatan gerak (pixel/detik).
+            lebar, tinggi: Ukuran platform.
+            warna: Warna platform.
+
+        Returns:
+            Objek PlatformBergerak yang ditambahkan.
+        """
+        p = PlatformBergerak(x1, y1, x2, y2, kecepatan, lebar, tinggi, warna)
+        self.platform_bergerak.append(p)
+        return p
+
+    def dorong_bodi(self, bodi, dt):
+        """Bawa objek yang berdiri di atas platform bergerak (v8.1).
+
+        Args:
+            bodi: Objek dengan atribut x, y, lebar, tinggi (pixel).
+            dt: Delta time.
+        """
+        for p in self.platform_bergerak:
+            if not p.aktif:
+                continue
+            if (bodi.x + bodi.lebar > p.x and bodi.x < p.x + p.lebar and
+                    abs((bodi.y + bodi.tinggi) - p.y) < 10):
+                bodi.x += p._vx * dt
+                bodi.y += p._vy * dt
+
     def update(self, dt):
-        """Majukan timer animasi tile — panggil tiap frame — v6.6."""
+        """Majukan timer animasi tile & platform bergerak — panggil tiap frame."""
         self._waktu_animasi += dt
+        for p in self.platform_bergerak:
+            p.update(dt)
 
     def _frame_tile(self, tile_id):
         """Tile id yang sedang tampil (memperhitungkan animasi)."""
@@ -410,11 +497,96 @@ class Tilemap:
         self.lebar = lebar
         self.tinggi = tinggi
         self.solid_map = [[False] * lebar for _ in range(tinggi)]
+        self.satu_arah_map = [[False] * lebar for _ in range(tinggi)]
         self._refresh_solid_map()
 
     def banyak_tile(self, tile_id) -> int:
         """Jumlah kemunculan sebuah tile id di peta."""
         return sum(row.count(tile_id) for row in self.data)
+
+
+class PlatformBergerak:
+    """Platform yang bergerak bolak-balik antara dua titik (v8.1).
+
+    Dipakai lewat `peta.tambah_platform_bergerak(...)` atau langsung.
+    Panggil `update(dt)` tiap frame; gerakannya otomatis bolak-balik.
+    """
+
+    def __init__(self, x1, y1, x2, y2, kecepatan=60.0,
+                 lebar=96, tinggi=16, warna="hijau"):
+        self.x1 = float(x1)
+        self.y1 = float(y1)
+        self.x2 = float(x2)
+        self.y2 = float(y2)
+        self.kecepatan = float(kecepatan)
+        self.lebar = int(lebar)
+        self.tinggi = int(tinggi)
+        self.warna = warna
+        self.x = self.x1
+        self.y = self.y1
+        self._t = 0.0           # parameter posisi 0..1 sepanjang lintasan
+        self._arah = 1          # 1 = menuju akhir, -1 = kembali ke awal
+        self._vx = 0.0          # kecepatan saat ini (pixel/detik)
+        self._vy = 0.0
+        self.aktif = True
+
+    def update(self, dt):
+        """Majukan platform sepanjang lintasan; kembali saat sampai ujung.
+
+        Bila mencapai ujung di tengah frame, platform LANGSUNG berbalik
+        dan sisa waktu dipakai untuk arah sebaliknya (perilaku game yang
+        benar, bukan menunggu frame berikutnya).
+        """
+        dx = self.x2 - self.x1
+        dy = self.y2 - self.y1
+        jarak = (dx * dx + dy * dy) ** 0.5
+        if jarak <= 0.0001 or not self.aktif:
+            self._vx = 0.0
+            self._vy = 0.0
+            return self
+        sisa = float(dt)
+        while sisa > 0.000001:
+            langkah = self.kecepatan * sisa / jarak * self._arah
+            t_baru = self._t + langkah
+            if self._arah > 0 and t_baru >= 1.0:
+                dipakai = (1.0 - self._t) * jarak / self.kecepatan
+                self._t = 1.0
+                sisa -= dipakai
+                self._arah = -1
+            elif self._arah < 0 and t_baru <= 0.0:
+                dipakai = self._t * jarak / self.kecepatan
+                self._t = 0.0
+                sisa -= dipakai
+                self._arah = 1
+            else:
+                self._t = t_baru
+                sisa = 0.0
+        x_baru = self.x1 + dx * self._t
+        y_baru = self.y1 + dy * self._t
+        if float(dt) > 0:
+            self._vx = (x_baru - self.x) / float(dt)
+            self._vy = (y_baru - self.y) / float(dt)
+        self.x = x_baru
+        self.y = y_baru
+        return self
+
+    def posisi(self):
+        """Posisi kiri-atas platform saat ini (x, y)."""
+        return (self.x, self.y)
+
+    def kecepatan_sekarang(self):
+        """Kecepatan platform saat ini (vx, vy) dalam pixel/detik."""
+        return (self._vx, self._vy)
+
+    def reset(self):
+        """Kembalikan platform ke titik awal."""
+        self._t = 0.0
+        self._arah = 1
+        self.x = self.x1
+        self.y = self.y1
+        self._vx = 0.0
+        self._vy = 0.0
+        return self
 
 
 def buat_peta(lebar=20, tinggi=15, ukuran_tile=32):
@@ -457,6 +629,7 @@ module = SimpleNamespace(
     Tilemap=Tilemap,
     Tile=Tile,
     Tileset=Tileset,
+    PlatformBergerak=PlatformBergerak,
     buat_peta=buat_peta,
     buat_tileset=buat_tileset,
     dari_file=dari_file,

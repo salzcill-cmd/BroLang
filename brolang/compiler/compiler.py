@@ -453,8 +453,17 @@ class PythonCodeGenerator(ASTVisitor):
         return f"{target}[{index}]"
 
     def visit_ObjectNode(self, node: ObjectNode) -> str:
-        entries = ", ".join(f"{repr(k)}: {self._expr(v)}" for k, v in node.entries.items())
-        return "{" + entries + "}"
+        if not node.spreads:
+            entries = ", ".join(f"{repr(k)}: {self._expr(v)}" for k, v in node.entries.items())
+            return "{" + entries + "}"
+        # v8.0: spread objek {...a, "b": 1} — pertahankan urutan sumber.
+        parts = []
+        for kind, payload in node.order:
+            if kind == "spread":
+                parts.append(f"**{self._expr(node.spreads[payload])}")
+            else:
+                parts.append(f"{repr(payload)}: {self._expr(node.entries[payload])}")
+        return "{" + ", ".join(parts) + "}"
 
     def visit_AttributeNode(self, node: AttributeNode) -> str:
         obj = self._expr(node.object)
@@ -570,7 +579,11 @@ class PythonCodeGenerator(ASTVisitor):
         self.indent_level -= 1
 
         for clause in node.except_clauses:
-            if clause.exception_type:
+            if clause.exception_types:
+                # v8.0: kecuali (A, B) sebagai e
+                exc = "(" + ", ".join(clause.exception_types) + ")"
+                self._emit(f"except {exc} as {clause.variable}:")
+            elif clause.exception_type:
                 self._emit(f"except {clause.exception_type} as {clause.variable}:")
             else:
                 self._emit(f"except Exception as {clause.variable}:")
