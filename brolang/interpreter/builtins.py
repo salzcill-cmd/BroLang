@@ -238,6 +238,101 @@ def builtin_hentikan_iterasi():
     raise StopIteration("Iterasi berhenti")
 
 
+# v8.2: properti decorator — clean getter/setter syntax
+class _Property:
+    """Objek properti yang mengikat getter & setter ke nama atribut.
+
+    Digunakan oleh `properti` decorator:
+        @properti
+        fungsi nama(self)
+            kembali self._nama
+        selesai
+
+    Atau dengan getter + setter:
+        @properti
+        fungsi nama(self)
+            kembali self._nama
+        selesai
+        @nama.setter
+        fungsi nama_set(self, v)
+            self._nama = v
+        selesai
+    """
+
+    def __init__(self, fget=None, fset=None, name=None):
+        self.fget = fget
+        self.fset = fset
+        self.name = name  # diisi saat dekorasi
+
+    def getter(self, func):
+        """Dekorasi getter baru: @nama.getter"""
+        self.fget = func
+        return self
+
+    def setter(self, func):
+        """Dekorasi setter baru: @nama.setter"""
+        self.fset = func
+        return self
+
+
+def builtin_properti(func_or_fget=None):
+    """properti(fget) atau @properti — dekorator properti untuk kelas.
+
+    v8.2: Sintaks bersih untuk getter/setter:
+
+        kelas Suhu
+            fungsi __init__(self, derajat)
+                self._derajat = derajat
+            selesai
+
+            @properti
+            fungsi derajat(self)
+                kembali self._derajat
+            selesai
+
+            @derajat.setter
+            fungsi set_derajat(self, v)
+                self._derajat = v
+            selesai
+        selesai
+
+        buat s = Suhu(36)
+        tulis s.derajat       # 36 (getter)
+        s.derajat = 37        # setter
+        tulis s.derajat       # 37
+
+    Bisa dipakai tanpa setter (read-only) atau dengan setter.
+    """
+    if func_or_fget is not None and callable(func_or_fget):
+        # @properti tanpa argumen — fget = func_or_fget
+        prop = _Property(fget=func_or_fget)
+        prop.name = func_or_fget.__name__
+        return prop
+
+    # properti(fget) — mode fungsi biasa
+    def decorator(fget):
+        prop = _Property(fget=fget)
+        prop.name = fget.__name__
+        return prop
+    return decorator
+
+
+# v8.2: _Property juga harus di-expose untuk setter decorator
+def builtin_properti_setter(prop):
+    """Helper internal: buat setter decorator dari properti object.
+
+    Dipanggil dari interpreter saat melihat `@nama.setter` pada method
+    dalam kelas. Mengembalikan fungsi decorator yang menerima setter
+    function dan mengembalikan properti object yang sudah di-update.
+    """
+    def decorator(func):
+        if isinstance(prop, _Property):
+            prop.fset = func
+            return prop
+        return prop
+    return decorator
+
+
 BUILTINS: Dict[str, Any] = {
     "len": builtin_len,
     "panjang": builtin_len,
@@ -274,4 +369,7 @@ BUILTINS: Dict[str, Any] = {
     "pastikan": builtin_pastikan,
     # Iterator
     "hentikan_iterasi": builtin_hentikan_iterasi,
+    # v8.2: properti decorator
+    "properti": builtin_properti,
+    "_Property": _Property,
 }

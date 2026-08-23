@@ -1098,7 +1098,7 @@ class Parser:
 
         body = self._parse_block()
 
-        # Parse methods from body, handling statis modifier
+        # Parse methods from body, handling statis modifier and decorators (v8.2)
         methods = []
         for stmt in body:
             if isinstance(stmt, FunctionNode):
@@ -1113,6 +1113,10 @@ class Parser:
                         column=stmt.column,
                     )
                 )
+            elif isinstance(stmt, DecoratedFunctionNode):
+                # v8.2: decorated functions in class body — store as-is
+                # so interpreter can detect @properti and register properties
+                pass  # kept in body for interpreter processing
 
         self._expect(
             TokenType.TOKEN_SELESAI,

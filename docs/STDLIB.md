@@ -900,3 +900,7 @@ Encoding (base64/32, hex, bin, url, html) + konversi tipe.
 | `dialog` | Sistem dialog — mesin ketik, nama pembicara, pilihan bercabang (v8.1) |
 | `ai` | AI musuh — FSM + steering kejar/lari/tiba/jelajah/hindari (v8.1) |
 | `misi` | Quest & achievement — Misi, Pencapaian, ManajerMisi (v8.1) |
+| `statistik` | Statistik — rerata, median, modus, varians, simpangan_baku, korelasi (v8.2) |
+| `zaman` | Timer — Stopwatch, Timer, sekarang, berlalu, uman (v8.2) |
+| `penampilan` | Pretty print — tabel, daftar, pohon, angka, JSON, progress bar (v8.2) |
+| `warna` | Warna terminal — ANSI, gradient, rainbow, kotak, konversi hex/RGB (v8.2) |

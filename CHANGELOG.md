@@ -4,6 +4,54 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [8.2.0] - 2026-08-23
+
+### Added — Fitur Bahasa & Stdlib Baru ✨
+
+**`properti` decorator** — Sintaks bersih untuk getter/setter di kelas:
+- `@properti` pada fungsi method untuk mendefinisikan property getter
+- `@nama.setter` untuk mendefinisikan property setter
+- Read-only property (tanpa setter) otomatis error saat penulisan
+- Kompatibel dengan validasi di setter (mis. cek nilai >= 0)
+- Didukung di interpreter (transpiler & VM: fallback ke konvensi `_<nama>()` / `_<nama>_set(v)`)
+
+**Modul `statistik`** — Fungsi statistik dasar:
+- `rerata()`, `median()`, `modus()`, `modus_satu()`
+- `variance()`, `simpangan_baku()` (populasi/sampel)
+- `kuartil()`, `persentil()`, `korelasi()` (Pearson)
+- `rank()`, `ringkasan()` (ringkasan lengkap)
+
+**Modul `zaman`** — Timer & stopwatch:
+- `Stopwatch` — mulai, berhenti, lap, reset, context manager
+- `Timer` — countdown dengan sisa, habis, persentase
+- `sekarang()`, `sekarang_unix()`, `berlalu()`, `tidur()`
+- `uman()` — format waktu manusiawi ("1j 2m 5d")
+- `detik_milidetik()` — format detik + milidetik
+
+**Modul `penampilan`** — Pretty print & format data:
+- `tabel()` — format list objek sebagai tabel ASCII
+- `daftar()` — bullet, nomor, letter, roman
+- `pohon()` — tree view recursive
+- `angka()`, `angka_desimal()`, `persen()` — format angka
+- `kvp()` — key-value pair formatting
+- `json_indented()` — JSON terformat
+- `horizontal()` — progress bar ASCII
+- `bernomic()` — daftar bernomor
+
+**Modul `warna`** — Warna terminal ANSI:
+- Fungsi shortcut: `merah()`, `hijau()`, `biru()`, `kuning()`, dll.
+- `ansi()` — custom ANSI styling (huruf, latar, tebal, miring)
+- `rgb_to_hex()`, `hex_to_rgb()` — konversi warna
+- `gradient()` — gradient per karakter
+- `rainbow()` — warna pelangi
+- `kotak()`, `bingkai()` — bungkus teks dalam kotak (sederhana/ganda/tebal/bulat)
+- `garis()`, `judul()` — dekorasi
+- `tebal()`, `miring()`, `garis_bawah()`, `dim()` — styling teks
+
+### Tests
+- 58 test cases baru (5 properti + 15 statistik + 10 zaman + 14 penampilan + 15 warna)
+- 1346 total test cases, semua passing
+
 ## [8.1.0] - 2026-08-17
 
 ### Added — Game Dev Upgrade 🎮

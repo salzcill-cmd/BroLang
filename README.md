@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-8.1-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/badge/version-8.2-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v8.1</h1>
+<h1 align="center">BroLang v8.2</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/1288-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/1346-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/115+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/135+Token%20Types-purple?style=flat-square" alt="tokens"/>
-  <img src="https://img.shields.io/badge/48+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
+  <img src="https://img.shields.io/badge/52+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
 </p>
 
 ---
@@ -45,10 +45,99 @@ pip install git+https://github.com/salzcill-cmd/BroLang.git
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 8.1.0
+bro --version    # BroLang 8.2.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v8.2? ✨
+
+### `properti` Decorator — Getter/Clean Setter
+
+Sintaks bersih untuk getter/setter di kelas, mirip Python `@property`:
+
+```bro
+kelas Suhu
+    fungsi __init__(self, derajat)
+        self._derajat = derajat
+    selesai
+
+    @properti
+    fungsi derajat(self)
+        kembali self._derajat
+    selesai
+
+    @derajat.setter
+    fungsi set_derajat(self, v)
+        self._derajat = v
+    selesai
+selesai
+
+buat s = Suhu(36)
+tulis s.derajat       # 36 (getter)
+s.derajat = 37        # setter
+tulis s.derajat       # 37
+```
+
+### 4 Modul Stdlib Baru 🧩
+
+**`statistik`** — Fungsi statistik dasar:
+```bro
+impor statistik
+buat data = [10, 20, 30, 40, 50]
+tulis statistik.rerata(data)          # 30.0
+tulis statistik.median(data)          # 30
+tulis statistik.modus([1, 1, 2, 3])   # [1]
+tulis statistik.simpangan_baku(data)  # 14.14...
+tulis statistik.korelasi(x, y)        # Korelasi Pearson
+tulis statistik.ringkasan(data)       # Ringkasan lengkap
+```
+
+**`zaman`** — Timer & stopwatch:
+```bro
+impor zaman
+
+# Stopwatch
+buat sw = zaman.Stopwatch()
+sw.mulai()
+# ... kode ... sw.berhenti()
+tulis sw.detik                           # waktu berlalu (detik)
+tulis zaman.uman(3725)                   # "1j 2m 5d"
+
+# Timer countdown
+buat timer = zaman.Timer(5.0)
+timer.mulai()
+tulis timer.sisa()                       # sisa waktu
+tulis timer.habis                        # sudah habis?
+
+# Waktu berlalu
+tulis zaman.berlalu(t0)                  # detik sejak t0
+```
+
+**`penampilan`** — Pretty print & format data:
+```bro
+impor penampilan
+tulis penampilan.angka(1234567)          # "1,234,567"
+tulis penampilan.tabel([{"nama": "Budi"}])  # Tabel ASCII
+tulis penampilan.pohon(objek)            # Pohon / tree view
+tulis penampilan.horizontal(0.7)         # [███████░░░] 70%
+tulis penampilan.json_indented(objek)    # JSON terformat
+```
+
+**`warna`** — Warna terminal ANSI, gradient, kotak:
+```bro
+impor warna
+tulis warna.merah("Error!")              # Teks merah
+tulis warna.hijau("Sukses!")             # Teks hijau
+tulis warna.gradient("Halo!", (255,0,0), (0,0,255))  # Gradient RGB
+tulis warna.kotak("Penting")             # Kotak di sekitar teks
+tulis warna.rainbow("BroLang!")          # Teks pelangi
+tulis warna.rgb_to_hex(255, 128, 0)       # "#ff8000"
+```
+
+Semua fitur v8.2 tersedia di interpreter. 58 test cases baru.
 
 ---
 
@@ -1490,7 +1579,7 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v8.1** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v8.2** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>

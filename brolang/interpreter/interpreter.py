@@ -144,7 +144,7 @@ from brolang.exceptions import (
 )
 from brolang.exceptions import BroLangError as _BroLangErrorBase
 from brolang.stdlib import get_stdlib_module
-from brolang.interpreter.builtins import BUILTINS
+from brolang.interpreter.builtins import BUILTINS, _Property
 from brolang.suggestions import saran_keyword
 
 
@@ -374,6 +374,7 @@ class BroLangClass:
         abstract_methods: Optional[List[str]] = None,
         required_interfaces: Optional[List[str]] = None,
         method_access: Optional[Dict[str, str]] = None,
+        properties: Optional[Dict[str, Any]] = None,  # v8.2
     ):
         self.name = name
         self.methods = methods
@@ -382,6 +383,7 @@ class BroLangClass:
         self.abstract_methods = abstract_methods or []
         self.required_interfaces = required_interfaces or []
         self.method_access = method_access or {}  # name -> "publik"/"privat"/"terlindungi"
+        self.properties = properties or {}  # v8.2: {nama: _Property}
 
     def get_method(self, name: str) -> Optional[Callable]:
         if name in self.methods:
@@ -408,7 +410,12 @@ class BroLangInstance:
     def get(self, name: str, caller_class: Optional[str] = None) -> Any:
         if name in self.attributes:
             return self.attributes[name]
-        # Property getter: _<name> method
+        # v8.2: properti decorator — check properties dict first
+        if name in self.klass.properties:
+            prop = self.klass.properties[name]
+            if prop.fget is not None:
+                return prop.fget(self)
+        # Property getter: _<name> method (backward compat)
         prop_getter = self.klass.get_method(f"_{name}")
         if prop_getter is not None:
             return prop_getter(self)
@@ -441,7 +448,19 @@ class BroLangInstance:
         )
 
     def set(self, name: str, value: Any) -> None:
-        # Property setter: _<name>_set method
+        # v8.2: properti decorator — check properties dict first
+        if name in self.klass.properties:
+            prop = self.klass.properties[name]
+            if prop.fset is not None:
+                prop.fset(self, value)
+                return
+            # read-only property: no setter defined → error
+            raise RuntimeError_(
+                message=f"Properti '{name}' hanya bisa dibaca (read-only).",
+                line=0, column=0,
+                solution=f"Tambahkan setter untuk properti '{name}' atau hapus percobaan penulisan.",
+            )
+        # Property setter: _<name>_set method (backward compat)
         prop_setter = self.klass.get_method(f"_{name}_set")
         if prop_setter is not None:
             prop_setter(self, value)
@@ -1780,6 +1799,8 @@ class Interpreter(ASTVisitor):
         old_class_name = self._current_class_name
         self._current_class_name = node.name
 
+        # v8.2: properti decorator — collect property getters/setters
+        properties = {}
         for stmt in node.body:
             if isinstance(stmt, AccessModifierNode):
                 modifier = stmt.modifier
@@ -1796,6 +1817,38 @@ class Interpreter(ASTVisitor):
                 method_func = self._create_method(stmt)
                 methods[stmt.name] = method_func
                 method_access[stmt.name] = "publik"
+            elif isinstance(stmt, DecoratedFunctionNode):
+                # v8.2: check if any decorator is `properti` or `X.setter`
+                handled = False
+                for dec_expr in stmt.decorators:
+                    # Check for @X.setter decorator pattern — syntactic
+                    if isinstance(dec_expr, ObjectAccessNode):
+                        prop_name = dec_expr.object.name if isinstance(dec_expr.object, IdentifierNode) else None
+                        if prop_name and prop_name in properties and dec_expr.property == 'setter':
+                            method_func = self._create_method(stmt)
+                            properties[prop_name].fset = method_func
+                            handled = True
+                            break
+                    # Otherwise evaluate decorator normally
+                    dec_func = self.visit(dec_expr)
+                    method_func = self._create_method(stmt)
+                    result = dec_func(method_func) if callable(dec_func) else dec_func
+                    if isinstance(result, _Property):
+                        # @properti — property getter; always use stmt.name
+                        prop_name = stmt.name
+                        properties[prop_name] = result
+                        result.name = prop_name
+                        handled = True
+                        break
+                if not handled:
+                    # Non-property decorator — apply normally and add as method
+                    func = self._create_method(stmt)
+                    for dec_expr in reversed(stmt.decorators):
+                        dec_func = self.visit(dec_expr)
+                        if callable(dec_func):
+                            func = dec_func(func)
+                    methods[stmt.name] = func
+                    method_access[stmt.name] = "publik"
 
         parent_class = None
         if node.parent:
@@ -1814,6 +1867,7 @@ class Interpreter(ASTVisitor):
             abstract_methods=abstract_methods,
             required_interfaces=required_interfaces,
             method_access=method_access,
+            properties=properties,
         )
 
         # Cek interface enforcement
