@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-8.2-blue?style=for-the-badge&logo=python&logoColor=white" alt="version"/>
+  <img src="https://img.shields.io/pypi/v/brolang?style=for-the-badge&logo=pypi&logoColor=white" alt="PyPI"/>
   <img src="https://img.shields.io/badge/python-3.10+-green?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/license-MIT-orange?style=for-the-badge" alt="license"/>
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
@@ -23,24 +23,24 @@
 
 ## Quick Start
 
-### Cara 1: Install dengan script (recommended)
+### Cara 1: Install dari PyPI (paling gampang)
 ```bash
-git clone https://github.com/salzcill-cmd/BroLang.git
-cd BroLang
-chmod +x install.sh
-./install.sh
+pip install brolang
 ```
 
-### Cara 2: Install manual
+### Cara 2: Install dari source
 ```bash
 git clone https://github.com/salzcill-cmd/BroLang.git
 cd BroLang
 pip install -e .
 ```
 
-### Cara 3: Install langsung dari GitHub
+### Cara 3: Install dengan script
 ```bash
-pip install git+https://github.com/salzcill-cmd/BroLang.git
+git clone https://github.com/salzcill-cmd/BroLang.git
+cd BroLang
+chmod +x install.sh
+./install.sh
 ```
 
 ### Cek apakah udah jalan
@@ -1555,7 +1555,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**1288 test cases, semua passing!** (termasuk 48 test v8.1: object pooling, simpan/muat, dialog, AI FSM+steering, platform satu arah & bergerak, quest/achievement; 32 test v8.0: spread objek, ??=, kecuali multi-tipe + error kustom di VM, konsistensi VM; 32 test v7.2; 10 test yield di dalam `coba`/`tangkap` di generator; 8 test perbaikan `hasilkandari` yield-from; 43 test v6.9: guard clause statement umum; 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
+**1346 test cases, semua passing!** (termasuk 58 test v8.2: properti decorator, statistik, zaman, penampilan, warna; 48 test v8.1: object pooling, simpan/muat, dialog, AI FSM+steering, platform satu arah & bergerak, quest/achievement; 32 test v8.0: spread objek, ??=, kecuali multi-tipe + error kustom di VM, konsistensi VM; 32 test v7.2; 10 test yield di dalam `coba`/`tangkap` di generator; 8 test perbaikan `hasilkandari` yield-from; 43 test v6.9: guard clause statement umum; 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
 
 ---
 
