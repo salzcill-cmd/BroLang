@@ -18,6 +18,8 @@ from brolang.ast.nodes import (
     ComprehensionNode,
     ContinueNode,
     DecimalNode,
+    DecoratedClassNode,
+    DecoratedFunctionNode,
     DelNode,
     DestructuringAssignmentNode,
     DictComprehensionNode,
@@ -260,6 +262,9 @@ class Compiler:
         # sebagai global (RuntimeError "belum didefinisikan").
         self._enclosing_locals: List[Dict[str, int]] = []
         self._free_local_idx = -1  # slot lokal parent untuk free var terakhir
+        # v9.0: track global/nonlocal declarations per function scope
+        self._global_vars: set = set()  # names declared with `global`
+        self._nonlocal_vars: set = set()  # names declared with `nonlocal`
 
     def compile(self, node: ASTNode) -> Bytecode:
         """Compile AST ke bytecode."""
@@ -332,6 +337,10 @@ class Compiler:
             self._emit_with(node)
         elif isinstance(node, ClassNode):
             self._emit_class(node)
+        elif isinstance(node, DecoratedClassNode):
+            self._emit_decorated_class(node)
+        elif isinstance(node, DecoratedFunctionNode):
+            self._emit_decorated_function(node)
         elif isinstance(node, ReturnNode):
             self._emit_return(node)
         elif isinstance(node, IfNode):
@@ -383,9 +392,13 @@ class Compiler:
         elif isinstance(node, FromImportNode):
             self._emit_import(node)
         elif isinstance(node, GlobalNode):
-            pass  # Handled during compilation
+            # v9.0: register global variable declarations
+            for name in node.names:
+                self._global_vars.add(name)
         elif isinstance(node, NonlocalNode):
-            pass
+            # v9.0: register nonlocal variable declarations
+            for name in node.names:
+                self._nonlocal_vars.add(name)
         elif isinstance(node, EnumNode):
             self._emit_enum(node)
         elif isinstance(node, StructNode):
@@ -688,20 +701,34 @@ class Compiler:
             if self.scope_depth == 0:
                 idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.DEFINE_GLOBAL, idx, node.line, node.column)
+            elif name in self._global_vars:
+                # v9.0: `global x` — use global store even inside function
+                idx = self.bytecode.add_name(name)
+                self.bytecode.add(Op.STORE_GLOBAL, idx, node.line, node.column)
+            elif name in self._nonlocal_vars:
+                # v9.0: `nonlocal x` — use deref store to parent scope
+                self.bytecode.add(Op.STORE_DEREF, self._free_local_idx, node.line, node.column)
             else:
                 idx = self._add_local(name)
                 self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
         else:
-            loc = self._resolve_name(name)
-            if loc == "local":
-                idx = self._get_local_idx(name)
-                self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
-            elif loc == "free":
-                # v7.2: slot lokal parent (closure).
-                self.bytecode.add(Op.STORE_DEREF, self._free_local_idx, node.line, node.column)
-            else:
+            # v9.0: check global/nonlocal declarations first
+            if name in self._global_vars:
                 idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.STORE_GLOBAL, idx, node.line, node.column)
+            elif name in self._nonlocal_vars:
+                self.bytecode.add(Op.STORE_DEREF, self._free_local_idx, node.line, node.column)
+            else:
+                loc = self._resolve_name(name)
+                if loc == "local":
+                    idx = self._get_local_idx(name)
+                    self.bytecode.add(Op.STORE_LOCAL, idx, node.line, node.column)
+                elif loc == "free":
+                    # v7.2: slot lokal parent (closure).
+                    self.bytecode.add(Op.STORE_DEREF, self._free_local_idx, node.line, node.column)
+                else:
+                    idx = self.bytecode.add_name(name)
+                    self.bytecode.add(Op.STORE_GLOBAL, idx, node.line, node.column)
 
     def _get_assign_name(self, node: AssignmentNode) -> str:
         if isinstance(node.target, IdentifierNode):
@@ -727,12 +754,16 @@ class Compiler:
         saved_depth = self.scope_depth
         saved_enclosing = self._enclosing_locals
         saved_peak = self._peak_locals
+        saved_global = self._global_vars
+        saved_nonlocal = self._nonlocal_vars
 
         self.bytecode = Bytecode()
         self.scope_depth += 1
         self.locals = []
         self._peak_locals = 0
         self.free_vars = []
+        self._global_vars = set()
+        self._nonlocal_vars = set()
         # v7.2: scope fungsi enclosing = lokal saat ini (indeks = slot lokal
         # di frame parent — VM memakai ini untuk closure).
         self._enclosing_locals = list(self._enclosing_locals)
@@ -768,6 +799,8 @@ class Compiler:
         self.free_vars = saved_free
         self.scope_depth = saved_depth
         self._enclosing_locals = saved_enclosing
+        self._global_vars = saved_global
+        self._nonlocal_vars = saved_nonlocal
 
         # Emit closure in parent scope
         const_idx = self.bytecode.add_const(func_bytecode)
@@ -782,10 +815,19 @@ class Compiler:
             param_names.append(node.rest_param)
 
         # Create closure instruction (v7.2: is_generator flag untuk generator)
+        # v9.0: include free_var_mapping — list of (name, parent_slot_idx)
+        # so CLOSURE opcode can initialize cells with parent frame values.
+        free_var_mapping = []
+        if captured_free:
+            # Build mapping from free var names to parent local slot indices
+            parent_locals = {name: idx for idx, (name, _) in enumerate(saved_locals)}
+            for fv_name in captured_free:
+                if fv_name in parent_locals:
+                    free_var_mapping.append((fv_name, parent_locals[fv_name]))
         self.bytecode.add(
             Op.CLOSURE,
             (const_idx, param_count, has_defaults, rest_pos, is_async,
-             tuple(param_names), is_generator),
+             tuple(param_names), is_generator, tuple(free_var_mapping)),
             node.line, node.column,
         )
 
@@ -910,6 +952,48 @@ class Compiler:
         # Store class
         name_idx = self.bytecode.add_name(node.name)
         self.bytecode.add(Op.DEFINE_GLOBAL, name_idx, node.line, node.column)
+
+    def _emit_decorated_class(self, node: DecoratedClassNode):
+        """Emit decorated class: apply decorators in reverse order."""
+        # Compile the class body first
+        class_node = node.class_node
+
+        # Emit parent class if any
+        if class_node.parent:
+            idx = self.bytecode.add_name(class_node.parent)
+            self.bytecode.add(Op.LOAD_GLOBAL, idx, class_node.line, class_node.column)
+        else:
+            self.bytecode.add(Op.PUSH_NONE)
+
+        # Collect method bytecodes
+        methods = self._compile_methods(class_node.methods)
+
+        idx = self.bytecode.add_const((class_node.name, methods))
+        self.bytecode.add(Op.MAKE_CLASS, idx, class_node.line, class_node.column)
+
+        # Apply decorators in reverse order
+        for decorator in reversed(node.decorators):
+            self._emit_expr(decorator)
+            self.bytecode.add(Op.CALL, 1, class_node.line, class_node.column)
+
+        # Store class
+        name_idx = self.bytecode.add_name(class_node.name)
+        self.bytecode.add(Op.DEFINE_GLOBAL, name_idx, class_node.line, class_node.column)
+
+    def _emit_decorated_function(self, node: DecoratedFunctionNode):
+        """Emit decorated function: apply decorators in reverse order."""
+        func_node = node.func_node
+
+        # Emit the function
+        self._emit_function(func_node)
+
+        # Apply decorators in reverse order
+        for decorator in reversed(node.decorators):
+            self.bytecode.add(Op.DUP)
+            self._emit_expr(decorator)
+            self.bytecode.add(Op.CALL, 1, func_node.line, func_node.column)
+            name_idx = self.bytecode.add_name(func_node.name)
+            self.bytecode.add(Op.STORE_GLOBAL, name_idx, func_node.line, func_node.column)
 
     # ============= Control Flow =============
 
@@ -1658,16 +1742,23 @@ class Compiler:
 
         elif isinstance(node, (IdentifierNode, VariableNode)):
             name = node.name
-            loc = self._resolve_name(name)
-            if loc == "local":
-                idx = self._get_local_idx(name)
-                self.bytecode.add(Op.LOAD_LOCAL, idx, node.line, node.column)
-            elif loc == "free":
-                # v7.2: slot lokal parent (closure).
-                self.bytecode.add(Op.LOAD_DEREF, self._free_local_idx, node.line, node.column)
-            else:
+            # v9.0: check global/nonlocal declarations first
+            if name in self._global_vars:
                 idx = self.bytecode.add_name(name)
                 self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
+            elif name in self._nonlocal_vars:
+                self.bytecode.add(Op.LOAD_DEREF, self._free_local_idx, node.line, node.column)
+            else:
+                loc = self._resolve_name(name)
+                if loc == "local":
+                    idx = self._get_local_idx(name)
+                    self.bytecode.add(Op.LOAD_LOCAL, idx, node.line, node.column)
+                elif loc == "free":
+                    # v7.2: slot lokal parent (closure).
+                    self.bytecode.add(Op.LOAD_DEREF, self._free_local_idx, node.line, node.column)
+                else:
+                    idx = self.bytecode.add_name(name)
+                    self.bytecode.add(Op.LOAD_GLOBAL, idx, node.line, node.column)
 
         elif isinstance(node, BinaryOpNode):
             self._emit_binary_op(node)
@@ -1899,6 +1990,11 @@ class Compiler:
             "is": Op.IS_OP,
             "dan": Op.AND,
             "atau": Op.OR,
+            "&": Op.BAND,
+            "|": Op.BOR,
+            "^": Op.BXOR,
+            "<<": Op.LSHIFT,
+            ">>": Op.RSHIFT,
         }
         op = op_map.get(node.operator)
         if op:
@@ -2552,6 +2648,8 @@ class Compiler:
         slot-nya dicatat di `_free_local_idx` — VM memakai indeks itu untuk
         membaca snapshot locals parent (frame.closure). Sebelumnya free_vars
         tidak pernah diisi sehingga closure rusak.
+        v9.0: register ke free_vars saat resolve sebagai free agar CLOSURE
+        opcode tahu berapa cell yang harus dibuat.
         """
         # Check locals (most recent first)
         for i in range(len(self.locals) - 1, -1, -1):
@@ -2561,6 +2659,9 @@ class Compiler:
         for scope in reversed(self._enclosing_locals):
             if name in scope:
                 self._free_local_idx = scope[name]
+                # v9.0: register as free var for CLOSURE opcode
+                if name not in self.free_vars:
+                    self.free_vars.append(name)
                 return "free"
         # Check free vars (legacy)
         if name in self.free_vars:

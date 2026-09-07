@@ -240,6 +240,16 @@ class TokenType(Enum):
     # valid — parser mengenalinya sebagai soft keyword dalam konteks
     # 'untuk i dari A sampai B langkah S'.
 
+    # v9.0 Keywords — Enhanced Iteration
+    TOKEN_MENGULANG = auto()    # mengulang (enhanced iterator/map-filter shorthand)
+    TOKEN_SEBAGAI_TIPENYA = auto() # sebagai_tipe (for-each with type hint)
+
+    # v9.0 Keywords — Program Entry Point
+    TOKEN_PROGRAM_UTAMA = auto() # program_utama (main entry guard)
+
+    # v9.0 Keywords — Enhanced yield
+    TOKEN_HASILKAN_KE = auto()  # hasilkan_ke (yield to target / send)
+
     # Special
     TOKEN_EOF = auto()
 
@@ -339,6 +349,11 @@ KEYWORDS: dict[str, TokenType] = {
     "ulangi": TokenType.TOKEN_ULANGI,
     "sampai": TokenType.TOKEN_SAMPAI,
     # 'langkah' sengaja tidak di sini — soft keyword (lihat komentar di atas).
+
+    # v9.0 keywords — Enhanced Iteration & Program
+    "mengulang": TokenType.TOKEN_MENGULANG,
+    "program_utama": TokenType.TOKEN_PROGRAM_UTAMA,
+    "hasilkan_ke": TokenType.TOKEN_HASILKAN_KE,
 }
 
 

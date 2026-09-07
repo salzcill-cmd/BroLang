@@ -25,6 +25,14 @@ class _Missing:
 
 _MISSING = _Missing()
 
+# v9.0: String interning cache untuk performa
+_string_intern: Dict[str, str] = {}
+
+# v9.0: Small int cache (-5 to 255) — mirror CPython
+_small_int_cache: Dict[int, int] = {}
+for _i in range(-5, 256):
+    _small_int_cache[_i] = _i
+
 
 def _vm_jenis(exc, nama: str) -> bool:
     """Helper `kecuali Tipe` (v7.0): apakah exception cocok dengan nama tipe.
@@ -320,10 +328,25 @@ def _vm_null_safe_index(target, index):
         return None
 
 
+class _Cell:
+    """Cell variable — wrapper untuk closure variables (v9.0 fix).
+
+    Seperti Python cell variables: parent dan child frame berbagi referensi
+      yang sama ke _Cell, sehingga mutasi di satu frame terlihat di frame lain.
+    """
+    __slots__ = ("value",)
+
+    def __init__(self, value=None):
+        self.value = value
+
+    def __repr__(self):
+        return f"Cell({self.value!r})"
+
+
 class Frame:
     """Execution frame — represents one function call."""
 
-    __slots__ = ("bytecode", "ip", "stack", "locals", "parent", "globals", "closure", "yields")
+    __slots__ = ("bytecode", "ip", "stack", "locals", "parent", "globals", "closure", "yields", "_yield_from_iter")
 
     def __init__(self, bytecode: Bytecode, parent=None, globals_=None, closure=None):
         self.bytecode = bytecode
@@ -338,6 +361,8 @@ class Frame:
         self.closure = closure
         # v7.2: buffer nilai `hasilkan` untuk fungsi generator.
         self.yields = []
+        # v9.0: iterator for lazy YIELD_FROM resumption
+        self._yield_from_iter = None
 
 
 class VM:
@@ -544,11 +569,21 @@ class VM:
                 globals_dict[names[arg]] = _pop()
 
             elif op == _Op.LOAD_DEREF:
-                _append(frame.closure[arg] if frame.closure else None)
+                # v9.0: closure variables are _Cell objects, read .value
+                cell = frame.closure[arg] if frame.closure else None
+                if isinstance(cell, _Cell):
+                    _append(cell.value)
+                else:
+                    _append(cell)
 
             elif op == _Op.STORE_DEREF:
+                # v9.0: closure variables are _Cell objects, write .value
                 if frame.closure:
-                    frame.closure[arg] = stack[-1]
+                    cell = frame.closure[arg]
+                    if isinstance(cell, _Cell):
+                        cell.value = stack[-1]
+                    else:
+                        frame.closure[arg] = stack[-1]
 
             elif op == _Op.ADD:
                 right = _pop()
@@ -580,6 +615,29 @@ class VM:
 
             elif op == _Op.NEG:
                 _append(-_pop())
+
+            elif op == _Op.BAND:
+                right = _pop()
+                _append(_pop() & right)
+
+            elif op == _Op.BOR:
+                right = _pop()
+                _append(_pop() | right)
+
+            elif op == _Op.BXOR:
+                right = _pop()
+                _append(_pop() ^ right)
+
+            elif op == _Op.BNOT:
+                _append(~_pop())
+
+            elif op == _Op.LSHIFT:
+                right = _pop()
+                _append(_pop() << right)
+
+            elif op == _Op.RSHIFT:
+                right = _pop()
+                _append(_pop() >> right)
 
             elif op == _Op.EQ:
                 right = _pop()
@@ -654,9 +712,16 @@ class VM:
                 is_async = arg[4] if len(arg) > 4 else False
                 param_names = arg[5] if len(arg) > 5 else None  # v7.1
                 is_generator = arg[6] if len(arg) > 6 else False  # v7.2
+                free_var_mapping = arg[7] if len(arg) > 7 else ()  # v9.0
                 func_bc = constants[func_bc_idx]
+                # v9.0 fix: closure capture by reference via _Cell objects
+                # Initialize each cell with the parent frame's local value
+                # using the free_var_mapping from the compiler.
+                cells = []
+                for fv_name, parent_slot in free_var_mapping:
+                    cells.append(_Cell(_locals[parent_slot]))
                 closure = VMFunction(
-                    func_bc, param_count, has_defaults, _locals[: len(_locals)],
+                    func_bc, param_count, has_defaults, cells,
                     rest_pos, is_async, param_names, is_generator=is_generator,
                 )
                 # v8.1: referensi VM → fungsi bisa dipanggil dari kode Python
@@ -767,18 +832,69 @@ class VM:
                     _pop()
 
             elif op == _Op.YIELD:
-                # v7.2: hasilkan nilai — append ke buffer generator frame.
-                frame.yields.append(_pop())
+                # v9.0: suspend generator execution — raise to unwind to VMGenerator.__next__
+                val = _pop()
+                frame.ip = ip
+                raise _GeneratorSuspend(val)
 
             elif op == _Op.YIELD_FROM:
-                # v7.2: hasilkan semua nilai dari iterable.
+                # v9.0: yield each value individually (lazy) with suspend
+                if hasattr(frame, '_yield_from_iter') and frame._yield_from_iter is not None:
+                    iterator = frame._yield_from_iter
+                else:
+                    iterable = _pop()
+                    try:
+                        iterator = iter(iterable)
+                    except TypeError:
+                        raise RuntimeError_(
+                            message=f"Objek '{iterable}' tidak bisa di-iterasi untuk hasilkandari."
+                        )
+                while True:
+                    try:
+                        val = next(iterator)
+                    except StopIteration:
+                        break
+                    frame._yield_from_iter = iterator
+                    frame.ip = ip - 1  # Resume at YIELD_FROM
+                    raise _GeneratorSuspend(val)
+                frame._yield_from_iter = None
+
+            elif op == _Op.MENGULANG:
+                # v9.0: mengulang data lalu ekspresi (enhanced iterator)
+                # arg = (expr_idx, has_condition, condition_idx) dalam constants
+                expr_idx, has_condition, condition_idx = arg
                 iterable = _pop()
-                try:
-                    frame.yields.extend(list(iterable))
-                except TypeError:
-                    raise RuntimeError_(
-                        message=f"Objek '{iterable}' tidak bisa di-iterasi untuk hasilkandari."
-                    )
+                result = []
+                for item in iterable:
+                    _locals[0] = item  # loop variable di slot 0
+                    if has_condition:
+                        # Evaluate condition via nested bytecode
+                        cond_bc = constants[condition_idx]
+                        cond_frame = Frame(cond_bc, parent=frame, globals_=frame.globals)
+                        cond_frame.locals[0] = item
+                        cond_result = self._execute(cond_frame)
+                        if not cond_result:
+                            continue
+                    # Evaluate expression via nested bytecode
+                    expr_bc = constants[expr_idx]
+                    expr_frame = Frame(expr_bc, parent=frame, globals_=frame.globals)
+                    expr_frame.locals[0] = item
+                    expr_val = self._execute(expr_frame)
+                    if expr_val is not None:
+                        result.append(expr_val)
+                _append(result)
+
+            elif op == _Op.PROGRAM_UTAMA:
+                # v9.0: program_utama — always execute in interpreter mode
+                for stmt in arg:
+                    self._execute(Frame(stmt, parent=frame, globals_=frame.globals))
+
+            elif op == _Op.YIELD_TO:
+                # v9.0: hasilkan ke target (coroutine-style)
+                value = _pop()
+                target_name = constants[arg] if isinstance(arg, int) else arg
+                # For now, behave like regular yield
+                frame.yields.append(value)
 
             elif op == _Op.MAKE_LIST:
                 _append([_pop() for _ in range(arg)][::-1])
@@ -962,6 +1078,45 @@ class VM:
             elif op == _Op.NOP:
                 pass
 
+            elif op == _Op.PUSH_SMALL_INT:
+                _append(_small_int_cache.get(arg, arg))
+
+            elif op == _Op.INTERN_STRING:
+                s = constants[arg]
+                interned = _string_intern.get(s)
+                if interned is None:
+                    _string_intern[s] = s
+                    interned = s
+                _append(interned)
+
+            elif op == _Op.FAST_CALL:
+                func = _pop()
+                args_list = [_pop() for _ in range(arg)][::-1]
+                result = self._call_function(func, args_list, None)
+                _append(result)
+
+            elif op == _Op.LOAD_ATTR_FAST:
+                obj = _pop()
+                name = constants[arg]
+                if isinstance(obj, VMInstance):
+                    val = obj.attributes.get(name, _MISSING)
+                    if val is not _MISSING:
+                        _append(val)
+                    else:
+                        method = obj.klass.methods.get(name)
+                        if method:
+                            bound = VMBoundMethod(obj, method)
+                            _append(bound)
+                        else:
+                            _append(None)
+                elif isinstance(obj, dict):
+                    _append(obj.get(name, None))
+                elif isinstance(obj, (list, str)):
+                    meth = _vm_brolang_method(obj, name)
+                    _append(meth if meth else None)
+                else:
+                    _append(getattr(obj, name, None))
+
             elif op == _Op.HALT:
                 break
 
@@ -984,7 +1139,11 @@ class VM:
                 closure=func.closure,
             )
             if func.is_generator:
-                new_frame.yields = []
+                # v9.0: Return lazy VMGenerator instead of eager list
+                pc = func.param_count
+                for i in range(pc):
+                    new_frame.locals[i] = args[i] if i < len(args) else None
+                return VMGenerator(self, new_frame, func)
             # Ikat parameter langsung (slot 0..param_count-1).
             pc = func.param_count
             for i in range(pc):
@@ -995,8 +1154,6 @@ class VM:
                 result = self._execute(new_frame)
             finally:
                 self._frame = old_frame
-            if func.is_generator:
-                return new_frame.yields
             return result
 
         # v7.1: pisahkan keyword-argumen (marker _VmKwargs) dari argumen
@@ -1064,6 +1221,10 @@ class VM:
         if func.rest_pos >= 0:
             new_frame.locals[func.rest_pos] = list(args[func.rest_pos:])
 
+        # v9.0: Return lazy VMGenerator for generator functions
+        if func.is_generator:
+            return VMGenerator(self, new_frame, func)
+
         # Execute
         old_frame = self._frame
         self._frame = new_frame
@@ -1071,11 +1232,6 @@ class VM:
             result = self._execute(new_frame)
         finally:
             self._frame = old_frame
-
-        # v7.2: generator — hasil pemanggilan adalah daftar nilai `hasilkan`
-        # (konsisten dengan interpreter yang mengumpulkan semua yield).
-        if func.is_generator:
-            return new_frame.yields
 
         return result
 
@@ -1315,6 +1471,59 @@ class VMFunction:
         if self.owner_name and self.method_name:
             return f"<method {self.owner_name}.{self.method_name}>"
         return f"<VMFunction {self.bytecode}>"
+
+
+class _GeneratorSuspend(Exception):
+    """Internal: raised when a generator yields a value to suspend execution."""
+    __slots__ = ("value",)
+    def __init__(self, value):
+        self.value = value
+
+
+class VMGenerator:
+    """Lazy generator object (v9.0 fix).
+
+    Mirip Python generator: yield nilai satu per satu saat next() dipanggil.
+    Execution di-suspend saat yield, di-resume saat next() berikutnya.
+    Uses _GeneratorSuspend exception to cleanly unwind the call stack.
+    """
+
+    __slots__ = ("_vm", "_frame", "_func", "_done", "_first_call")
+
+    def __init__(self, vm, frame, func):
+        self._vm = vm
+        self._frame = frame
+        self._func = func
+        self._done = False
+        self._first_call = True
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._done:
+            raise StopIteration
+
+        # Set up frame for execution
+        old_frame = self._vm._frame
+        self._vm._frame = self._frame
+        try:
+            self._vm._run_loop(self._frame)
+            # If we get here without _GeneratorSuspend, generator is exhausted
+            self._done = True
+            raise StopIteration
+        except _GeneratorSuspend as susp:
+            return susp.value
+        finally:
+            self._vm._frame = old_frame
+
+    def __repr__(self):
+        return "<generator object>"
+
+    def __str__(self):
+        """Collect all values and display as list (consistency with interpreter)."""
+        vals = list(self)
+        return str(vals)
 
 
 class VMClass:

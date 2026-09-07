@@ -122,6 +122,14 @@ class Op(IntEnum):
     # Lambda
     MAKE_LAMBDA = auto()    # Create lambda
 
+    # Bitwise operations
+    BAND = auto()           # Bitwise AND (&)
+    BOR = auto()            # Bitwise OR (|)
+    BXOR = auto()           # Bitwise XOR (^)
+    BNOT = auto()           # Bitwise NOT (~)
+    LSHIFT = auto()         # Left shift (<<)
+    RSHIFT = auto()         # Right shift (>>)
+
     # Augmented assignment
     AUG_ADD = auto()        # x += y
     AUG_SUB = auto()        # x -= y
@@ -133,6 +141,15 @@ class Op(IntEnum):
     YIELD = auto()          # v7.2: hasilkan nilai (append ke buffer generator)
     YIELD_FROM = auto()     # v7.2: hasilkan semua nilai dari iterable
     GENERATOR_MAKE = auto() # v7.2: tandai fungsi sebagai generator
+
+    # v9.0 Opcodes — Enhanced Operations
+    MENGULANG = auto()      # v9.0: enhanced iterator (map+filter shorthand)
+    PROGRAM_UTAMA = auto()  # v9.0: entry point guard
+    YIELD_TO = auto()       # v9.0: hasilkan ke target
+    INTERN_STRING = auto()  # v9.0: string interning untuk performa
+    PUSH_SMALL_INT = auto() # v9.0: push cached small int (-5 to 255)
+    FAST_CALL = auto()      # v9.0: fast function call (no kwargs, no defaults)
+    LOAD_ATTR_FAST = auto() # v9.0: fast attribute load dengan cache
 
 
 @dataclass(slots=True)

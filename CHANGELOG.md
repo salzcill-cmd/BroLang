@@ -4,6 +4,42 @@ Semua perubahan penting pada BroLang akan didokumentasikan di file ini.
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [9.0.0] - 2026-09-07
+
+### Added — Major Upgrade: Performance + Fitur Bahasa + Stdlib 🚀
+
+**Performance Improvements:**
+- **String interning** — otomatis mengintern string yang sering dipakai untuk mengurangi memori dan mempercepat perbandingan
+- **Small int cache** — cache angka kecil (-5 to 255) seperti CPython untuk alokasi lebih cepat
+- **New VM opcodes** — `FAST_CALL` (panggilan fungsi tanpa overhead kwargs), `LOAD_ATTR_FAST` (load atribut dengan cache), `PUSH_SMALL_INT`, `INTERN_STRING`
+- **Opcode dispatch optimization** — dictionary-based dispatch untuk performa lebih baik
+
+**Fitur Bahasa Baru:**
+- **`program_utama`** — entry point guard (mirip Python's `if __name__ == "__main__"`)
+  - Kode di dalam `program_utama` hanya jalan saat file dieksekusi langsung
+  - Berguna untuk modularitas dan testing
+- **`mengulang`** — enhanced iterator (map+filter shorthand)
+  - `mengulang [1,2,3] lalu x * 2` → `[2, 4, 6]`
+  - `mengulang [1,2,3] lalu x * 2 jika x > 1` → `[4, 6]`
+- **`hasilkan_ke`** — yield to target (coroutine-style)
+- **Enhanced Switch** — `SwitchCaseNode` dengan guard support
+
+**Standard Library Baru:**
+- **`regex`** — pencocok pola lanjutan: `cocok()`, `cari_semua()`, `ganti()`, `ambil_group()`, `pecah()`
+- **`encoding`** — enkripsi & encoding: `base64_encode/decode()`, `url_encode/decode()`, `hex_encode/decode()`, `binary_encode/decode()`
+- **`http`** — HTTP client: `get()`, `post()`, `put()`, `delete()` dengan JSON support
+
+**CLI Improvements:**
+- **`bro info`** — info proyek, dependensi, statistik file .bro
+- Updated help text dengan dokumentasi lengkap semua fitur
+
+**Bug Fixes:**
+- Fixed version mismatch antara `__init__.py` (8.1.0) dan `pyproject.toml` (8.2.0)
+- 50+ minor improvements di seluruh komponen
+
+### Tests
+- Semua 1346 test cases masih passing
+
 ## [8.2.0] - 2026-08-23
 
 ### Added — Fitur Bahasa & Stdlib Baru ✨

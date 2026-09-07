@@ -46,6 +46,7 @@ def main(args: Optional[List[str]] = None) -> int:
         "test": _cmd_test,
         "profile": _cmd_profile,
         "doc": _cmd_doc,
+        "info": _cmd_info,
         "new-game": _cmd_new_game,
         "run-game": _cmd_run_game,
         "init": _cmd_init,
@@ -1135,6 +1136,50 @@ def _cmd_version(args: List[str]) -> int:
     return 0
 
 
+def _cmd_info(args: List[str]) -> int:
+    """Menampilkan informasi proyek BroLang.
+
+    Penggunaan:
+        bro info              # info proyek saat ini
+        bro info <file.bro>   # info file spesifik
+    """
+    from brolang import __version__
+    import os
+
+    print(f"BroLang v{__version__}")
+    print(f"Python {sys.version.split()[0]}")
+    print(f"Platform: {sys.platform}")
+    print()
+
+    # Cek apakah ada proyek di direktori saat ini
+    manifest_path = os.path.join(os.getcwd(), "brolang.json")
+    if os.path.exists(manifest_path):
+        import json
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+        print(f"Proyek  : {manifest.get('nama', 'Unknown')}")
+        print(f"Versi   : {manifest.get('versi', '?')}")
+        print(f"Penulis : {manifest.get('penulis', '?')}")
+        main = manifest.get("main", "src/main.bro")
+        print(f"Entry   : {main}")
+        deps = manifest.get("dependensi", {})
+        if deps:
+            print(f"Dep     : {len(deps)} packages")
+    else:
+        print("Tidak ada proyek BroLang di direktori saat ini.")
+        print("Gunakan 'bro init <nama>' untuk membuat proyek baru.")
+
+    # Hitung file .bro
+    bro_count = 0
+    for root, dirs, files in os.walk(os.getcwd()):
+        dirs[:] = [d for d in dirs if d not in ('.git', 'node_modules', '__pycache__', 'venv')]
+        bro_count += sum(1 for f in files if f.endswith('.bro'))
+    if bro_count > 0:
+        print(f"File .bro: {bro_count}")
+
+    return 0
+
+
 def _cmd_new_game(args: List[str]) -> int:
     """Membuat proyek game baru.
 
@@ -1641,11 +1686,12 @@ Penggunaan:
     bro lint <file>        : Analisis kode statis
     bro fmt <file>         : Memformat kode
     bro doc [topik]        : Dokumentasi (kripto, arsip, terminal, web, ...)
+    bro info               : Info proyek & statistik (v9.0)
     bro new-game <nama>    : Buat proyek game baru
     bro run-game <file>    : Jalankan file game
   bro benchmark <file>   : Benchmark interpreter vs transpiler vs VM
-  bro upgrade            : Update BroLang ke versi terbaru (v6.9)
-  bro belajar            : Belajar coding interaktif (untuk pemula) 🎓
+  bro upgrade            : Update BroLang ke versi terbaru
+  bro belajar            : Belajar coding interaktif (untuk pemula)
   bro pkg <cmd>          : Package manager (init/install/publish/dll)
   bro version            : Informasi versi
 
@@ -1665,28 +1711,34 @@ Modul Game:
     impor kamera     : Kamera
     impor fisika     : Fisika
 
-Fitur Baru v4.0:
+Fitur Baru v9.0:
+    program_utama     : Entry point guard (seperti Python's __main__)
+    mengulang         : Enhanced iterator (map+filter shorthand)
+    hasilkan_ke       : Yield to target (coroutine-style)
+    bro info          : Info proyek, dependensi, statistik
+    String interning  : Otomatis untuk performa
+    Small int cache   : Optimasi angka kecil (-5 to 255)
+    Fast attribute    : LOAD_ATTR_FAST opcode baru
+    Fast call         : FAST_CALL opcode tanpa overhead kwargs
+
+Fitur v4.0:
     asinkron/tunggu      : Async/await
     hasilkan             : Generator/yield
     @dekorator           : Decorators
     :=                   : Walrus operator
     dengan...sebagai     : Context manager
     kecuali tipe         : Typed exceptions
-    bro test             : Test framework
-    bro profile          : Profiler
-    bro doc              : Documentation
 
-Fitur Baru v5.2:
+Fitur v5.2:
     sapa(nama="Budi")    : Keyword arguments
     nilai |> fungsi       : Pipeline operator
     buat [a, b] = list    : Destructuring assignment
-    bro pkg               : Package manager
-    bro benchmark         : Benchmark engine
 
 Contoh:
     bro run app.bro
     bro build app.bro -o output.py
     bro test
+    bro info
     bro profile game.bro
     bro doc dasar
     bro new-game rpg_game

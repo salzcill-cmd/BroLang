@@ -132,6 +132,8 @@ from brolang.ast.nodes import (
     SwitchExprNode,
     # V7.2 Nodes
     NullSafeIndexNode, SetComprehensionNode,
+    # V9.0 Nodes
+    MengulangNode, ProgramUtamaNode, YieldToNode, SwitchCaseNode,
 )
 from brolang.exceptions import (
     RuntimeError_,
@@ -4018,3 +4020,68 @@ class Interpreter(ASTVisitor):
                     self.current_env.define_variable(name, None)
 
         return value
+
+    # ============= V9.0: Mengulang (Enhanced Iterator) =============
+
+    def visit_MengulangNode(self, node: MengulangNode) -> Any:
+        """Mengulang: mengulang data lalu ekspresi
+
+        Shorthand untuk map + filter satu baris.
+        mengulang [1,2,3] lalu x * 2          -> [2, 4, 6]
+        mengulang [1,2,3] lalu x * 2 jika x > 1 -> [4, 6]
+        """
+        iterable = self.visit(node.iterable)
+        if not hasattr(iterable, '__iter__'):
+            raise TypeError_(
+                message=f"mengulang membutuhkan iterable, tapi mendapatkan {type(iterable).__name__}.",
+                line=node.line,
+                column=node.column,
+            )
+
+        result = []
+        for item in iterable:
+            # Push scope with loop variable
+            self._push_env()
+            self.current_env.define_variable("x", item)
+            try:
+                # Check condition if present
+                if node.condition is not None:
+                    cond_val = self.visit(node.condition)
+                    if not cond_val:
+                        continue
+
+                # Evaluate expression
+                expr_val = self.visit(node.expression)
+                if expr_val is not None:
+                    result.append(expr_val)
+            finally:
+                self._pop_env()
+
+        return result
+
+    # ============= V9.0: Program Utama =============
+
+    def visit_ProgramUtamaNode(self, node: ProgramUtamaNode) -> None:
+        """Program utama: blok yang hanya jalan saat dieksekusi langsung.
+
+        Mirip Python's if __name__ == "__main__".
+        Dalam interpreter, selalu dijalankan (karena file yang di-run = main).
+        """
+        for stmt in node.body:
+            self.visit(stmt)
+            if self.current_env.should_return:
+                break
+
+    # ============= V9.0: Yield To =============
+
+    def visit_YieldToNode(self, node: YieldToNode) -> Any:
+        """YieldTo: hasilkan nilai ke target tertentu (coroutine-style)."""
+        value = self.visit(node.value)
+        # For now, yield_to behaves like regular yield
+        raise YieldException(value=value)
+
+    # ============= V9.0: Enhanced Switch Case =============
+
+    def visit_SwitchCaseNode(self, node: SwitchCaseNode) -> Any:
+        """Switch case dengan guard — digunakan oleh SwitchExprNode."""
+        return self.visit(node.body)

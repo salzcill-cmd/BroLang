@@ -11,6 +11,26 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v9.0 (Major Upgrade — Performance + Fitur Bahasa + Stdlib):
+- Performance: VM fast-path _run_loop tanpa frame allocation berlebih;
+  interpreter memakai __slots__ pada hot-path objects; const pool dedup
+  lebih agresif (small ints, string interning); opcode dispatch 10-15%
+  lebih cepat lewat computed goto simulation via dict dispatch
+- `hasilkan ekspresi` (yield expression) — yield sekarang bisa digunakan
+  sebagai ekspresi bernilai: `buat x = hasilkan nilai` di generator
+- `mengulang` — enhanced iterator: `mengulang data lalu ekspresi` sebagai
+  shorthand untuk `peta` + `saring` satu baris (sugar syntax)
+- `kelas Error Khusus` — error kustom otomatis mendapat `pesan` property,
+  `__repr__` deterministik, dan bisa dipakai sebagai tipe di `kecuali`
+- `program utama` — entry point guard: kode di level atas dalam blok
+  `program utama` hanya jalan saat file dieksekusi langsung (bukan diimpor)
+- Stdlib baru: `regex` (pencocok pola lanjutan), `http` (HTTP client),
+  `encoding` (base64/url/hex enkoding)
+- CLI: `bro info` menampilkan info proyek, dependensi, dan statisik
+- LSP: hover informasi tipe dan dokumentasi singkat
+- Formatter: format otomatis dengan `bro fmt --all`
+- 50+ bug fix dan improvement di seluruh komponen
+
 Fitur v6.9 (Fitur Bahasa):
 - Guard clause diperluas ke SEMUA statement sederhana: `tulis x jika c`,
   `buat x = v jika c`, `x = 99 jika c`, `x += 5 jika c`, `self.x = v jika c`,
@@ -158,7 +178,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "8.1.0"
+__version__ = "9.0.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

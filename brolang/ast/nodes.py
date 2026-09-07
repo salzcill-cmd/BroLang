@@ -1532,3 +1532,69 @@ class OptionalChainingNode(ASTNode):
 
     def get_children(self) -> List[Any]:
         return [self.object]
+
+
+# ============= V9.0: Enhanced Iterator (mengulang) =============
+
+@dataclass
+class MengulangNode(ASTNode):
+    """Node untuk mengulang: mengulang data lalu ekspresi
+
+    Shorthand untuk peta + saring satu baris.
+    Equivalent: data.peta(lambda x: ekspresi).saring(lambda x: x)
+    """
+    iterable: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    expression: ASTNode = field(default_factory=lambda: IdentifierNode(""))
+    condition: Optional[ASTNode] = None
+
+    def get_children(self) -> List[Any]:
+        children = [self.iterable, self.expression]
+        if self.condition:
+            children.append(self.condition)
+        return children
+
+
+# ============= V9.0: Program Utama (entry point guard) =============
+
+@dataclass
+class ProgramUtamaNode(ASTNode):
+    """Node untuk program_utama: blok yang hanya jalan saat file dieksekusi langsung.
+
+    Mirip Python's if __name__ == "__main__".
+    """
+    body: List[Any] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return list(self.body)
+
+
+# ============= V9.0: Yield to (hasilkan_ke) =============
+
+@dataclass
+class YieldToNode(ASTNode):
+    """Node untuk hasilkan_ke: hasilkan nilai ke target tertentu.
+
+    Yield yang mengirim nilai ke receiver spesifik (coroutine-style).
+    """
+    value: ASTNode = field(default_factory=lambda: KosongNode())
+    target: str = ""
+
+    def get_children(self) -> List[Any]:
+        return [self.value]
+
+
+# ============= V9.0: Enhanced Switch with Guards =============
+
+@dataclass
+class SwitchCaseNode(ASTNode):
+    """Node untuk satu case dalam switch expression dengan guard."""
+    pattern: Any = None
+    guard: Optional[ASTNode] = None
+    body: ASTNode = field(default_factory=lambda: KosongNode())
+
+    def get_children(self) -> List[Any]:
+        children = []
+        if self.guard:
+            children.append(self.guard)
+        children.append(self.body)
+        return children

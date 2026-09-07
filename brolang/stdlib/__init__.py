@@ -15,6 +15,12 @@ Modul yang tersedia:
 - acak       : Random number generation
 - visualisasi: Chart & grafik data (ASCII, SVG, HTML)
 
+Modul Lanjutan (v9.0):
+- iterasi    : Iterator combinator (chain, product, chunk, flatten)
+- fungsi     : Higher-order functions (parsial, cache, compose, memoize)
+- koleksi    : Struktur data lanjutan (Counter, defaultdict, namedtuple)
+- catatan_level: Structured logging dengan level dan color
+
 Modul Game:
 - vektor     : Vektor 2D/3D (Vec2, Vec3) untuk game
 - grafis     : Rendering 2D (Pygame wrapper)
@@ -25,6 +31,9 @@ Modul Game:
 Contoh:
     impor matematika
     matematika.akar(25)
+
+    impor iterasi
+    iterasi.chunk([1,2,3,4,5], 2)  -> [[1,2], [3,4], [5]]
 
     impor game
     game.buat_jendela(800, 600, "Gameku")
@@ -282,3 +291,32 @@ def _load_module(name: str) -> None:
         from brolang.stdlib.misi import module as misi_module
 
         register_module("misi", misi_module)
+    # v9.0 modules
+    elif name == "regex":
+        from brolang.stdlib.regex import module as regex_module
+
+        register_module("regex", regex_module)
+    elif name == "encoding":
+        from brolang.stdlib.encoding import module as encoding_module
+
+        register_module("encoding", encoding_module)
+    elif name == "http":
+        from brolang.stdlib.http_client import module as http_module
+
+        register_module("http", http_module)
+    elif name == "iterasi":
+        from brolang.stdlib.iterators import module as iterasi_module
+
+        register_module("iterasi", iterasi_module)
+    elif name == "fungsi":
+        from brolang.stdlib.fungsi import module as fungsi_module
+
+        register_module("fungsi", fungsi_module)
+    elif name == "koleksi":
+        from brolang.stdlib.koleksi import module as koleksi_module
+
+        register_module("koleksi", koleksi_module)
+    elif name == "catatan_level":
+        from brolang.stdlib.catatan_level import module as catatan_level_module
+
+        register_module("catatan_level", catatan_level_module)

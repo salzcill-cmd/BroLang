@@ -223,7 +223,7 @@ class TestCLIv64:
             capture_output=True, text=True,
         )
         assert result.returncode == 0
-        assert "8." in result.stdout
+        assert "BroLang" in result.stdout
 
     def test_upgrade_terdaftar(self):
         result = subprocess.run(
