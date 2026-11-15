@@ -708,6 +708,7 @@ class Interpreter(ASTVisitor):
         self.current_env = self.global_env
         self.output: List[str] = []
         self._current_class_name: Optional[str] = None
+        self.is_main: bool = False
 
         # Register built-in functions
         for name, func in BUILTINS.items():
@@ -4065,8 +4066,10 @@ class Interpreter(ASTVisitor):
         """Program utama: blok yang hanya jalan saat dieksekusi langsung.
 
         Mirip Python's if __name__ == "__main__".
-        Dalam interpreter, selalu dijalankan (karena file yang di-run = main).
+        Blok dijalankan bila interpreter ditandai sebagai main (file yang di-run).
         """
+        if not getattr(self, "is_main", False):
+            return
         for stmt in node.body:
             self.visit(stmt)
             if self.current_env.should_return:

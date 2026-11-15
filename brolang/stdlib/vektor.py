@@ -265,11 +265,17 @@ def proyeksi(a: Vec2, ke: Vec2) -> Vec2:
     return a.proyeksi(ke)
 
 
+def buat(x=0.0, y=0.0):
+    """Alias buat_vec2."""
+    return buat_vec2(x, y)
+
+
 module = SimpleNamespace(
     Vec2=Vec2,
     Vec3=Vec3,
     buat_vec2=buat_vec2,
     buat_vec3=buat_vec3,
+    buat=buat,
     buat_polar=buat_polar,
     jarak=jarak,
     dot=dot2,

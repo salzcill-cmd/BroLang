@@ -355,6 +355,7 @@ module = SimpleNamespace(
     KameraTopDown=KameraTopDown,
     KameraSideScroll=KameraSideScroll,
     buat_kamera=buat_kamera,
+    buat=buat,
     buat_layar_penuh=buat_layar_penuh,
     buat_top_down=buat_top_down,
     buat_side_scroll=buat_side_scroll,

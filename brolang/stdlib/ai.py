@@ -317,9 +317,18 @@ class Agen:
         return (self.vx, self.vy)
 
 
+def buat_fsm(awal=None):
+    return FSM(awal)
+
+def buat_agen(x=0, y=0, kecepatan_maks=100.0):
+    return Agen(x, y, kecepatan_maks)
+
+
 module = SimpleNamespace(
     FSM=FSM,
     Agen=Agen,
+    buat_fsm=buat_fsm,
+    buat_agen=buat_agen,
     kejar=kejar,
     lari=lari,
     tiba=tiba,

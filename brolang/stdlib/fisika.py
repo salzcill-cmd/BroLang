@@ -692,11 +692,17 @@ def gravitasi_bulan():
     return Vektor2D(0, 81.0)
 
 
+def buat(x=0, y=0, massa=1.0, radius=16):
+    """Alias buat_bodi."""
+    return buat_bodi(x, y, massa, radius)
+
+
 module = SimpleNamespace(
     Vektor2D=Vektor2D,
     Bodi=Bodi,
     FisikaWorld=FisikaWorld,
     buat_bodi=buat_bodi,
+    buat=buat,
     buat_dunia=buat_dunia,
     buat_vektor=buat_vektor,
     # v7.1

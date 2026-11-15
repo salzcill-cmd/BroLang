@@ -566,9 +566,22 @@ def tabrakan_titik_segi_panjang(px, py, rx, ry, rw, rh) -> bool:
             int(ry) <= int(py) <= int(ry) + int(rh))
 
 
+def buat_jendela(lebar, tinggi, judul="BroLang"):
+    """Alias mulai_jendela (konsisten dengan modul game)."""
+    return mulai_jendela(lebar, tinggi, judul)
+
+
+def buat(lebar, tinggi, judul="BroLang"):
+    """Alias buat_jendela/mulai_jendela."""
+    return mulai_jendela(lebar, tinggi, judul)
+
+
 module = SimpleNamespace(
     mulai_jendela=mulai_jendela,
+    buat_jendela=buat_jendela,
+    buat=buat,
     tutup_jendela=tutup_jendela,
+    tutup=tutup_jendela,
     perbarui=perbarui,
     bersihkan=bersihkan,
     dapatkan_lebar=dapatkan_lebar,
@@ -605,6 +618,5 @@ module = SimpleNamespace(
     tabrakan_segi_panjang=tabrakan_segi_panjang,
     tabrakan_lingkaran=tabrakan_lingkaran,
     tabrakan_titik_segi_panjang=tabrakan_titik_segi_panjang,
-    tutup=tutup_jendela,
     warna=_COLORS,
 )

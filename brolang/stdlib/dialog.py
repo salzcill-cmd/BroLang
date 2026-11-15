@@ -302,7 +302,13 @@ def buat_dialog(kalimat=None, nama_pembicara="", kecepatan=30.0, ukuran=24,
                   lebar, x, y, kotak_warna)
 
 
+def buat(*args, **kwargs):
+    """Alias buat_dialog."""
+    return buat_dialog(*args, **kwargs)
+
+
 module = SimpleNamespace(
     Dialog=Dialog,
     buat_dialog=buat_dialog,
+    buat=buat,
 )

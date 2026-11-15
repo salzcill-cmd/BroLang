@@ -372,6 +372,22 @@ def buat_guncangan(kekuatan_maks=16, peluruhan=1.8, durasi=1.0):
     return Guncangan(kekuatan_maks, peluruhan, durasi)
 
 
+def buat(jenis="flash", *args, **kwargs):
+    """Buat efek berdasarkan jenis: flash/teks/pulsa/guncangan/vignette."""
+    j = str(jenis).lower()
+    if j == "flash":
+        return buat_flash(*args, **kwargs)
+    if j in ("teks", "teks_melayang", "damage"):
+        return buat_teks_melayang(*args, **kwargs)
+    if j == "pulsa":
+        return buat_pulsa(*args, **kwargs)
+    if j in ("guncangan", "shake"):
+        return buat_guncangan(*args, **kwargs)
+    if j == "vignette":
+        return Vignette(*args, **kwargs)
+    return buat_flash(*args, **kwargs)
+
+
 module = SimpleNamespace(
     Flash=Flash,
     Vignette=Vignette,
@@ -382,4 +398,5 @@ module = SimpleNamespace(
     buat_teks_melayang=buat_teks_melayang,
     buat_pulsa=buat_pulsa,
     buat_guncangan=buat_guncangan,
+    buat=buat,
 )

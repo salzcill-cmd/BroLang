@@ -323,9 +323,18 @@ def buat_manajer():
     return ManajerMisi()
 
 
+def buat_misi(id, nama, deskripsi="", tujuan=1, hadiah=None):
+    return Misi(id, nama, deskripsi, tujuan, hadiah)
+
+def buat_pencapaian(id, nama, deskripsi="", tersembunyi=False):
+    return Pencapaian(id, nama, deskripsi, tersembunyi)
+
+
 module = SimpleNamespace(
     Misi=Misi,
     Pencapaian=Pencapaian,
     ManajerMisi=ManajerMisi,
     buat_manajer=buat_manajer,
+    buat_misi=buat_misi,
+    buat_pencapaian=buat_pencapaian,
 )

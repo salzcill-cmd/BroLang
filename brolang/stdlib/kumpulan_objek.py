@@ -123,8 +123,16 @@ def buat_pool_flag(ukuran_awal=10):
     return KumpulanObjek(_baru, ukuran_awal=ukuran_awal, nonaktifkan=_nonaktifkan)
 
 
+def buat(buat_fn=None, ukuran_awal=0, aktifkan=None, nonaktifkan=None):
+    """Alias buat_kumpulan."""
+    if buat_fn is None:
+        buat_fn = lambda: {}
+    return buat_kumpulan(buat_fn, ukuran_awal, aktifkan, nonaktifkan)
+
+
 module = SimpleNamespace(
     KumpulanObjek=KumpulanObjek,
     buat_kumpulan=buat_kumpulan,
     buat_pool_flag=buat_pool_flag,
+    buat=buat,
 )

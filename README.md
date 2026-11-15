@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v8.2</h1>
+<h1 align="center">BroLang v9.0</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -45,12 +45,33 @@ chmod +x install.sh
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 8.2.0
+bro --version    # BroLang 9.0.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
 
 ---
+
+## Apa yang Baru di v9.0? 🚀
+
+### Performa & Optimasi ⚡
+- **String interning** & **small int cache** (-5 sampai 255) — hemat memori dan perbandingan lebih cepat
+- VM: opcode/dispatch lebih efisien + jalur cepat panggilan & akses atribut (`FAST_CALL`, `LOAD_ATTR_FAST`, dll.)
+
+### Fitur Bahasa Baru 🧩
+- **`program_utama`** — entry point guard (kayak `if __name__ == "__main__"`), bloknya cuma jalan saat file dieksekusi langsung
+- **`mengulang`** — shorthand map+filter satu baris: `mengulang data lalu ekspresi` (opsional pakai `jika` untuk filter)
+
+### Stdlib Baru 📦
+- **`regex`** — pencocokan pola lanjutan
+- **`http`** — HTTP client (`get`, `post`, `put`, `delete`)
+- **`encoding`** — base64/url/hex/binary encode-decode
+
+### Tooling 🛠️
+- **`bro info`** — tampilkan info versi/proyek, dependensi, dan jumlah file `.bro`
+
+Semua fitur v9.0 tersedia di interpreter. 1346 test cases tetap passing.
+
 
 ## Apa yang Baru di v8.2? ✨
 
@@ -1555,7 +1576,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**1346 test cases, semua passing!** (termasuk 58 test v8.2: properti decorator, statistik, zaman, penampilan, warna; 48 test v8.1: object pooling, simpan/muat, dialog, AI FSM+steering, platform satu arah & bergerak, quest/achievement; 32 test v8.0: spread objek, ??=, kecuali multi-tipe + error kustom di VM, konsistensi VM; 32 test v7.2; 10 test yield di dalam `coba`/`tangkap` di generator; 8 test perbaikan `hasilkandari` yield-from; 43 test v6.9: guard clause statement umum; 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
+**1346 test cases, semua passing!** (termasuk demo contoh v9.0; 58 test v8.2: properti decorator, statistik, zaman, penampilan, warna; 48 test v8.1: object pooling, simpan/muat, dialog, AI FSM+steering, platform satu arah & bergerak, quest/achievement; 32 test v8.0: spread objek, ??=, kecuali multi-tipe + error kustom di VM, konsistensi VM; 32 test v7.2; 10 test yield di dalam `coba`/`tangkap` di generator; 8 test perbaikan `hasilkandari` yield-from; 43 test v6.9: guard clause statement umum; 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
 
 ---
 
@@ -1579,7 +1600,7 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v8.2** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v9.0** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>

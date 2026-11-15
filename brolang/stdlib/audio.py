@@ -414,6 +414,12 @@ def hentikan_bgm():
     pygame.mixer.music.stop()
 
 
+def buat():
+    """Helper: pastikan mixer siap (untuk setup cepat audio)."""
+    _ensure_mixer()
+    return True
+
+
 module = SimpleNamespace(
     muat_musik=muat_musik,
     mainkan_musik=mainkan_musik,
@@ -443,4 +449,5 @@ module = SimpleNamespace(
     pola_arcade=pola_arcade,
     pola_epik=pola_epik,
     pola_tenang=pola_tenang,
+    buat=buat,
 )

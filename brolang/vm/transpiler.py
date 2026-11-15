@@ -340,6 +340,10 @@ class Transpiler:
             self._emit_destructuring_assignment(node)
         elif isinstance(node, NamespaceNode):
             self._emit_namespace(node)
+        elif isinstance(node, ProgramUtamaNode):
+            self._emit_program_utama(node)
+        elif isinstance(node, YieldToNode):
+            self._emit_yield_to(node)
         elif isinstance(node, MacroDefNode):
             params = ', '.join(node.params) if node.params else ''
             self._line(f'def {node.name}({params}):')

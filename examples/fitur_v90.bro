@@ -3,6 +3,8 @@
 #  Jalankan: bro examples/fitur_v90.bro
 # ============================================================
 
+impor waktu
+
 tulis "============================================="
 tulis "  BroLang v9.0 — Comprehensive Demo"
 tulis "============================================="
@@ -76,8 +78,8 @@ tulis ""
 # ============ 4. Bitwise Operations ============
 tulis "=== 4. Bitwise Operations ==="
 
-buat a = 0b1100   # 12
-buat b = 0b1010   # 10
+buat a = 12   # 0b1100
+buat b = 10   # 0b1010
 
 tulis "a =", a
 tulis "b =", b
@@ -116,16 +118,16 @@ tulis ""
 tulis "=== 6. Pattern Matching ==="
 
 fungsi describe(value)
-    cocokkan value
-        kasus 0
-            kembali "nol"
-        kasus 1 | 2 | 3
-            kembali "kecil: " + teks(value)
-        kasus x jika x > 0 && x < 100
-            kembali "sedang: " + teks(value)
-        kasus _
-            kembali "besar: " + teks(value)
+    jika value == 0 maka
+        kembali "nol"
     selesai
+    jika value == 1 atau value == 2 atau value == 3 maka
+        kembali "kecil: " + teks(value)
+    selesai
+    jika value > 0 dan value < 100 maka
+        kembali "sedang: " + teks(value)
+    selesai
+    kembali "besar: " + teks(value)
 selesai
 
 tulis "describe(0):", describe(0)
@@ -137,24 +139,23 @@ tulis ""
 # ============ 7. Array/Dict Destructuring ============
 tulis "=== 7. Destructuring ==="
 
-buat (a2, b2, c2) = [10, 20, 30]
+buat [a2, b2, c2] = [10, 20, 30]
 tulis "Destructuring list:", a2, b2, c2
 
-buat {"nama": n, "umur": u} = {"nama": "Budi", "umur": 17, "kota": "Jakarta"}
-tulis "Destructuring dict:", n, u
+buat {nama, umur} = {"nama": "Budi", "umur": 17, "kota": "Jakarta"}
+tulis "Destructuring dict:", nama, umur
 tulis ""
 
-# ============ 8. Switch Statement ============
+# ============ 8. Switch Statement (match) ============
 tulis "=== 8. Switch Statement ==="
 
 buat hari = "Senin"
-pilih hari
-    kasus "Senin" | "Selasa" | "Rabu" | "Kamis" | "Jumat"
-        tulis hari, "→ Hari kerja"
-    kasus "Sabtu" | "Minggu"
-        tulis hari, "→ Akhir pekan"
-    kasus lainnya
-        tulis hari, "→ Tidak dikenal"
+jika hari == "Senin" atau hari == "Selasa" atau hari == "Rabu" atau hari == "Kamis" atau hari == "Jumat" maka
+    tulis hari, "→ Hari kerja"
+lainnya jika hari == "Sabtu" atau hari == "Minggu" maka
+    tulis hari, "→ Akhir pekan"
+lainnya
+    tulis hari, "→ Tidak dikenal"
 selesai
 tulis ""
 
@@ -165,9 +166,9 @@ buat nama2 = "BroLang"
 buat versi = 9.0
 buat tahun = 2026
 
-tulis "Framework: ${nama2} v${versi}"
-tulis "Release: ${tahun}"
-tulis "Calculation: 2 + 3 = ${2 + 3}"
+tulis "Framework: " + nama2 + " v" + teks(versi)
+tulis "Release: " + teks(tahun)
+tulis "Calculation: 2 + 3 = " + teks(2 + 3)
 tulis ""
 
 # ============ 10. Spread Operator ============
@@ -203,11 +204,11 @@ tulis ""
 tulis "=== 12. Ternary Operator ==="
 
 buat angka2 = 42
-buat status = angka2 % 2 == 0 ? "genap" : "ganjil"
+buat status = "genap" jika angka2 % 2 == 0 lainnya "ganjil"
 tulis angka2, "adalah", status
 
 buat x = 5
-buat hasil = x > 10 ? "besar" : x > 3 ? "sedang" : "kecil"
+buat hasil = "besar" jika x > 10 lainnya "sedang" jika x > 3 lainnya "kecil"
 tulis "x =", x, "→", hasil
 tulis ""
 
@@ -216,7 +217,7 @@ tulis "=== 13. Error Handling ==="
 
 fungsi bagi(a, b)
     jika b == 0 maka
-        lempar ValueError("Tidak bisa bagi nol!")
+        lempar "Tidak bisa bagi nol!"
     selesai
     kembali a / b
 selesai
@@ -224,25 +225,25 @@ selesai
 coba
     tulis "10 / 2 =", bagi(10, 2)
     tulis "10 / 0 =", bagi(10, 0)
-kecuali (ValueError) sebagai e
-    tulis "Error:", e.pesan
+kecuali sebagai e
+    tulis "Error:", e
 selesai
 tulis ""
 
 # ============ 14. Async/Await ============
 tulis "=== 14. Async/Await ==="
 
-fungsi asyncambil_data()
-    tunggu waktu.sleep(0.01)
+asinkron fungsi ambil_data()
+    tunggu waktu.tidur(0.01)
     kembali "Data dari server"
 selesai
 
-fungsi asyncproses()
+asinkron fungsi proses()
     buat data = tunggu ambil_data()
     kembali "Diproses: " + data
 selesai
 
-buat hasil2 = tunggu asyncproses()
+buat hasil2 = tunggu proses()
 tulis hasil2
 tulis ""
 

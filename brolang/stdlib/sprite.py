@@ -496,7 +496,29 @@ class GrupSprite:
         return self.sprites[0] if self.sprites else None
 
 
+
+def buat_sprite(gambar=None, x=0, y=0, lebar=32, tinggi=32, kecepatan=150):
+    """Membuat sprite baru (alias ringkas)."""
+    return Sprite(gambar=gambar, x=x, y=y, lebar=lebar, tinggi=tinggi, kecepatan=kecepatan)
+
+
+def buat_grup(*sprites):
+    """Membuat grup sprite baru, opsional langsung diisi."""
+    g = GrupSprite()
+    if sprites:
+        g.tambah(*sprites)
+    return g
+
+
+def buat(gambar=None, x=0, y=0, lebar=32, tinggi=32, kecepatan=150):
+    """Alias buat_sprite."""
+    return buat_sprite(gambar, x, y, lebar, tinggi, kecepatan)
+
+
 module = SimpleNamespace(
     Sprite=Sprite,
     GrupSprite=GrupSprite,
+    buat_sprite=buat_sprite,
+    buat_grup=buat_grup,
+    buat=buat,
 )

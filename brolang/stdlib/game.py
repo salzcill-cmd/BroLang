@@ -582,8 +582,14 @@ def tangkap_layar(path="screenshot.png"):
     return path
 
 
+def buat(lebar: int, tinggi: int, judul: str = "BroLang Game"):
+    """Alias buat_jendela."""
+    return buat_jendela(lebar, tinggi, judul)
+
+
 module = SimpleNamespace(
     buat_jendela=buat_jendela,
+    buat=buat,
     mulai=mulai,
     berhenti=berhenti,
     sedang_berjalan=sedang_berjalan,

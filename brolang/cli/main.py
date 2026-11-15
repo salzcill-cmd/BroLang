@@ -78,35 +78,50 @@ def _cmd_run(args: List[str]) -> int:
     Penggunaan:
         bro run <file>
         bro run                  # dari folder proyek: jalankan entry point (brolang.json)
+        bro run -c "<kode>"      # jalankan kode dari argumen
+        bro run -                # baca kode dari stdin
     """
     parser = argparse.ArgumentParser(prog="bro run", description="Menjalankan file BroLang")
-    parser.add_argument("file", nargs="?", help="File BroLang (.bro)")
+    parser.add_argument("file", nargs="?", help="File BroLang (.bro), '-' untuk stdin")
+    parser.add_argument("-c", "-e", dest="code", help="Jalankan kode dari argumen")
     parsed = parser.parse_args(args)
 
     file_path = parsed.file
+    source = None
 
-    # Tanpa argumen: jalankan entry point dari manifest proyek (v6.3)
-    if not file_path:
-        from brolang.package_manager.manager import PackageManager
+    if parsed.code is not None:
+        source = parsed.code
+        file_path = "<string>"
+    elif file_path == "-":
+        source = sys.stdin.read()
+        file_path = "<stdin>"
+    else:
+        # Tanpa argumen: jalankan entry point dari manifest proyek (v6.3)
+        if not file_path:
+            from brolang.package_manager.manager import PackageManager
 
-        manager = PackageManager()
-        manifest = manager.read_manifest()
-        if manifest is None:
-            print("Error: Tidak ada file .bro dan tidak ada brolang.json di folder ini.")
-            print("Gunakan: bro run <file.bro>  atau  bro init <nama>  untuk proyek baru.")
+            manager = PackageManager()
+            manifest = manager.read_manifest()
+            if manifest is None:
+                print("Error: Tidak ada file .bro dan tidak ada brolang.json di folder ini.")
+                print("Gunakan: bro run <file.bro>  atau  bro init <nama>  untuk proyek baru.")
+                return 1
+            main = manifest.get("main", "src/main.bro")
+            file_path = main
+            print(f"Menjalankan proyek '{manifest.get('nama', '?')}' ({main}) ...")
+
+        if not os.path.exists(file_path):
+            print(f"Error: File '{file_path}' tidak ditemukan.")
             return 1
-        main = manifest.get("main", "src/main.bro")
-        file_path = main
-        print(f"Menjalankan proyek '{manifest.get('nama', '?')}' ({main}) ...")
 
-    if not os.path.exists(file_path):
-        print(f"Error: File '{file_path}' tidak ditemukan.")
-        return 1
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                source = f.read()
+        except Exception as e:
+            print(f"Error membaca file: {e}")
+            return 1
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            source = f.read()
-
         from brolang.lexer import Lexer
         from brolang.parser import Parser
         from brolang.semantic import SemanticAnalyzer
@@ -136,7 +151,7 @@ def _cmd_run(args: List[str]) -> int:
             transpiler = Transpiler()
             py_code = transpiler.transpile(optimized_ast)
             compiled = compile(py_code, file_path, "exec")
-            exec(compiled, {"__builtins__": __builtins__})
+            exec(compiled, {"__builtins__": __builtins__, "__name__": "__main__"})
             return 0
         except Exception:
             # Fallback ke interpreter (tanpa warning untuk user)
@@ -144,6 +159,7 @@ def _cmd_run(args: List[str]) -> int:
 
         # Fallback: tree-walking interpreter
         interpreter = Interpreter()
+        interpreter.is_main = True
         interpreter.interpret(optimized_ast)
 
         return 0

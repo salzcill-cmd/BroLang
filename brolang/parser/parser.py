@@ -93,6 +93,8 @@ from brolang.ast.nodes import (
     SwitchExprNode,
     # V7.2 Nodes
     NullSafeIndexNode, SetComprehensionNode,
+    # V9.0 Nodes
+    MengulangNode, ProgramUtamaNode, YieldToNode,
 )
 from brolang.exceptions import ParserError
 from brolang.suggestions import saran_keyword
@@ -266,6 +268,10 @@ class Parser:
             return self._maybe_guard(self._parse_yield())
         elif token_type == TokenType.TOKEN_HASILKANDARI:
             return self._maybe_guard(self._parse_yield_from())
+        elif token_type == TokenType.TOKEN_HASILKAN_KE:
+            return self._maybe_guard(self._parse_yield_to())
+        elif token_type == TokenType.TOKEN_PROGRAM_UTAMA:
+            return self._parse_program_utama()
         elif token_type == TokenType.TOKEN_LEMPAR:
             return self._maybe_guard(self._parse_raise())
         elif token_type == TokenType.TOKEN_GLOBAL:
@@ -1979,6 +1985,9 @@ class Parser:
         # v7.0: await `tunggu ekspresi` — blokir sampai Tugas selesai
         elif self._check(TokenType.TOKEN_TUNGGU):
             node = self._parse_await()
+        # v9.0: mengulang — shorthand map+filter `mengulang data lalu expr (jika cond)?`
+        elif self._check(TokenType.TOKEN_MENGULANG):
+            node = self._parse_mengulang_expr()
         else:
             raise self._error(
                 message=f"Token tidak terduga: '{token.value}' ({token.type.name}).",
@@ -2574,6 +2583,58 @@ class Parser:
         token = self._advance()  # hasilkandari
         value = self._parse_value_with_guard()
         return YieldFromNode(value=value, line=token.line, column=token.column)
+
+    # ============= V9.0: Yield To & Program Utama & Mengulang =============
+
+    def _parse_yield_to(self) -> YieldToNode:
+        """hasilkan_ke expression (v9.0, coroutine-style yield)."""
+        token = self._advance()  # hasilkan_ke
+        value = KosongNode(line=token.line, column=token.column)
+        if not self._check(TokenType.TOKEN_NEWLINE, TokenType.TOKEN_DEDENT,
+                           TokenType.TOKEN_EOF, TokenType.TOKEN_SELESAI):
+            value = self._parse_value_with_guard()
+        return YieldToNode(value=value, line=token.line, column=token.column)
+
+    def _parse_program_utama(self) -> ProgramUtamaNode:
+        """program_utama ... selesai (v9.0).
+
+        Blok yang hanya dijalankan saat file dieksekusi langsung,
+        mirip if __name__ == "__main__" di Python.
+        """
+        token = self._advance()  # program_utama
+        body = self._parse_block()
+        self._expect(
+            TokenType.TOKEN_SELESAI,
+            message="Blok 'program_utama' harus ditutup dengan 'selesai'.",
+            solution="Tambahkan 'selesai' di akhir blok program_utama.",
+            example="program_utama\n    tulis \"Halo\"\nselesai",
+        )
+        return ProgramUtamaNode(body=body, line=token.line, column=token.column)
+
+    def _parse_mengulang_expr(self) -> MengulangNode:
+        """mengulang iterable lalu expr (jika kondisi)? (v9.0).
+
+        Shorthand map+filter:
+            mengulang [1,2,3] lalu x * 2
+            mengulang [1,2,3] lalu x * 2 jika x > 1
+        Variabel iterasi otomatis bernama `x`.
+        """
+        token = self._advance()  # mengulang
+        iterable = self._parse_expression()
+        self._expect(
+            TokenType.TOKEN_LALU,
+            message="Setelah iterable di 'mengulang', harus ada 'lalu'.",
+            solution="Gunakan: mengulang data lalu ekspresi",
+            example="mengulang [1,2,3] lalu x * 2",
+        )
+        # parse expr; jika guard 'jika' di akhir (bukan ternary) biarkan terbaca
+        expr = self._parse_value_with_guard()
+        condition = None
+        if self._check(TokenType.TOKEN_JIKA):
+            self._advance()  # jika (guard mengulang)
+            condition = self._parse_expression()
+        return MengulangNode(iterable=iterable, expression=expr, condition=condition,
+                             line=token.line, column=token.column)
 
     # ============= V4: Walrus Operator =============
 

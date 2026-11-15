@@ -290,6 +290,11 @@ def buat_fps() -> FpsCounter:
     return FpsCounter()
 
 
+def buat():
+    """Alias buat_timer (default 1.0s)."""
+    return buat_timer()
+
+
 module = SimpleNamespace(
     sekarang=sekarang,
     tidur=tidur,
@@ -304,6 +309,7 @@ module = SimpleNamespace(
     buat_timer=buat_timer,
     buat_stopwatch=buat_stopwatch,
     buat_fps=buat_fps,
+    buat=buat,
     # v7.2
     timestamp=timestamp,
     milidetik=milidetik,

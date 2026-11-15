@@ -1440,3 +1440,36 @@ class SemanticAnalyzer(ASTVisitor):
         if node.default_case is not None:
             self.visit(node.default_case)
         return "tak dikenal"
+
+    # ============= V9.0 Visitors =============
+
+    def visit_MengulangNode(self, node: MengulangNode) -> str:
+        """Memeriksa mengulang (v9.0): map+filter shorthand.
+
+        Variabel iterasi implisit `x` hanya berlaku di dalam ekspresi/kondisi
+        (scope sementara), sama seperti list comprehension.
+        """
+        self.visit(node.iterable)
+        self._enter_scope("mengulang")
+        self.current_scope.define(
+            name="x",
+            kind="variable",
+            line=node.line,
+            column=node.column,
+            is_initialized=True,
+        )
+        if getattr(node, "condition", None):
+            self.visit(node.condition)
+        self.visit(node.expression)
+        self._exit_scope()
+        return "list"
+
+    def visit_ProgramUtamaNode(self, node: ProgramUtamaNode) -> None:
+        """Memeriksa blok program_utama (v9.0)."""
+        for stmt in node.body:
+            self.visit(stmt)
+
+    def visit_YieldToNode(self, node: YieldToNode) -> str:
+        """Memeriksa hasilkan_ke (v9.0)."""
+        self.visit(node.value)
+        return "kosong"

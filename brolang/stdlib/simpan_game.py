@@ -189,4 +189,6 @@ module = SimpleNamespace(
     muat_checkpoint=muat_checkpoint,
     bersihkan=bersihkan,
     info=info,
+    save=simpan,
+    load=muat,
 )

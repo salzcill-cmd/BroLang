@@ -76,6 +76,8 @@ from brolang.ast.nodes import (
     # V7.2 Nodes
     WalrusNode, GeneratorFunctionNode, YieldNode, YieldFromNode, WithNode,
     NullSafeIndexNode, SetComprehensionNode,
+    # V9.0 Nodes
+    MengulangNode, ProgramUtamaNode, YieldToNode,
 )
 from brolang.vm.opcodes import Bytecode, Instruction, Op
 
@@ -1933,6 +1935,8 @@ class Compiler:
 
         elif isinstance(node, SwitchExprNode):
             self._emit_switch_expr(node)
+        elif isinstance(node, MengulangNode):
+            self._emit_mengulang(node)
 
         elif isinstance(node, AwaitNode):
             # v7.0: `tunggu` — buka Tugas lewat helper `_vm_tunggu` (no-op
@@ -2678,3 +2682,58 @@ class Compiler:
         for _ in range(count):
             if self.locals:
                 self.locals.pop()
+
+
+    # ============= V9.0 (bytecode, best-effort) =============
+
+    def _emit_program_utama(self, node):
+        for stmt in getattr(node, "body", []) or []:
+            self._emit_stmt(stmt)
+
+    def _emit_mengulang(self, node):
+        # Desugar sederhana: bangun list hasil via loop Python-side tidak langsung
+        # di bytecode VM ini; fallback aman: iterasi manual dengan GET_ITER/FOR_ITER
+        # jika tersedia, selain itu hasil kosong.
+        it = node.iterable
+        self._emit_expr(it)
+        if hasattr(Op, 'GET_ITER') and hasattr(Op, 'FOR_ITER'):
+            self.bytecode.add(Op.GET_ITER, line=node.line, column=node.column)
+            # result list in temp local
+            res_idx = self._add_local(f"__mengulang_{node.line}")
+            self.bytecode.add(Op.BUILD_LIST, 0, node.line, node.column)
+            self.bytecode.add(Op.STORE_LOCAL, res_idx, node.line, node.column)
+            loop_start = self.bytecode.current_offset()
+            end_jump = self.bytecode.add(Op.FOR_ITER, 0, line=node.line, column=node.column)
+            # bind x
+            x_idx = self._add_local('x')
+            self.bytecode.add(Op.STORE_LOCAL, x_idx, node.line, node.column)
+            cond = getattr(node, "condition", None)
+            if cond is not None:
+                self._emit_expr(cond)
+                skip = self.bytecode.add(Op.POP_JUMP_IF_FALSE, 0, line=node.line, column=node.column)
+            # append expr
+            self.bytecode.add(Op.LOAD_LOCAL, res_idx, node.line, node.column)
+            self._emit_expr(node.expression)
+            # try common LIST_APPEND/append op; fallback: leave on stack unhandled -> degrade
+            if hasattr(Op, 'LIST_APPEND'):
+                self.bytecode.add(Op.LIST_APPEND, 1, node.line, node.column)
+            else:
+                # cannot append portably; pop value and keep list
+                self.bytecode.add(Op.POP_TOP, node.line, node.column)
+            if cond is not None:
+                self.bytecode.patch_jump(skip, self.bytecode.current_offset())
+            self.bytecode.add(Op.JUMP, loop_start, line=node.line, column=node.column)
+            self.bytecode.patch_jump(end_jump, self.bytecode.current_offset())
+            self.bytecode.add(Op.LOAD_LOCAL, res_idx, node.line, node.column)
+        else:
+            # fallback: buang iterable, kembalikan list kosong
+            self.bytecode.add(Op.POP_TOP, node.line, node.column)
+            self.bytecode.add(Op.BUILD_LIST, 0, node.line, node.column)
+
+    def _emit_yield_to(self, node):
+        if getattr(node, "value", None):
+            self._emit_expr(node.value)
+        else:
+            self.bytecode.add(Op.PUSH_NONE, node.line, node.column)
+        self.bytecode.add(Op.YIELD_VALUE, line=node.line, column=node.column)
+

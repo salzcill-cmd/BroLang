@@ -328,10 +328,19 @@ class Patroli:
         return self
 
 
+def buat_ikuti_jalur(titik, kecepatan=100, loop=False):
+    return IkutiJalur(titik, kecepatan=kecepatan, loop=loop)
+
+def buat_patroli(titik, kecepatan=100, mode="loop"):
+    return Patroli(titik, kecepatan=kecepatan, mode=mode)
+
+
 module = SimpleNamespace(
     cari_jalur=cari_jalur,
     panjang_jalur=panjang_jalur,
     jalur_ke_pixel=jalur_ke_pixel,
     IkutiJalur=IkutiJalur,
     Patroli=Patroli,
+    buat_ikuti_jalur=buat_ikuti_jalur,
+    buat_patroli=buat_patroli,
 )

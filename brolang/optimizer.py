@@ -45,6 +45,7 @@ from brolang.ast.nodes import (
     PassNode, DelNode, AssertNode,
     TupleNode, SetNode, DictComprehensionNode,
     SpreadNode,
+    MengulangNode, ProgramUtamaNode, YieldToNode,
 )
 
 
@@ -483,3 +484,25 @@ class Optimizer(ASTVisitor):
         """Optimasi spread operator (v6.7)."""
         value = self.visit(node.value)
         return SpreadNode(value=value, line=node.line, column=node.column)
+
+
+    # ============= V9.0 Optimizations =============
+
+    def visit_MengulangNode(self, node: MengulangNode) -> ASTNode:
+        """Optimasi mengulang (v9.0)."""
+        iterable = self.visit(node.iterable)
+        expression = self.visit(node.expression)
+        condition = self.visit(node.condition) if getattr(node, 'condition', None) else None
+        return MengulangNode(iterable=iterable, expression=expression, condition=condition,
+                             line=node.line, column=node.column)
+
+    def visit_ProgramUtamaNode(self, node: ProgramUtamaNode) -> ASTNode:
+        """Optimasi blok program_utama (v9.0)."""
+        body = [self.visit(stmt) for stmt in node.body]
+        return ProgramUtamaNode(body=body, line=node.line, column=node.column)
+
+    def visit_YieldToNode(self, node: YieldToNode) -> ASTNode:
+        """Optimasi hasilkan_ke (v9.0)."""
+        value = self.visit(node.value)
+        return YieldToNode(value=value, target=getattr(node, 'target', ''),
+                           line=node.line, column=node.column)

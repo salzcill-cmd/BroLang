@@ -631,6 +631,7 @@ module = SimpleNamespace(
     Tileset=Tileset,
     PlatformBergerak=PlatformBergerak,
     buat_peta=buat_peta,
+    buat=buat,
     buat_tileset=buat_tileset,
     dari_file=dari_file,
 )

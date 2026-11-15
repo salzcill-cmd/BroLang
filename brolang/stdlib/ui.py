@@ -1325,6 +1325,27 @@ def acak_warna():
     return (_random.randint(0, 255), _random.randint(0, 255), _random.randint(0, 255))
 
 
+def buat_label(teks="", x=0, y=0, warna="putih", ukuran=24):
+    return Label(teks, x, y, warna, ukuran)
+
+def buat_tombol(teks="", x=0, y=0, lebar=120, tinggi=40):
+    return Tombol(teks, x, y, lebar, tinggi)
+
+def buat_bar(x=0, y=0, lebar=200, tinggi=20, nilai_maks=100):
+    return Bar(x, y, lebar, tinggi, nilai_maks=nilai_maks)
+
+def buat_kotak_teks(x=0, y=0, lebar=200, tinggi=36, placeholder=""):
+    return KotakTeks(x, y, lebar, tinggi, placeholder=placeholder)
+
+def buat_slider(x=0, y=0, lebar=200, nilai_min=0, nilai_maks=100, nilai=50):
+    return Slider(x, y, lebar, nilai_min=nilai_min, nilai_maks=nilai_maks, nilai=nilai)
+
+try:
+    from brolang.stdlib.dialog import Dialog
+except Exception:
+    Dialog = None
+
+
 module = SimpleNamespace(
     Label=Label,
     Panel=Panel,
@@ -1336,6 +1357,12 @@ module = SimpleNamespace(
     DaftarPilih=DaftarPilih,
     Tooltip=Tooltip,
     DaftarSkor=DaftarSkor,
+    Dialog=Dialog,
+    buat_label=buat_label,
+    buat_tombol=buat_tombol,
+    buat_bar=buat_bar,
+    buat_kotak_teks=buat_kotak_teks,
+    buat_slider=buat_slider,
     navigasi_fokus=navigasi_fokus,
     # v7.1
     warna=warna,

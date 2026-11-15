@@ -463,11 +463,23 @@ def buat_sequence():
     return AnimasiSequence()
 
 
+def buat_animasi():
+    """Membuat objek Animasi baru."""
+    return Animasi()
+
+
+def buat(nilai_awal=0, nilai_akhir=1, durasi=1.0, easing='linear'):
+    """Alias buat_tween."""
+    return buat_tween(nilai_awal, nilai_akhir, durasi, easing)
+
+
 module = SimpleNamespace(
     Animasi=Animasi,
     AnimasiTween=AnimasiTween,
     AnimasiSequence=AnimasiSequence,
+    buat_animasi=buat_animasi,
     buat_tween=buat_tween,
     buat_sequence=buat_sequence,
+    buat=buat,
     daftar_easing=daftar_easing,
 )

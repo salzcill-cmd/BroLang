@@ -387,11 +387,46 @@ class Lexer:
         return Token(TokenType.TOKEN_FSTRING, parts, start_line, start_col)
 
     def _read_number(self) -> Token:
-        """Membaca number literal (angka dan desimal)."""
-        result = []
+        """Membaca number literal (angka, desimal, biner 0b, oktal 0o, heksa 0x)."""
         is_decimal = False
         start_line, start_col = self.line, self.column
 
+        # v9.0: literal basis non-desimal (0b/0o/0x)
+        if self._current() == "0" and self._peek() in ("b", "B", "o", "O", "x", "X"):
+            prefix = self._peek()
+            self._advance()  # 0
+            self._advance()  # b/o/x
+            digits = []
+            if prefix in ("b", "B"):
+                base = 2
+                valid = set("01_")
+                label = "biner (0b)"
+            elif prefix in ("o", "O"):
+                base = 8
+                valid = set("01234567_")
+                label = "oktal (0o)"
+            else:
+                base = 16
+                valid = set("0123456789abcdefABCDEF_")
+                label = "heksadesimal (0x)"
+            while self._current() is not None and self._current() in valid:
+                if self._current() == "_":
+                    self._advance()
+                    continue
+                digits.append(self._advance())
+            if not digits:
+                raise self._error(
+                    message=f"Literal {label} tidak lengkap.",
+                    solution=f"Tambahkan digit setelah awalan 0{prefix}.",
+                )
+            return Token(
+                TokenType.TOKEN_NUMBER,
+                int("".join(digits), base),
+                start_line,
+                start_col,
+            )
+
+        result = []
         while self._current() is not None and (self._current().isdigit() or self._current() == "_"):
             if self._current() == "_":
                 self._advance()

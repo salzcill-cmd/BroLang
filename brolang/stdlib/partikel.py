@@ -384,6 +384,7 @@ module = SimpleNamespace(
     Partikel=Partikel,
     PartikelEmiter=PartikelEmiter,
     buat_emiter=buat_emiter,
+    buat=buat,
     buat_ledakan=buat_ledakan,
     buat_hujan=buat_hujan,
     buat_trail=buat_trail,
