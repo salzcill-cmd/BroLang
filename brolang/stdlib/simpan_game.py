@@ -179,6 +179,12 @@ def info(nama, folder="tersimpan"):
     return payload.get("_meta")
 
 
+def buat(folder="tersimpan"):
+    """Pastikan folder penyimpanan ada dan kembalikan path-nya."""
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
 module = SimpleNamespace(
     simpan=simpan,
     muat=muat,
@@ -191,4 +197,5 @@ module = SimpleNamespace(
     info=info,
     save=simpan,
     load=muat,
+    buat=buat,
 )

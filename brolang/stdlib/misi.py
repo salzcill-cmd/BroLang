@@ -330,6 +330,16 @@ def buat_pencapaian(id, nama, deskripsi="", tersembunyi=False):
     return Pencapaian(id, nama, deskripsi, tersembunyi)
 
 
+def buat(jenis="manajer", *args, **kwargs):
+    """Buat objek misi: 'manajer' (default), 'misi', atau 'pencapaian'."""
+    j = str(jenis).lower()
+    if j in ("misi", "quest"):
+        return buat_misi(*args, **kwargs)
+    if j in ("pencapaian", "achievement"):
+        return buat_pencapaian(*args, **kwargs)
+    return buat_manajer(*args, **kwargs)
+
+
 module = SimpleNamespace(
     Misi=Misi,
     Pencapaian=Pencapaian,
@@ -337,4 +347,5 @@ module = SimpleNamespace(
     buat_manajer=buat_manajer,
     buat_misi=buat_misi,
     buat_pencapaian=buat_pencapaian,
+    buat=buat,
 )

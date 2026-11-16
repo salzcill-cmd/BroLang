@@ -335,6 +335,14 @@ def buat_patroli(titik, kecepatan=100, mode="loop"):
     return Patroli(titik, kecepatan=kecepatan, mode=mode)
 
 
+def buat(jenis="patroli", *args, **kwargs):
+    """Buat navigator: 'patroli' (default) atau 'ikuti_jalur'."""
+    j = str(jenis).lower()
+    if j in ("ikuti", "ikuti_jalur", "follow"):
+        return buat_ikuti_jalur(*args, **kwargs)
+    return buat_patroli(*args, **kwargs)
+
+
 module = SimpleNamespace(
     cari_jalur=cari_jalur,
     panjang_jalur=panjang_jalur,
@@ -343,4 +351,5 @@ module = SimpleNamespace(
     Patroli=Patroli,
     buat_ikuti_jalur=buat_ikuti_jalur,
     buat_patroli=buat_patroli,
+    buat=buat,
 )

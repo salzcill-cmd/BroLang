@@ -324,11 +324,20 @@ def buat_agen(x=0, y=0, kecepatan_maks=100.0):
     return Agen(x, y, kecepatan_maks)
 
 
+def buat(jenis="fsm", *args, **kwargs):
+    """Buat objek AI: jenis 'fsm' (default) atau 'agen'."""
+    j = str(jenis).lower()
+    if j in ("agen", "agent"):
+        return buat_agen(*args, **kwargs)
+    return buat_fsm(*args, **kwargs)
+
+
 module = SimpleNamespace(
     FSM=FSM,
     Agen=Agen,
     buat_fsm=buat_fsm,
     buat_agen=buat_agen,
+    buat=buat,
     kejar=kejar,
     lari=lari,
     tiba=tiba,

@@ -417,6 +417,17 @@ def events_geser() -> list:
     return result
 
 
+def update():
+    """Alias publik untuk _update (perbarui state input tiap frame)."""
+    return _update()
+
+
+def buat():
+    """Reset/init state input dan kembalikan modul siap pakai."""
+    reset()
+    return True
+
+
 module = SimpleNamespace(
     tombol_ditekan=tombol_ditekan,
     tombol_baru_ditekan=tombol_baru_ditekan,
@@ -441,7 +452,9 @@ module = SimpleNamespace(
     events_mouse=events_mouse,
     events_geser=events_geser,
     ambil_events=ambil_events,
+    update=update,
     reset=reset,
+    buat=buat,
     _update=_update,
     _events=ambil_events,
     _reset=reset,

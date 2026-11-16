@@ -1346,6 +1346,32 @@ except Exception:
     Dialog = None
 
 
+def buat(jenis="label", *args, **kwargs):
+    """Buat komponen UI: label/tombol/bar/kotak_teks/slider/panel/kotak_centang/daftar_pilih/tooltip."""
+    j = str(jenis).lower()
+    if j == "tombol":
+        return buat_tombol(*args, **kwargs)
+    if j == "bar":
+        return buat_bar(*args, **kwargs)
+    if j in ("kotak_teks", "input", "teks"):
+        return buat_kotak_teks(*args, **kwargs)
+    if j == "slider":
+        return buat_slider(*args, **kwargs)
+    if j == "panel":
+        return Panel(*args, **kwargs)
+    if j in ("kotak_centang", "checkbox", "centang"):
+        return KotakCentang(*args, **kwargs)
+    if j in ("daftar_pilih", "dropdown", "pilih"):
+        return DaftarPilih(*args, **kwargs)
+    if j == "tooltip":
+        return Tooltip(*args, **kwargs)
+    if j in ("daftar_skor", "skor"):
+        return DaftarSkor(*args, **kwargs)
+    if j == "dialog" and Dialog is not None:
+        return Dialog(*args, **kwargs)
+    return buat_label(*args, **kwargs)
+
+
 module = SimpleNamespace(
     Label=Label,
     Panel=Panel,
@@ -1363,9 +1389,11 @@ module = SimpleNamespace(
     buat_bar=buat_bar,
     buat_kotak_teks=buat_kotak_teks,
     buat_slider=buat_slider,
+    buat=buat,
     navigasi_fokus=navigasi_fokus,
     # v7.1
     warna=warna,
     warna_hex=warna_hex,
     acak_warna=acak_warna,
 )
+
