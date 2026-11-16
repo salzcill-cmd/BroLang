@@ -2131,9 +2131,10 @@ class Parser:
                                      solution="Tambahkan ']' setelah indeks.",
                                      example="list[0]")
                         node = IndexNode(target=node, index=first_expr, line=node.line, column=node.column)
-            elif self._check(TokenType.TOKEN_DOT):
-                # Attribute/method access
-                self._advance()  # .
+            elif self._check(TokenType.TOKEN_DOT) or self._check(TokenType.TOKEN_QUESTION_DOT):
+                # Attribute/method access (v5.0: dukung optional chaining `?.`)
+                is_optional = self._check(TokenType.TOKEN_QUESTION_DOT)
+                self._advance()  # . atau ?.
                 # Nama method bisa berupa keyword bahasa (mis. `csv.tulis`, `file.baca`)
                 _method_tokens = (
                     TokenType.TOKEN_IDENTIFIER, TokenType.TOKEN_TULIS,
@@ -2150,25 +2151,34 @@ class Parser:
                     TokenType.TOKEN_HAPUS,
                 )
                 if not self._check(*_method_tokens):
+                    msg = "Setelah '?.', harus ada nama atribut atau method." if is_optional else "Setelah '.', harus ada nama atribut atau method."
                     raise self._error(
-                        message="Setelah '.', harus ada nama atribut atau method.",
-                        solution="Periksa nama method setelah titik.",
+                        message=msg,
+                        solution="Periksa nama atribut/method setelah operator.",
                     )
                 id_token = self._advance()
                 attr_name = id_token.value
 
                 if self._check(TokenType.TOKEN_LPAREN):
-                    # Method call: obj.method()
+                    # Method call: obj.method() / obj?.method()
                     self._advance()  # (
                     args, kwargs = self._parse_argument_list()
                     self._expect(TokenType.TOKEN_RPAREN)
-                    # Build: ObjectAccessNode(obj, method) as the call target
-                    access_node = ObjectAccessNode(
-                        object=node,
-                        property=attr_name,
-                        line=id_token.line,
-                        column=id_token.column,
-                    )
+                    # Build: (OptionalChaining|ObjectAccess)Node as the call target
+                    if is_optional:
+                        access_node = OptionalChainingNode(
+                            object=node,
+                            property=attr_name,
+                            line=id_token.line,
+                            column=id_token.column,
+                        )
+                    else:
+                        access_node = ObjectAccessNode(
+                            object=node,
+                            property=attr_name,
+                            line=id_token.line,
+                            column=id_token.column,
+                        )
                     node = CallNode(
                         function=access_node,
                         args=args,
@@ -2179,13 +2189,21 @@ class Parser:
                         column=id_token.column,
                     )
                 else:
-                    # Attribute access: obj.attr
-                    node = ObjectAccessNode(
-                        object=node,
-                        property=attr_name,
-                        line=id_token.line,
-                        column=id_token.column,
-                    )
+                    # Attribute access: obj.attr / obj?.attr
+                    if is_optional:
+                        node = OptionalChainingNode(
+                            object=node,
+                            property=attr_name,
+                            line=id_token.line,
+                            column=id_token.column,
+                        )
+                    else:
+                        node = ObjectAccessNode(
+                            object=node,
+                            property=attr_name,
+                            line=id_token.line,
+                            column=id_token.column,
+                        )
             elif self._check(TokenType.TOKEN_QUESTION) and self._peek(1) == TokenType.TOKEN_LBRACKET:
                 # v7.2: null-safe indexing `arr?[0]` — kosong bila target
                 # kosong (mirror `?.` untuk atribut).

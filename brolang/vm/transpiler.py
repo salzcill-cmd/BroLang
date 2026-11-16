@@ -1159,7 +1159,11 @@ class Transpiler:
             return f'({left} if {left} is not None else {right})'
         elif isinstance(node, OptionalChainingNode):
             obj = self._emit_expr(node.object)
-            return f'getattr({obj}, "{node.property}", None)'
+            prop = node.property
+            return (
+                f'(None if ({obj}) is None else '
+                f'(({obj}).get("{prop}") if isinstance(({obj}), dict) else getattr(({obj}), "{prop}", None)))'
+            )
         elif isinstance(node, TernaryNode):
             true_val = self._emit_expr(node.true_value)
             cond = self._emit_expr(node.condition)
