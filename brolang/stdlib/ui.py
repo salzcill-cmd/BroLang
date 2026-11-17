@@ -1369,7 +1369,250 @@ def buat(jenis="label", *args, **kwargs):
         return DaftarSkor(*args, **kwargs)
     if j == "dialog" and Dialog is not None:
         return Dialog(*args, **kwargs)
+    if j in ("stack_vertikal", "stack_v"):
+        return StackVertikal(*args, **kwargs)
+    if j in ("stack_horizontal", "stack_h"):
+        return StackHorizontal(*args, **kwargs)
+    if j in ("kotak_gulir", "scroll", "gulir"):
+        return KotakGulir(*args, **kwargs)
+    if j == "tema":
+        return Tema(*args, **kwargs)
     return buat_label(*args, **kwargs)
+
+
+# ---------------- Tema ----------------
+
+
+class Tema:
+    """Tema UI: warna & gaya yang dapat digunakan oleh semua komponen."""
+
+    def __init__(self, latar=(40, 40, 45), latar_hover=(70, 70, 80),
+                 latar_aktif=(100, 100, 110), teks=(240, 240, 240),
+                 aksen=(70, 130, 255), tepi=(90, 90, 100),
+                 ukuran_font=20, radius=6):
+        self.latar = latar
+        self.latar_hover = latar_hover
+        self.latar_aktif = latar_aktif
+        self.teks = teks
+        self.aksen = aksen
+        self.tepi = tepi
+        self.ukuran_font = ukuran_font
+        self.radius = radius
+
+
+# ---------------- Layout Stack ----------------
+
+
+class _KomponenDasar:
+    """Base ringkas untuk komponen tata letak (agar bisa di-iterasi)."""
+
+    def __init__(self, x=0, y=0, lebar=0, tinggi=0):
+        self.x = float(x)
+        self.y = float(y)
+        self.lebar = float(lebar)
+        self.tinggi = float(tinggi)
+        self.terlihat = True
+
+    def gambar(self, screen):
+        pass
+
+    def update(self, mx, my, klik):
+        pass
+
+
+class StackVertikal(_KomponenDasar):
+    """Tata letak vertikal: menumpuk komponen ke bawah dengan jarak."""
+
+    def __init__(self, x=0, y=0, lebar=200, tinggi=0, jarak=8,
+                 perataan="kiri", tema=None):
+        super().__init__(x, y, lebar, tinggi)
+        self.jarak = jarak
+        self.perataan = perataan
+        self.tema = tema or Tema()
+        self.anak = []
+
+    def tambah(self, komponen):
+        self.anak.append(komponen)
+        return self
+
+    def susun(self):
+        """Atur posisi semua anak berdasarkan jarak dan perataan."""
+        cy = self.y
+        for komponen in self.anak:
+            if not getattr(komponen, "terlihat", True):
+                continue
+            kx = self.x
+            if self.perataan == "tengah":
+                kx = self.x + (self.lebar - getattr(komponen, "lebar", 0)) / 2
+            elif self.perataan == "kanan":
+                kx = self.x + self.lebar - getattr(komponen, "lebar", 0)
+            komponen.x = kx
+            komponen.y = cy
+            cy += getattr(komponen, "tinggi", 0) + self.jarak
+        self.tinggi = max(0, cy - self.y - self.jarak)
+
+    def gambar(self, screen):
+        self.susun()
+        for komponen in self.anak:
+            if getattr(komponen, "terlihat", True):
+                try:
+                    komponen.gambar(screen)
+                except Exception:
+                    pass
+
+    def update(self, mx, my, klik):
+        for komponen in self.anak:
+            if getattr(komponen, "terlihat", True):
+                try:
+                    komponen.update(mx, my, klik)
+                except Exception:
+                    pass
+
+
+class StackHorizontal(_KomponenDasar):
+    """Tata letak horizontal: menjorok komponen ke kanan dengan jarak."""
+
+    def __init__(self, x=0, y=0, lebar=0, tinggi=40, jarak=8,
+                 perataan="tengah", tema=None):
+        super().__init__(x, y, lebar, tinggi)
+        self.jarak = jarak
+        self.perataan = perataan
+        self.tema = tema or Tema()
+        self.anak = []
+
+    def tambah(self, komponen):
+        self.anak.append(komponen)
+        return self
+
+    def susun(self):
+        cx = self.x
+        for komponen in self.anak:
+            if not getattr(komponen, "terlihat", True):
+                continue
+            komponen.x = cx
+            komponen.y = self.y
+            cx += getattr(komponen, "lebar", 0) + self.jarak
+        self.lebar = max(0, cx - self.x - self.jarak)
+
+    def gambar(self, screen):
+        self.susun()
+        for komponen in self.anak:
+            if getattr(komponen, "terlihat", True):
+                try:
+                    komponen.gambar(screen)
+                except Exception:
+                    pass
+
+    def update(self, mx, my, klik):
+        for komponen in self.anak:
+            if getattr(komponen, "terlihat", True):
+                try:
+                    komponen.update(mx, my, klik)
+                except Exception:
+                    pass
+
+
+# ---------------- Kotak Gulir (Scroll) ----------------
+
+
+class KotakGulir(_KomponenDasar):
+    """Kontainer gulir untuk banyak komponen dalam area terbatas."""
+
+    def __init__(self, x=0, y=0, lebar=200, tinggi=200, konten_tinggi=400,
+                 tema=None):
+        super().__init__(x, y, lebar, tinggi)
+        self.konten_tinggi = float(konten_tinggi)
+        self.tema = tema or Tema()
+        self.anak = []
+        self.scroll_y = 0.0
+        self.cepat_gulir = 20.0
+
+    def tambah(self, komponen):
+        self.anak.append(komponen)
+        return self
+
+    def _is_rect(self):
+        return (self.x, self.y, self.x + self.lebar, self.y + self.tinggi)
+
+    def gambar(self, screen):
+        if pygame is None:
+            return
+        # Clip area gulir
+        try:
+            screen.set_clip(pygame.Rect(int(self.x), int(self.y),
+                                        int(self.lebar), int(self.tinggi)))
+        except (pygame.error, ValueError):
+            pass
+        # Gambar latar kotak
+        try:
+            pygame.draw.rect(screen, self.tema.latar,
+                             pygame.Rect(int(self.x), int(self.y),
+                                         int(self.lebar), int(self.tinggi)),
+                             border_radius=self.tema.radius)
+        except (pygame.error, TypeError):
+            pass
+        cy = self.y - self.scroll_y
+        for komponen in self.anak:
+            if not getattr(komponen, "terlihat", True):
+                continue
+            komponen.x = self.x
+            komponen.y = cy
+            try:
+                komponen.gambar(screen)
+            except Exception:
+                pass
+            cy += getattr(komponen, "tinggi", 0) + 8
+        try:
+            screen.set_clip(None)
+        except (pygame.error, ValueError):
+            pass
+        # Gulir kanan (scrollbar sederhana)
+        if self.konten_tinggi > self.tinggi:
+            rasio = self.tinggi / self.konten_tinggi
+            sb_tinggi = max(20, self.tinggi * rasio)
+            sb_y = self.y + (self.scroll_y / max(1, self.konten_tinggi - self.tinggi)) * (self.tinggi - sb_tinggi)
+            try:
+                pygame.draw.rect(screen, self.tema.aksen,
+                                 pygame.Rect(int(self.x + self.lebar - 8),
+                                             int(sb_y), 8, int(sb_tinggi)),
+                                 border_radius=4)
+            except (pygame.error, TypeError):
+                pass
+
+    def update(self, mx, my, klik):
+        # Gulir dengan roda mouse saat kursor di dalam kotak
+        kiri, atas, kanan, bawah = self._is_rect()
+        dalam = kiri <= mx <= kanan and atas <= my <= bawah
+        if dalam and klik:
+            # klik di sini diformat sebagai (scroll_delta) oleh pemanggil
+            pass
+        for komponen in self.anak:
+            if getattr(komponen, "terlihat", True):
+                try:
+                    komponen.update(mx, my, klik)
+                except Exception:
+                    pass
+
+    def gulir(self, delta):
+        """Geser scroll secara vertikal (delta positif = turun)."""
+        maks = max(0, self.konten_tinggi - self.tinggi)
+        self.scroll_y = max(0.0, min(maks, self.scroll_y + delta))
+
+
+def buat_tema(*args, **kwargs):
+    return Tema(*args, **kwargs)
+
+
+def buat_stack_vertikal(*args, **kwargs):
+    return StackVertikal(*args, **kwargs)
+
+
+def buat_stack_horizontal(*args, **kwargs):
+    return StackHorizontal(*args, **kwargs)
+
+
+def buat_kotak_gulir(*args, **kwargs):
+    return KotakGulir(*args, **kwargs)
 
 
 module = SimpleNamespace(
@@ -1384,6 +1627,10 @@ module = SimpleNamespace(
     Tooltip=Tooltip,
     DaftarSkor=DaftarSkor,
     Dialog=Dialog,
+    StackVertikal=StackVertikal,
+    StackHorizontal=StackHorizontal,
+    KotakGulir=KotakGulir,
+    Tema=Tema,
     buat_label=buat_label,
     buat_tombol=buat_tombol,
     buat_bar=buat_bar,
@@ -1395,5 +1642,10 @@ module = SimpleNamespace(
     warna=warna,
     warna_hex=warna_hex,
     acak_warna=acak_warna,
+    # v11 layout
+    buat_tema=buat_tema,
+    buat_stack_vertikal=buat_stack_vertikal,
+    buat_stack_horizontal=buat_stack_horizontal,
+    buat_kotak_gulir=buat_kotak_gulir,
 )
 

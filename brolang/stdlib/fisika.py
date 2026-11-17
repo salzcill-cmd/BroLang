@@ -692,6 +692,89 @@ def gravitasi_bulan():
     return Vektor2D(0, 81.0)
 
 
+class SelSpatialHash:
+    """Satu sel spatial hash yang menyimpan daftar bodi."""
+    def __init__(self):
+        self.bodi = []
+
+
+class SpatialHash:
+    """Broadphase spatial hash untuk query tabrakan cepat dengan banyak bodi.
+
+    Membagi dunia menjadi grid sel berukuran `sel_size`. Setiap bodi
+    dimasukkan ke semua sel yang tumpang tindih dengan bounds-nya. Query
+    tabrakan hanya memeriksa bodi di sel yang sama, mengurangi O(n^2) ke
+    hampir O(n) untuk distribusi seragam.
+
+    Contoh:
+        buat sh = fisika.SpatialHash(ukuran_sel=64)
+        sh.tambah(bodi_a)
+        sh.tambah(bodi_b)
+        buat kandidat = sh.query(bodi_a)   # bodi yang mungkin tabrakan
+    """
+
+    def __init__(self, ukuran_sel=64.0):
+        self.ukuran_sel = max(1.0, float(ukuran_sel))
+        self._sel = {}
+
+    def _kunci(self, gx, gy):
+        return (int(gx), int(gy))
+
+    def _sel_bodi(self, bodi):
+        """Kembalikan daftar kunci sel yang tumpang tindih bounds bodi."""
+        if bodi.mode_collider == "persegi":
+            x1, y1, x2, y2 = bodi._rect()
+        else:
+            cx, cy = bodi.posisi.x, bodi.posisi.y
+            r = bodi.radius
+            x1, y1, x2, y2 = cx - r, cy - r, cx + r, cy + r
+        gx1, gy1 = x1 / self.ukuran_sel, y1 / self.ukuran_sel
+        gx2, gy2 = x2 / self.ukuran_sel, y2 / self.ukuran_sel
+        kunci = []
+        for gx in range(int(gx1), int(gx2) + 1):
+            for gy in range(int(gy1), int(gy2) + 1):
+                kunci.append(self._kunci(gx, gy))
+        return kunci
+
+    def tambah(self, bodi):
+        """Masukkan bodi ke sel yang tumpang tindih bounds-nya."""
+        for k in self._sel_bodi(bodi):
+            self._sel.setdefault(k, SelSpatialHash()).bodi.append(bodi)
+
+    def hapus(self, bodi):
+        """Hapus bodi dari semua sel."""
+        for k in self._sel_bodi(bodi):
+            sel = self._sel.get(k)
+            if sel is not None and bodi in sel.bodi:
+                sel.bodi.remove(bodi)
+
+    def clear(self):
+        self._sel.clear()
+
+    def query(self, bodi):
+        """Kembalikan daftar bodi lain yang berbagi setidaknya satu sel dengan `bodi`.
+
+        Hasil digunakan sebagai kandidat broadphase sebelum pemeriksaan
+        tabrakan sempit (check_collision).
+        """
+        kandidat = set()
+        for k in self._sel_bodi(bodi):
+            sel = self._sel.get(k)
+            if sel is None:
+                continue
+            for lain in sel.bodi:
+                if lain is not bodi:
+                    kandidat.add(lain)
+        return list(kandidat)
+
+    def rebuild(self, bodies):
+        """Rebuild seluruh hash dari daftar bodi (panggil tiap frame atau saat
+        banyak bodi berpindah)."""
+        self.clear()
+        for bodi in bodies:
+            self.tambah(bodi)
+
+
 def buat(x=0, y=0, massa=1.0, radius=16):
     """Alias buat_bodi."""
     return buat_bodi(x, y, massa, radius)
@@ -701,6 +784,8 @@ module = SimpleNamespace(
     Vektor2D=Vektor2D,
     Bodi=Bodi,
     FisikaWorld=FisikaWorld,
+    SelSpatialHash=SelSpatialHash,
+    SpatialHash=SpatialHash,
     buat_bodi=buat_bodi,
     buat=buat,
     buat_dunia=buat_dunia,

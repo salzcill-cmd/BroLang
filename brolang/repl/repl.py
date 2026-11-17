@@ -14,7 +14,13 @@ untuk pemula Indonesia:
 """
 
 import sys
+import os
 from typing import List, Optional, Any
+
+try:
+    import readline  # Riwayat & penyuntingan baris perintah (Unix/macOS/Windows pyreadline3)
+except ImportError:  # pragma: no cover - readline tidak tersedia di beberapa lingkungan
+    readline = None
 
 from brolang.lexer import Lexer
 from brolang.parser import Parser
@@ -121,11 +127,29 @@ class BroLangREPL:
         self.buffer: List[str] = []
         self._kedalaman: int = 0
         self._input_count: int = 0
+        # Riwayat REPL disimpan di ~/.brolang/repl_history
+        self._history_file = os.path.join(
+            os.path.expanduser("~"), ".brolang", "repl_history")
+        if readline is not None:
+            try:
+                os.makedirs(os.path.dirname(self._history_file), exist_ok=True)
+                if os.path.exists(self._history_file):
+                    readline.read_history_file(self._history_file)
+                readline.set_history_length(1000)
+            except Exception:
+                pass
 
     def start(self) -> None:
         """Memulai REPL."""
         self._print_welcome()
-        self._run_loop()
+        try:
+            self._run_loop()
+        finally:
+            if readline is not None:
+                try:
+                    readline.write_history_file(self._history_file)
+                except Exception:
+                    pass
 
     def _print_welcome(self) -> None:
         """Pesan sambutan ramah pemula dengan contoh yang bisa dicoba."""
@@ -290,6 +314,11 @@ class BroLangREPL:
 
         self.history.append(source)
         self._input_count += 1
+        if readline is not None:
+            try:
+                readline.add_history(source)
+            except Exception:
+                pass
         if self._input_count % 5 == 0:
             self._tampilkan_tip()
 

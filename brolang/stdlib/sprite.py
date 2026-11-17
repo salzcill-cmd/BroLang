@@ -515,9 +515,161 @@ def buat(gambar=None, x=0, y=0, lebar=32, tinggi=32, kecepatan=150):
     return buat_sprite(gambar, x, y, lebar, tinggi, kecepatan)
 
 
+# ---------------- 9-slice scaling ----------------
+
+
+def gambar_9slice(screen, surface_obj, x, y, lebar, tinggi, tepi,
+                  alfa=255):
+    """Gambar 9-slice scaling (panel UI yang tidak merusak sudut).
+
+    `surface_obj` dipotong menjadi 3x3 grid dengan ukuran tepi `tepi` pada
+    tiap sisi. Sudut tidak di-rekam, tepi di-rekam sepanjang satu sumbu, dan
+    tengah di-rekam penuh — cocok untuk kotak dialog, tombol, panel.
+
+    Contoh:
+        buat panel = grafis.muat_gambar("panel.png")
+        sprite.gambar_9slice(screen, panel, 100, 100, 300, 200, tepi=16)
+    """
+    if pygame is None or surface_obj is None:
+        return
+    sw, sh = surface_obj.get_size()
+    t = int(tepi)
+    t = max(1, min(t, sw // 2, sh // 2))
+    # 3x3 region: kiri, tengah, kanan ; atas, tengah, bawah
+    region = [
+        # (rx, ry, rw, rh, dx, dy, dw, dh)
+        (0, 0, t, t, x, y, t, t),                              # atas-kiri
+        (t, 0, sw - 2 * t, t, x + t, y, lebar - 2 * t, t),    # atas-tengah
+        (sw - t, 0, t, t, x + lebar - t, y, t, t),             # atas-kanan
+        (0, t, t, sh - 2 * t, x, y + t, t, tinggi - 2 * t),    # tengah-kiri
+        (t, t, sw - 2 * t, sh - 2 * t, x + t, y + t,           # tengah-tengah
+         lebar - 2 * t, tinggi - 2 * t),
+        (sw - t, t, t, sh - 2 * t, x + lebar - t, y + t, t,    # tengah-kanan
+         tinggi - 2 * t),
+        (0, sh - t, t, t, x, y + tinggi - t, t, t),            # bawah-kiri
+        (t, sh - t, sw - 2 * t, t, x + t, y + tinggi - t,      # bawah-tengah
+         lebar - 2 * t, t),
+        (sw - t, sh - t, t, t, x + lebar - t, y + tinggi - t,  # bawah-kanan
+         t, t),
+    ]
+    for (rx, ry, rw, rh, dx, dy, dw, dh) in region:
+        if rw <= 0 or rh <= 0 or dw <= 0 or dh <= 0:
+            continue
+        try:
+            sub = surface_obj.subsurface(pygame.Rect(rx, ry, rw, rh))
+            sub = pygame.transform.scale(sub, (max(1, int(dw)), max(1, int(dh))))
+            if alfa < 255:
+                sub = sub.copy()
+                sub.set_alpha(int(alfa))
+            screen.blit(sub, (int(dx), int(dy)))
+        except (pygame.error, ValueError):
+            continue
+
+
+# ---------------- Atlas & Batching ----------------
+
+
+class Atlas:
+    """Sprite atlas: kumpulan region gambar dari satu surface tekstur.
+
+    Memuat satu gambar besar dan membaginya menjadi region bernama, sehingga
+    banyak sprite dapat berbagi tekstur yang sama (kurangi pergantian tekstur
+    / draw call).
+
+    Contoh:
+        buat atlas = sprite.Atlas("atlas.png", 32, 32)
+        atlas.tambah_region("pemain", 0, 0)
+        atlas.tambah_region("musuh", 32, 0)
+        buat s = sprite.Sprite(atlas.ambil("pemain"), 100, 100)
+    """
+
+    def __init__(self, path, ukuran_lebar=32, ukuran_tinggi=32):
+        self.surface = None
+        self.ukuran_lebar = int(ukuran_lebar)
+        self.ukuran_tinggi = int(ukuran_tinggi)
+        self.region = {}
+        if pygame is not None:
+            try:
+                self.surface = pygame.image.load(path).convert_alpha()
+            except (pygame.error, FileNotFoundError, OSError):
+                self.surface = None
+
+    def tambah_region(self, nama, grid_x, grid_y, lebar=None, tinggi=None):
+        """Daftarkan region pada grid (grid_x, grid_y) dengan nama."""
+        if self.surface is None:
+            return
+        w = lebar if lebar is not None else self.ukuran_lebar
+        h = tinggi if tinggi is not None else self.ukuran_tinggi
+        self.region[nama] = (
+            int(grid_x) * w, int(grid_y) * h, int(w), int(h))
+
+    def ambil(self, nama):
+        """Ambil surface region (subsurface) menurut nama."""
+        if self.surface is None or nama not in self.region:
+            return None
+        rx, ry, rw, rh = self.region[nama]
+        try:
+            return self.surface.subsurface(pygame.Rect(rx, ry, rw, rh))
+        except (pygame.error, ValueError):
+            return None
+
+
+class Batcher:
+    """Batcher sprite untuk menggambar banyak sprite dengan tekstur yang sama
+    secara berurutan (mengurangi overhead pergantian surface).
+
+    Cocok digunakan sebelum `game.mulai()` di fase gambar scene:
+
+        buat batcher = sprite.Batcher()
+        untuk setiap s dalam daftar_sprite lakukan
+            batcher.tambah(s)
+        selesai
+        batcher.gambar(screen)
+    """
+
+    def __init__(self):
+        self._entri = []  # (sprite, surface, x, y)
+
+    def tambah(self, sprite_obj, x=None, y=None):
+        if not sprite_obj.terlihat or not sprite_obj.aktif:
+            return self
+        surf = sprite_obj._surface_frame()
+        gx = sprite_obj.x if x is None else x
+        gy = sprite_obj.y if y is None else y
+        self._entri.append((sprite_obj, surf, gx, gy))
+        return self
+
+    def gambar(self, screen, kamera=None):
+        for sprite_obj, surf, gx, gy in self._entri:
+            if surf is None:
+                continue
+            w = int(surf.get_width() * sprite_obj.skala_x)
+            h = int(surf.get_height() * sprite_obj.skala_y)
+            if w <= 0 or h <= 0:
+                continue
+            img = surf
+            if sprite_obj.skala_x != 1.0 or sprite_obj.skala_y != 1.0:
+                img = pygame.transform.scale(img, (w, h))
+            if sprite_obj.flip_x or sprite_obj.flip_y:
+                img = pygame.transform.flip(img, sprite_obj.flip_x, sprite_obj.flip_y)
+            if sprite_obj.sudut != 0.0:
+                img = pygame.transform.rotate(img, sprite_obj.sudut)
+                rect = img.get_rect(center=(int(gx) + w // 2, int(gy) + h // 2))
+                screen.blit(img, rect)
+            else:
+                if sprite_obj.alpha < 255:
+                    img = img.copy()
+                    img.set_alpha(max(0, min(255, int(sprite_obj.alpha))))
+                screen.blit(img, (int(gx), int(gy)))
+        self._entri.clear()
+
+
 module = SimpleNamespace(
     Sprite=Sprite,
     GrupSprite=GrupSprite,
+    Atlas=Atlas,
+    Batcher=Batcher,
+    gambar_9slice=gambar_9slice,
     buat_sprite=buat_sprite,
     buat_grup=buat_grup,
     buat=buat,

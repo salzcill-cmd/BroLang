@@ -61,6 +61,7 @@ def main(args: Optional[List[str]] = None) -> int:
         "-v": _cmd_version,
         "--help": _cmd_help,
         "-h": _cmd_help,
+        "pack": _cmd_pack,
     }
 
     handler = commands.get(command)
@@ -122,11 +123,18 @@ def _cmd_run(args: List[str]) -> int:
             return 1
 
     try:
+        from brolang.cache import load_cached, save_cached
         from brolang.lexer import Lexer
         from brolang.parser import Parser
         from brolang.semantic import SemanticAnalyzer
         from brolang.optimizer import Optimizer
         from brolang.interpreter import Interpreter
+
+        # v11.0: cek cache bytecode — lewati parse/compile jika sumber tidak berubah
+        cached_code = load_cached(source, file_path)
+        if cached_code is not None:
+            exec(cached_code, {"__builtins__": __builtins__, "__name__": "__main__"})
+            return 0
 
         # Pipeline lengkap
         lexer = Lexer(source, file_path=file_path)
@@ -141,6 +149,12 @@ def _cmd_run(args: List[str]) -> int:
                 print(str(error))
             return 1
 
+        # v11.0: tampilkan peringatan non-fatal (mis. match non-ekshaustif)
+        for warning in analyzer.warnings:
+            print(f"Peringatan: {warning.message}"
+                  + (f" (baris {warning.line})" if warning.line else "")
+                  + (f" — {warning.solution}" if warning.solution else ""))
+
         optimizer = Optimizer()
         optimized_ast = optimizer.optimize(ast)
 
@@ -151,6 +165,8 @@ def _cmd_run(args: List[str]) -> int:
             transpiler = Transpiler()
             py_code = transpiler.transpile(optimized_ast)
             compiled = compile(py_code, file_path, "exec")
+            # Simpan ke cache untuk run berikutnya
+            save_cached(source, file_path, compiled)
             exec(compiled, {"__builtins__": __builtins__, "__name__": "__main__"})
             return 0
         except Exception:
@@ -166,6 +182,86 @@ def _cmd_run(args: List[str]) -> int:
 
     except Exception as e:
         return _print_error(e, file_path, source)
+
+
+def _cmd_pack(args: List[str]) -> int:
+    """Bundle file .bro + dependensi ke folder distribusi tunggal.
+
+    Penggunaan:
+        bro pack <file.bro> <output_folder>
+
+    Hasil:
+        <output_folder>/
+            main.py            <- kode Python yang dikompilasi (siap jalankan)
+            brolang/           <- salin paket brolang (runtime + stdlib)
+            run.bat / run.sh   <- peluncur cepat
+    """
+    parser = argparse.ArgumentParser(prog="bro pack", description="Bungkus aplikasi BroLang ke distribusi tunggal")
+    parser.add_argument("file", help="File BroLang utama (.bro)")
+    parser.add_argument("output", help="Folder output distribusi")
+    parsed = parser.parse_args(args)
+
+    file_path = parsed.file
+    output_dir = parsed.output
+    if not os.path.exists(file_path):
+        print(f"Error: File '{file_path}' tidak ditemukan.")
+        return 1
+
+    try:
+        import shutil
+        import brolang
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            source = f.read()
+
+        from brolang.compiler import compile_source
+
+        py_code = compile_source(source, filename=file_path)
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Tulis main.py
+        main_py = os.path.join(output_dir, "main.py")
+        with open(main_py, "w", encoding="utf-8") as f:
+            f.write("# Diekspor oleh BroLang Pack v11.0.0\n")
+            f.write("# Jalankan: python main.py\n\n")
+            f.write(py_code)
+
+        # Salin paket brolang ke dalam distribusi (runtime + stdlib)
+        brolang_pkg_dir = os.path.dirname(brolang.__file__)
+        dest_brolang = os.path.join(output_dir, "brolang")
+        if os.path.exists(dest_brolang):
+            shutil.rmtree(dest_brolang)
+        # Salin hanya yang dibutuhkan: interpreter, stdlib, compiler, vm, exceptions, dll
+        shutil.copytree(brolang_pkg_dir, dest_brolang, ignore=shutil.ignore_patterns(
+            "__pycache__", "*.pyc", ".pytest_cache", "tests", "examples", "docs"
+        ))
+
+        # Peluncur run.sh (Unix)
+        run_sh = os.path.join(output_dir, "run.sh")
+        with open(run_sh, "w", encoding="utf-8") as f:
+            f.write("#!/usr/bin/env bash\n")
+            f.write('DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n')
+            f.write('PYTHONPATH="$DIR:$PYTHONPATH" python3 "$DIR/main.py" "$@"\n')
+        os.chmod(run_sh, 0o755)
+
+        # Peluncur run.bat (Windows)
+        run_bat = os.path.join(output_dir, "run.bat")
+        with open(run_bat, "w", encoding="utf-8") as f:
+            f.write("@echo off\n")
+            f.write("set DIR=%~dp0\n")
+            f.write("set PYTHONPATH=%DIR%;%PYTHONPATH%\n")
+            f.write('python "%DIR%\\main.py" %*\n')
+
+        print(f"Distribusi siap: {output_dir}")
+        print(f"  Jalankan (Unix):  cd {output_dir} && ./run.sh")
+        print(f"  Jalankan (Win):   cd {output_dir} && run.bat")
+        print(f"  Atau langsung:    python {output_dir}/main.py")
+        return 0
+
+    except Exception as e:
+        print(str(e))
+        return 1
 
 
 def _print_error(e: Exception, file_path: str = "", source: str = "") -> int:
@@ -235,14 +331,16 @@ def _print_error(e: Exception, file_path: str = "", source: str = "") -> int:
 
 
 def _cmd_build(args: List[str]) -> int:
-    """Mengompilasi file BroLang ke Python.
+    """Mengompilasi file BroLang ke Python atau executable mandiri.
 
     Penggunaan:
         bro build <file> -o <output.py>
+        bro build <file> --native -o <output>   # executable mandiri (AOT)
     """
     parser = argparse.ArgumentParser(prog="bro build", description="Mengompilasi BroLang ke Python")
     parser.add_argument("file", help="File BroLang (.bro)")
-    parser.add_argument("-o", "--output", help="File output Python")
+    parser.add_argument("-o", "--output", help="File output Python / executable")
+    parser.add_argument("--native", "-n", action="store_true", help="Bikin executable mandiri (AOT, tanpa perlu `bro run`)")
     parsed = parser.parse_args(args)
 
     file_path = parsed.file
@@ -254,15 +352,23 @@ def _cmd_build(args: List[str]) -> int:
         with open(file_path, "r", encoding="utf-8") as f:
             source = f.read()
 
-        from brolang.compiler import compile_source
+        from brolang.compiler import compile_source, compile_to_native
 
-        py_source = compile_source(source, filename=file_path)
+        if parsed.native:
+            py_source = compile_to_native(source, filename=file_path)
+        else:
+            py_source = compile_source(source, filename=file_path)
 
         output_path = parsed.output
         if output_path:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(py_source)
-            print(f"Output: {output_path}")
+            if parsed.native:
+                os.chmod(output_path, 0o755)
+                print(f"Output (executable): {output_path}")
+                print("Jalankan langsung: ./" + os.path.basename(output_path))
+            else:
+                print(f"Output: {output_path}")
         else:
             print(py_source)
 
@@ -547,6 +653,7 @@ def _cmd_doc(args: List[str]) -> int:
         "arsip": _doc_arsip,
         "terminal": _doc_terminal,
         "web": _doc_web,
+        "ffi": _doc_ffi,
     }
 
     if parsed.topik in topics:
@@ -700,6 +807,43 @@ impor web_server     # Web framework / server HTTP
   app.jalankan(8000)
 
 Lihat contoh lengkap: examples/web_api.bro
+"""
+    )
+
+
+def _doc_ffi():
+    print(
+        """
+Modul FFI — Foreign Function Interface (v11.0)
+===============================================
+
+Muat pustaka C bersama (.so Linux, .dll Windows, .dylib macOS) dan panggil
+fungsi C langsung dari BroLang via ctypes (stdlib Python). Akses seluruh
+ekosistem C tanpa wrapper Python manual.
+
+impor ffi
+
+# Muat libc sistem
+buat libc = ffi.muat("libc.so.6")
+
+# Panggil puts("teks") -> int
+buat n = ffi.panggil(libc, "puts", ["teks"], "int", "Halo dari C!")
+tulis n
+
+# Buffer mentah + memset
+buat buf = ffi.cipta_buffer(64)
+ffi.panggil(libc, "memset", ["pointer", "int", "int"], "pointer", buf, 0, 64)
+
+API:
+  ffi.muat(path)        -> LibHandle
+  ffi.panggil(handle, nama, arg_types, restype, *args) -> hasil
+  ffi.cipta_buffer(ukuran) -> buffer
+  ffi.baca_pointer(ptr) -> alamat integer
+  ffi.alamat(obj)       -> alamat memori obj
+  ffi.tipe(nama)        -> tipe ctypes
+
+Tipe: int, uint, int8/16/32/64, uint8/16/32/64, float, double,
+      teks (char*), void, pointer/ptr, size_t, bool, char
 """
     )
 
@@ -1709,6 +1853,7 @@ Penggunaan:
   bro upgrade            : Update BroLang ke versi terbaru
   bro belajar            : Belajar coding interaktif (untuk pemula)
   bro pkg <cmd>          : Package manager (init/install/publish/dll)
+  bro pack <file> <out>  : Bundel .bro + runtime ke distribusi tunggal (v11.0)
   bro version            : Informasi versi
 
 Game Development:

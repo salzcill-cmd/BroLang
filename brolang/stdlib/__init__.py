@@ -320,3 +320,13 @@ def _load_module(name: str) -> None:
         from brolang.stdlib.catatan_level import module as catatan_level_module
 
         register_module("catatan_level", catatan_level_module)
+    # v10.0 modules — konkurensi & memori aman
+    elif name == "aktor":
+        from brolang.stdlib.aktor import module as aktor_module
+
+        register_module("aktor", aktor_module)
+    # v11.0 modules — interop & sistem
+    elif name == "ffi":
+        from brolang.stdlib.ffi import module as ffi_module
+
+        register_module("ffi", ffi_module)

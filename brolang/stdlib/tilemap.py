@@ -606,15 +606,47 @@ def buat_tileset(nama, ukuran_tile=32, baris=1, kolom=1):
 
 
 def dari_file(path, pemisah=',', ukuran_tile=32):
-    """Membuat tilemap langsung dari file teks.
+    """Membuat tilemap langsung dari file teks atau JSON.
+
+    File teks (CSV):
+        1,1,1
+        1,0,1
+
+    File JSON (.json) — format sederhana:
+        {"lebar": 3, "tinggi": 2, "ukuran_tile": 32,
+         "data": [[1,1,1],[1,0,1]],
+         "objek": [{"nama":"spawn","x":10,"y":10,"tipe":"pemain"}]}
 
     Contoh:
-        buat peta = tilemap.dari_file("level1.txt")
+        buat peta = tilemap.dari_file("level1.json")
     """
+    import json
     with open(path, encoding='utf-8') as f:
-        baris = [b.strip() for b in f.readlines() if b.strip()]
+        konten = f.read().strip()
+    if not konten:
+        return Tilemap(1, 1, ukuran_tile)
+    # Deteksi JSON
+    if konten.startswith('{'):
+        data_json = json.loads(konten)
+        lebar = int(data_json.get("lebar", 1))
+        tinggi = int(data_json.get("tinggi", 1))
+        ukuran = int(data_json.get("ukuran_tile", ukuran_tile))
+        peta = Tilemap(lebar=lebar, tinggi=tinggi, ukuran_tile=ukuran)
+        data = data_json.get("data", [])
+        for y in range(min(len(data), tinggi)):
+            for x in range(min(len(data[y]), lebar)):
+                peta.data[y][x] = int(data[y][x])
+        peta._refresh_solid_map()
+        for obj in data_json.get("objek", []):
+            peta.tambah_objek(
+                obj.get("nama", "objek"),
+                obj.get("x", 0), obj.get("y", 0),
+                **{k: v for k, v in obj.items() if k not in ("nama", "x", "y")}
+            )
+        return peta
+    # Fallback: teks CSV
+    baris = [b.strip() for b in konten.splitlines() if b.strip()]
     if not baris:
-        # File kosong / hanya baris kosong -> peta kosong 1x1 (tidak crash)
         return Tilemap(1, 1, ukuran_tile)
     peta = Tilemap(
         lebar=max(len(b.split(pemisah)) for b in baris),
@@ -623,6 +655,24 @@ def dari_file(path, pemisah=',', ukuran_tile=32):
     )
     peta.dari_string('\n'.join(baris), pemisah)
     return peta
+
+
+def simpan_json(peta, path):
+    """Menyimpan tilemap ke file JSON (format sederhana)."""
+    import json
+    data = {
+        "lebar": peta.lebar,
+        "tinggi": peta.tinggi,
+        "ukuran_tile": peta.ukuran_tile,
+        "data": peta.ke_array(),
+        "objek": [
+            {k: v for k, v in vars(o).items() if k != "nama"} | {"nama": o.nama}
+            for o in peta.objek
+        ],
+    }
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+    return path
 
 
 module = SimpleNamespace(
@@ -634,4 +684,5 @@ module = SimpleNamespace(
     buat=buat,
     buat_tileset=buat_tileset,
     dari_file=dari_file,
+    simpan_json=simpan_json,
 )

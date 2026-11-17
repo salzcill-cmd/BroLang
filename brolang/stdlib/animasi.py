@@ -473,13 +473,93 @@ def buat(nilai_awal=0, nilai_akhir=1, durasi=1.0, easing='linear'):
     return buat_tween(nilai_awal, nilai_akhir, durasi, easing)
 
 
+class KeyframeAnimasi:
+    """Animasi keyframe: nilai berubah seiring waktu pada titik kunci.
+
+    Contoh:
+        buat kf = animasi.buat_keyframe()
+        kf.tambah(0.0, 0)       # waktu 0 -> nilai 0
+        kf.tambah(0.5, 100)     # waktu 0.5 -> nilai 100
+        kf.tambah(1.0, 0)       # waktu 1.0 -> nilai 0
+        kf.set_loop(True)
+        nilai = kf.update(dt)   # dipanggil tiap frame
+    """
+
+    def __init__(self, durasi_total=1.0, loop=False, easing='linear'):
+        self.keyframe = []        # list (waktu, nilai)
+        self.durasi_total = float(durasi_total)
+        self.loop = loop
+        self.easing = easing
+        self.waktu_sekarang = 0.0
+        self.selesai = False
+        self.on_selesai = None
+
+    def tambah(self, waktu, nilai):
+        """Menambahkan keyframe (waktu, nilai)."""
+        self.keyframe.append((float(waktu), float(nilai)))
+        self.keyframe.sort(key=lambda k: k[0])
+        return self
+
+    def update(self, dt):
+        """Update keyframe dan mengembalikan nilai saat ini."""
+        if self.selesai:
+            return self.keyframe[-1][1] if self.keyframe else 0
+
+        self.waktu_sekarang += dt
+        if self.waktu_sekarang >= self.durasi_total:
+            if self.loop:
+                self.waktu_sekarang = 0.0
+            else:
+                self.waktu_sekarang = self.durasi_total
+                self.selesai = True
+                if callable(self.on_selesai):
+                    self.on_selesai()
+
+        return self._nilai_pada(self.waktu_sekarang)
+
+    def _nilai_pada(self, waktu):
+        if not self.keyframe:
+            return 0
+        if waktu <= self.keyframe[0][0]:
+            return self.keyframe[0][1]
+        if waktu >= self.keyframe[-1][0]:
+            return self.keyframe[-1][1]
+        # Cari interval yang mengandung waktu
+        for i in range(len(self.keyframe) - 1):
+            w0, v0 = self.keyframe[i]
+            w1, v1 = self.keyframe[i + 1]
+            if w0 <= waktu <= w1:
+                if w1 == w0:
+                    return v0
+                t = (waktu - w0) / (w1 - w0)
+                t = _EASINGS.get(self.easing, _ease_linear)(t)
+                return v0 + (v1 - v0) * t
+        return self.keyframe[-1][1]
+
+    def nilai_sekarang(self):
+        """Mendapatkan nilai saat ini tanpa majukan waktu."""
+        return self._nilai_pada(self.waktu_sekarang)
+
+    def reset(self):
+        """Reset keyframe ke awal."""
+        self.waktu_sekarang = 0.0
+        self.selesai = False
+
+
+def buat_keyframe(durasi_total=1.0, loop=False, easing='linear'):
+    """Membuat keyframe animasi baru."""
+    return KeyframeAnimasi(durasi_total=durasi_total, loop=loop, easing=easing)
+
+
 module = SimpleNamespace(
     Animasi=Animasi,
     AnimasiTween=AnimasiTween,
     AnimasiSequence=AnimasiSequence,
+    KeyframeAnimasi=KeyframeAnimasi,
     buat_animasi=buat_animasi,
     buat_tween=buat_tween,
     buat_sequence=buat_sequence,
+    buat_keyframe=buat_keyframe,
     buat=buat,
     daftar_easing=daftar_easing,
 )

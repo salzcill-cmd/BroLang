@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v9.0</h1>
+<h1 align="center">BroLang v11.0</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>
@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/1346-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/115+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/135+Token%20Types-purple?style=flat-square" alt="tokens"/>
-  <img src="https://img.shields.io/badge/52+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
+  <img src="https://img.shields.io/badge/65+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
 </p>
 
 ---
@@ -45,10 +45,61 @@ chmod +x install.sh
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 9.0.0
+bro --version    # BroLang 11.0.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
+
+---
+
+## Apa yang Baru di v11.0? 🚀
+
+### Interop C (FFI) 🔗
+- **Modul `ffi`** — muat pustaka C bersama (`.so`/`.dll`) dan panggil fungsi C langsung dari BroLang via `ctypes`. Akses seluruh ekosistem C tanpa menulis wrapper Python. Dukungan tipe `int`, `float`, `double`, `teks` (`char*`), `pointer`, dan buffer mentah.
+
+### Keamanan Pattern Matching 🛡️
+- **Exhaustiveness checking** — `cocokkan` sekarang memeriksa apakah semua kasus ditangani; jika tidak ada wildcard `_` / pola binding sebagai fallback, analyzer akan memberikan peringatan agar tidak ada kasus yang terlewat waktu berjalan.
+
+### Type inference yang lebih tajam 🧠
+- `buat x = 5` menyimpulkan tipe `angka` dan menyimpannya di symbol table, sehingga penggunaan selanjutnya diperiksa konsisten — kurang boilerplate, aman seperti bahasa dengan anotasi penuh.
+
+### Tooling & Distribusi 📦
+- **Bytecode cache otomatis** — `bro run` menyimpan kode terkompilasi di `~/.brolang/cache/`; run berikutnya melewati parse/compile jika sumber tidak berubah (startup lebih cepat).
+- **`bro pack <file> <folder>`** — bundel file `.bro` + paket runtime `brolang/` ke folder distribusi tunggal dengan peluncur `run.sh` / `run.bat`, siap dibagikan tanpa memasang BroLang di target machine.
+
+Semua fitur v11.0 kompatibel dengan interpreter, transpiler, dan VM. 1346 test cases tetap passing.
+
+### Library Game (Upgrade Lengkap) 🎮
+- **`game`** — fixed-timestep loop, scene stack/overlay, transisi (fade/slide/wipe/zoom), pause/resume, profil statistik, headless mode, screenshot, resize
+- **`grafis`** — blend modes, offscreen render targets, gradien, perataan teks, clip/viewport, glow, draw-call counter
+- **`input`** — action mapping (`atur_peta_aksi`), gamepad rumble, swipe gesture, focus events
+- **`fisika`** — SpatialHash broadphase, collider radius configurable, AABB + raycast, gravitasi
+- **`sprite`** — Atlas, Batcher (draw-call batching), gambar 9-slice (9-slice scaling)
+- **`partikel`** — emitter, gravitasi point/angin/tarik/tolak, jejak (trail), warna gradien per-partikel, pooling
+- **`ui`** — tema, stack vertikal/horizontal, kotak gulir, navigasi fokus
+- **`kamera`** — zoom transisi cinematic, panning halus, deadzone, rotasi, screen shake, parallax
+- **`audio`** — mixer volume master/SFX/musik, spatial audio (attenuasi jarak), crossfade musik, synth prosedural, BGM generator
+- **`animasi`** — 26 easing, tween, sequence, keyframe animasi
+- **`tilemap`** — layer objek, platform satu arah, platform bergerak, animasi tile, JSON (Tiled-like) impor/ekspor
+- **`efek`** — flash, vignette, teks melayang, pulsa, guncangan, cromatic aberration, scanline, bloom
+- **`vektor`** — Vec2/Vec3, lerp, proyeksi, refleksi, rotasi, polar
+
+Semua modul game ditulis ulang/ditingkatkan agar BroLang menjadi salah satu bahasa paling lengkap untuk pengembangan game 2D.
+
+---
+
+## Apa yang Baru di v10.0? 🚀
+
+### Compiler Native (AOT) ⚡
+- **`bro build --native`** — kompilasi ahead-of-time ke executable Python mandiri (shebang `#!/usr/bin/env python3` + `chmod +x`), siap langsung dijalankan tanpa `bro run` dan tanpa memasang BroLang di target machine (hanya butuh Python 3).
+
+### Konkurensi Berbasis Aktor 🧵
+- **Modul `aktor`** — model actor (passing pesan): setiap aktor punya state terisolasi, berkomunikasi lewat `aktor.kirim` / `aktor.tanya`, tidak ada state bersama, **tidak ada race condition**, tidak perlu lock manual. Cocok untuk game loop, server, dan tugas bersamaan.
+
+### Tooling 🛠️
+- **`bro build --native -o <out>`** — hasilkan executable tunggal siap distribusi.
+
+Semua fitur v10.0 tersedia di interpreter, transpiler, dan VM. 1346 test cases tetap passing.
 
 ---
 
@@ -1452,6 +1503,8 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | `dasar` | Base encoding utilities |
 | `visualisasi` | Chart & grafik data (ASCII, SVG, HTML, GUI Pygame) |
 | `sejajar` | Threading & parallel (jalankan background task, peta_sejajar) |
+| `aktor` | Actor model — state terisolasi, passing pesan, tanpa race condition (v10.0) |
+| `ffi` | Foreign Function Interface — panggil fungsi C via ctypes (v11.0) |
 | `tanggal` | Tanggal Indonesia: parse, format, selisih hari, komponen |
 | `catat` | Logging ber-level (info/error/warning) ke terminal & file |
 | `lingkungan` | Environment variables (get/set/ada/hapus) |
@@ -1501,7 +1554,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 ```bash
 bro run <file>         # Jalankan file .bro (tanpa argumen: dari brolang.json)
 bro init <nama>        # Bikin proyek baru (src/, tests/, docs/, brolang.json)
-bro build <file>       # Compile ke Python
+bro build <file>       # Compile ke Python (--native untuk executable mandiri)
 bro repl               # REPL interaktif
 bro test [file]        # Jalankan tes (--nama <filter>, --detail)
 bro profile <file>     # Profil eksekusi
@@ -1514,6 +1567,7 @@ bro benchmark <file>   # Benchmark interpreter vs transpiler vs VM
 bro upgrade            # Update BroLang ke versi terbaru dari GitHub (v6.4)
 bro belajar            # Belajar coding interaktif untuk pemula 🎓
 bro pkg <cmd>          # Package manager (init/install/publish/dll)
+bro pack <file> <out>  # Bundel .bro + runtime ke folder distribusi (v11.0)
 ```
 
 ### Game (showcase library game)

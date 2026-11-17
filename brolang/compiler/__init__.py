@@ -23,4 +23,4 @@ Contoh:
     exec(py_code)
 """
 
-from brolang.compiler.compiler import Compiler, compile_source
+from brolang.compiler.compiler import Compiler, compile_source, compile_to_native

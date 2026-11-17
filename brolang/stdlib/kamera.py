@@ -2,22 +2,28 @@
 Modul Kamera untuk BroLang Game Development
 ============================================
 
-Menyediakan sistem kamera untuk game.
+Sistem kamera 2D untuk game: follow target, smoothing, deadzone, bounds,
+zoom, rotasi, screen shake, parallax, camera shake cinematic, zoom transisi.
 
 Contoh:
     impor kamera
 
     buat cam = kamera.Kamera(800, 600)
     cam.set_target(player)
+    cam.set_deadzone(200, 150)
+    cam.set_zoom(1.2)
+    cam.shake(10, 0.3)
     cam.update(dt)
+    grafis.gambar_gambar(latar, *cam.world_to_screen(player.x, player.y))
 """
 
 import math
+import random
 from types import SimpleNamespace
 
 
 class Kamera:
-    """Kamera 2D dengan smoothing."""
+    """Kamera 2D dengan smoothing, deadzone, bounds, zoom, rotasi, shake."""
 
     def __init__(self, lebar_layar=800, tinggi_layar=600):
         self.x = 0.0
@@ -27,29 +33,37 @@ class Kamera:
         self.zoom = 1.0
         self.sudut = 0.0
         self.target = None
-        this = self
 
         # Smoothing
-        this.kecepatan_smooth = 5.0
-        this.offset_x = 0.0
-        this.offset_y = 0.0
+        self.kecepatan_smooth = 5.0
+        self.offset_x = 0.0
+        self.offset_y = 0.0
 
         # Bounds
-        this.batas_kiri = None
-        this.batas_kanan = None
-        this.batas_atas = None
-        this.batas_bawah = None
+        self.batas_kiri = None
+        self.batas_kanan = None
+        self.batas_atas = None
+        self.batas_bawah = None
 
-        # v6.6: deadzone follow — kamera diam selama target di dalam area
-        this.deadzone = None  # (lebar, tinggi) atau None
-        this.deadzone_lerp = 8.0
+        # Deadzone follow
+        self.deadzone = None  # (lebar, tinggi) atau None
+        self.deadzone_lerp = 8.0
 
         # Screen shake
-        this.shake_intensity = 0
-        this.shake_duration = 0
-        this.shake_waktu = 0
-        this.shake_offset_x = 0
-        this.shake_offset_y = 0
+        self.shake_intensity = 0
+        self.shake_duration = 0
+        self.shake_waktu = 0
+        self.shake_offset_x = 0
+        self.shake_offset_y = 0
+
+        # Zoom transisi (cinematic zoom)
+        self._zoom_target = 1.0
+        self._zoom_kecepatan = 0.0
+
+        # Panning otomatis ke titik
+        self._pan_target_x = None
+        self._pan_target_y = None
+        self._pan_kecepatan = 0.0
 
     def set_target(self, target, deadzone=None):
         """Set target kamera (objek yang diikuti).
@@ -59,11 +73,16 @@ class Kamera:
                 dsb) ATAU .posisi.x dan .posisi.y (Bodi dari modul fisika).
             deadzone: Opsional (lebar, tinggi) pixel. Kamera hanya bergerak
                 saat target keluar dari area deadzone di tengah layar —
-                membuat gerakan lebih stabil (v6.6).
+                membuat gerakan lebih stabil.
         """
         self.target = target
         if deadzone is not None:
             self.deadzone = (float(deadzone[0]), float(deadzone[1]))
+        return self
+
+    def set_deadzone(self, lebar, tinggi):
+        """Set area deadzone follow."""
+        self.deadzone = (float(lebar), float(tinggi))
         return self
 
     def _target_xy(self):
@@ -83,8 +102,8 @@ class Kamera:
 
     def set_offset(self, x, y):
         """Set offset kamera."""
-        self.offset_x = x
-        self.offset_y = y
+        self.offset_x = float(x)
+        self.offset_y = float(y)
         return self
 
     def set_posisi(self, x, y):
@@ -114,6 +133,11 @@ class Kamera:
         self.shake_offset_x = 0
         self.shake_offset_y = 0
         self.deadzone = None
+        self._zoom_target = 1.0
+        self._zoom_kecepatan = 0.0
+        self._pan_target_x = None
+        self._pan_target_y = None
+        self._pan_kecepatan = 0.0
 
     def set_batas_world(self, lebar_world, tinggi_world):
         """Set batas kamera otomatis dari ukuran world.
@@ -127,7 +151,7 @@ class Kamera:
 
     def set_sudut(self, derajat):
         """Set rotasi kamera (derajat)."""
-        self.sudut = derajat
+        self.sudut = float(derajat)
 
     def set_bounds(self, kiri, atas, kanan, bawah):
         """Set batas pergerakan kamera."""
@@ -138,10 +162,39 @@ class Kamera:
 
     def set_zoom(self, zoom):
         """Set zoom level."""
-        self.zoom = max(0.1, min(zoom, 5.0))
+        self.zoom = max(0.1, min(float(zoom), 5.0))
+        self._zoom_target = self.zoom
+
+    def zoom_ke(self, zoom_target, kecepatan=3.0):
+        """Transisi zoom halus ke level target.
+
+        Args:
+            zoom_target: Level zoom tujuan.
+            kecepatan: Kecepatan transisi (semakin besar semakin cepat).
+        """
+        self._zoom_target = max(0.1, min(float(zoom_target), 5.0))
+        self._zoom_kecepatan = max(0.0, float(kecepatan))
+
+    def pan_ke(self, x, y, kecepatan=5.0):
+        """Panning halus kamera ke titik world (x, y)."""
+        self._pan_target_x = float(x)
+        self._pan_target_y = float(y)
+        self._pan_kecepatan = max(0.0, float(kecepatan))
+        self.target = None  # hentikan follow saat panning manual
 
     def update(self, dt):
         """Update kamera."""
+        # Pan ke titik target (jika ada)
+        if self._pan_target_x is not None:
+            self.x += (self._pan_target_x - self.x) * self._pan_kecepatan * dt
+            self.y += (self._pan_target_y - self.y) * self._pan_kecepatan * dt
+            # Hentikan pan saat sudah dekat
+            if abs(self._pan_target_x - self.x) < 1.0 and abs(self._pan_target_y - self.y) < 1.0:
+                self.x = self._pan_target_x
+                self.y = self._pan_target_y
+                self._pan_target_x = None
+                self._pan_target_y = None
+
         # Follow target
         if self.target:
             tx, ty = self._target_xy()
@@ -166,6 +219,11 @@ class Kamera:
                 self.x += (target_x - self.x) * self.kecepatan_smooth * dt
                 self.y += (target_y - self.y) * self.kecepatan_smooth * dt
 
+        # Zoom transisi
+        if abs(self._zoom_target - self.zoom) > 0.001:
+            self.zoom += (self._zoom_target - self.zoom) * self._zoom_kecepatan * dt
+            self.zoom = max(0.1, min(self.zoom, 5.0))
+
         # Apply bounds
         if self.batas_kiri is not None:
             self.x = max(self.batas_kiri, self.x)
@@ -179,7 +237,6 @@ class Kamera:
         # Screen shake
         if self.shake_waktu > 0:
             self.shake_waktu -= dt
-            import random
             self.shake_offset_x = random.uniform(-1, 1) * self.shake_intensity
             self.shake_offset_y = random.uniform(-1, 1) * self.shake_intensity
         else:
@@ -199,17 +256,13 @@ class Kamera:
         return screen_x, screen_y
 
     def screen_parallax(self, world_x, world_y, faktor=0.5):
-        """Konversi world ke screen dengan faktor parallax — v6.6.
+        """Konversi world ke screen dengan faktor parallax.
 
         Faktor:
             1.0 = normal (ikut kamera penuh)
             0.5 = setengah kecepatan (lapisan belakang)
             0.0 = statis (tidak bergerak sama sekali)
             2.0 = lebih cepat (lapisan depan)
-
-        Contoh (gambar latar di fungsi gambar):
-            buat (bx, by) = cam.screen_parallax(400, 300, 0.3)
-            grafis.gambar_gambar(latar_bukit, bx, by)
         """
         f = float(faktor)
         screen_x = (world_x - self.x * f) * self.zoom + self.shake_offset_x
@@ -245,7 +298,6 @@ class Kamera:
         """Menerapkan transformasi kamera ke koordinat (dengan rotasi)."""
         sx, sy = self.world_to_screen(x, y)
         if self.sudut:
-            import math
             rad = math.radians(self.sudut)
             cx = self.lebar_layar / 2
             cy = self.tinggi_layar / 2
@@ -263,10 +315,9 @@ class KameraTopDown(Kamera):
 
     def __init__(self, lebar_layar=800, tinggi_layar=600):
         super().__init__(lebar_layar, tinggi_layar)
-        this = self
-        this.kecepatan_smooth = 8.0
-        this.debounce = 0.1
-        this._debounce_timer = 0
+        self.kecepatan_smooth = 8.0
+        self.debounce = 0.1
+        self._debounce_timer = 0
 
     def follow_with_debounce(self, target, dt):
         """Follow target dengan debounce."""
@@ -281,12 +332,21 @@ class KameraSideScroll(Kamera):
 
     def __init__(self, lebar_layar=800, tinggi_layar=600):
         super().__init__(lebar_layar, tinggi_layar)
-        this = self
-        this.kecepatan_smooth = 10.0
-        this.follow_x = True
-        this.follow_y = False
+        self.kecepatan_smooth = 10.0
+        self.follow_x = True
+        self.follow_y = False
 
     def update(self, dt):
+        # Pan ke titik target (jika ada)
+        if self._pan_target_x is not None:
+            self.x += (self._pan_target_x - self.x) * self._pan_kecepatan * dt
+            self.y += (self._pan_target_y - self.y) * self._pan_kecepatan * dt
+            if abs(self._pan_target_x - self.x) < 1.0 and abs(self._pan_target_y - self.y) < 1.0:
+                self.x = self._pan_target_x
+                self.y = self._pan_target_y
+                self._pan_target_x = None
+                self._pan_target_y = None
+
         if self.target:
             tx, ty = self._target_xy()
             target_x = tx + self.offset_x
@@ -307,7 +367,6 @@ class KameraSideScroll(Kamera):
         # Screen shake
         if self.shake_waktu > 0:
             self.shake_waktu -= dt
-            import random
             self.shake_offset_x = random.uniform(-1, 1) * self.shake_intensity
             self.shake_offset_y = random.uniform(-1, 1) * self.shake_intensity
         else:

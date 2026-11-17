@@ -385,7 +385,118 @@ def buat(jenis="flash", *args, **kwargs):
         return buat_guncangan(*args, **kwargs)
     if j == "vignette":
         return Vignette(*args, **kwargs)
+    if j in ("cromatic", "cromatic_aberration", "aberasi"):
+        return CromaticAberration(*args, **kwargs)
+    if j in ("scanline", "garis_layar"):
+        return Scanline(*args, **kwargs)
+    if j in ("bloom", "bloomer"):
+        return Bloom(*args, **kwargs)
     return buat_flash(*args, **kwargs)
+
+
+# ============================================================
+# v11: Efek pasca-proses (post-processing) — chromatic aberration,
+# scanline, bloom. Butuh pygame surface aktif.
+# ============================================================
+
+class CromaticAberration:
+    """Efek cromatic aberration — membelah channel warna RGB sedikit.
+
+    Cocok untuk efek kerusakan layar / glitch / 시각ik "retro-glitch".
+    Terapkan dengan menggambar layar ke surface sementara lalu blit 3 kali
+    dengan offset per channel.
+    """
+
+    def __init__(self, offset=2.0):
+        self.offset = float(offset)
+
+    def terapkan(self, screen):
+        if pygame is None:
+            return
+        try:
+            w, h = screen.get_size()
+            temp = screen.copy()
+            r = temp.copy()
+            g = temp.copy()
+            b = temp.copy()
+            # Pisahkan channel (sederhana: tint setiap copy)
+            r.fill((255, 0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            g.fill((0, 255, 0), special_flags=pygame.BLEND_RGBA_MULT)
+            b.fill((0, 0, 255), special_flags=pygame.BLEND_RGBA_MULT)
+            screen.blit(temp, (0, 0))
+            screen.blit(r, (self.offset, 0))
+            screen.blit(g, (-self.offset, 0))
+            screen.blit(b, (0, self.offset))
+        except (pygame.error, AttributeError):
+            pass
+
+
+class Scanline:
+    """Efek scanline — garis horizontal terang/gelap seperti layar CRT.
+
+    Digambar di atas layar sebagai overlay semi-transparan.
+    """
+
+    def __init__(self, intensitas=60, kecepatan=0.0):
+        self.intensitas = int(intensitas)
+        self.kecepatan = float(kecepatan)
+        self._waktu = 0.0
+
+    def terapkan(self, screen):
+        if pygame is None:
+            return
+        try:
+            w, h = screen.get_size()
+            self._waktu += self.kecepatan
+            overlay = pygame.Surface((w, h), pygame.SRCALPHA)
+            for y in range(0, h, 4):
+                fase = (y + self._waktu * 60) % 4
+                alpha = self.intensitas if fase < 2 else 0
+                if alpha > 0:
+                    pygame.draw.line(overlay, (0, 0, 0, alpha), (0, y), (w, y))
+            screen.blit(overlay, (0, 0))
+        except (pygame.error, AttributeError):
+            pass
+
+
+class Bloom:
+    """Efek bloom sederhana — cahaya menyebar dari area terang.
+
+    Implementasi ringan: copy layar, blur horizontal+vertikal berkali-kali,
+    lalu tambahkan ke layar asli (additive blend).
+    """
+
+    def __init__(self, intensitas=0.5, iterasi=2):
+        self.intensitas = float(intensitas)
+        self.iterasi = max(1, int(iterasi))
+
+    def terapkan(self, screen):
+        if pygame is None:
+            return
+        try:
+            w, h = screen.get_size()
+            temp = screen.copy()
+            # Downsample kecil untuk blur murah
+            kecil = pygame.transform.smoothscale(temp, (max(1, w // 4), max(1, h // 4)))
+            for _ in range(self.iterasi):
+                kecil = pygame.transform.smoothscale(kecil, (max(1, w // 4), max(1, h // 4)))
+                kecil = pygame.transform.smoothscale(kecil, (w, h))
+                kecil.set_alpha(int(120 * self.intensitas))
+                screen.blit(kecil, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+        except (pygame.error, AttributeError):
+            pass
+
+
+def buat_cromatic(offset=2.0):
+    return CromaticAberration(offset=offset)
+
+
+def buat_scanline(intensitas=60, kecepatan=0.0):
+    return Scanline(intensitas=intensitas, kecepatan=kecepatan)
+
+
+def buat_bloom(intensitas=0.5, iterasi=2):
+    return Bloom(intensitas=intensitas, iterasi=iterasi)
 
 
 module = SimpleNamespace(
@@ -394,9 +505,15 @@ module = SimpleNamespace(
     TeksMelayang=TeksMelayang,
     Pulsa=Pulsa,
     Guncangan=Guncangan,
+    CromaticAberration=CromaticAberration,
+    Scanline=Scanline,
+    Bloom=Bloom,
     buat_flash=buat_flash,
     buat_teks_melayang=buat_teks_melayang,
     buat_pulsa=buat_pulsa,
     buat_guncangan=buat_guncangan,
+    buat_cromatic=buat_cromatic,
+    buat_scanline=buat_scanline,
+    buat_bloom=buat_bloom,
     buat=buat,
 )

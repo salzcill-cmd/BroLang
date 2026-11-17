@@ -729,3 +729,42 @@ def compile_source(source: str, filename: str = "<brolang>") -> str:
 
     compiler = Compiler(optimize=True)
     return compiler.compile(ast)
+
+
+def compile_to_native(source: str, filename: str = "<brolang>") -> str:
+    """Compile BroLang source menjadi executable Python mandiri (AOT).
+
+    Output difORMAT sebagai skrip Python yang dapat dieksekusi langsung
+    dengan shebang `#!/usr/bin/env python3`, sehingga tidak perlu memanggil
+    `bro run` — cukup jalankan `./output` setelah `chmod +x`.
+
+    Args:
+        source: Kode sumber BroLang
+        filename: Nama file sumber (untuk error reporting dan shebang komentar)
+
+    Returns:
+        str: Python source code lengkap dengan shebang dan header runtime
+    """
+    py_code = compile_source(source, filename=filename)
+
+    header = [
+        "#!/usr/bin/env python3",
+        f"# Diekspor oleh BroLang Compiler v10.0.0 (AOT native build)",
+        f"# Sumber: {filename}",
+        "# Jalankan langsung: chmod +x <output> && ./<output>",
+        "",
+        "import sys as _bro_sys",
+        "import os as _bro_os",
+        "",
+        "# Pastikan paket brolang tersedia untuk runtime stdlib.",
+        "_bro_root = _bro_os.path.dirname(_bro_os.path.abspath(__file__))",
+        "if _bro_root not in _bro_sys.path:",
+        "    _bro_sys.path.insert(0, _bro_root)",
+        "",
+        "",
+    ]
+
+    return "\n".join(header) + py_code
+
+
+__all__ = ["Compiler", "compile_source", "compile_to_native"]

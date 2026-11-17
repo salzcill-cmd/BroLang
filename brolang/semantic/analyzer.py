@@ -144,6 +144,7 @@ class SemanticAnalyzer(ASTVisitor):
     def __init__(self):
         self.current_scope: SymbolTable = SymbolTable(scope_name="global")
         self.errors: List[SemanticError] = []
+        self.warnings: List[SemanticError] = []  # v11.0: peringatan non-fatal (exhaustiveness, dll)
         self.current_function: Optional[str] = None
         self.current_class: Optional[str] = None
         self._has_errors: bool = False
@@ -249,6 +250,16 @@ class SemanticAnalyzer(ASTVisitor):
             solution=solution,
             example=example,
         )
+
+    def _warning(self, message: str, line: int = 0, column: int = 0,
+                 solution: str = "") -> None:
+        """Catat peringatan non-fatal (tidak membatalkan analisis)."""
+        self.warnings.append(SemanticError(
+            message=message,
+            line=line,
+            column=column,
+            solution=solution,
+        ))
 
     def _enter_scope(self, name: str = "block") -> SymbolTable:
         """Masuk ke scope baru."""
@@ -1206,6 +1217,23 @@ class SemanticAnalyzer(ASTVisitor):
             for stmt in node.default_case:
                 self.visit(stmt)
             self._exit_scope()
+        # v11.0: cek kejelasan (exhaustiveness) — pola menangkap semua
+        # (Wildcard `_` atau Binding identifier) atau default_case wajib ada
+        # agar tidak ada nilai yang terlewat waktu berjalan.
+        has_catch_all = bool(node.default_case)
+        if not has_catch_all:
+            for pattern, _body in node.cases:
+                if isinstance(pattern, (WildcardNode, BindingPatternNode)):
+                    has_catch_all = True
+                    break
+        if not has_catch_all and node.cases:
+            self._warning(
+                message=f"'cocokkan' mungkin tidak ekshaustif: tidak ada pola "
+                        f"penangkap semua (`_`, identifier, atau kasus default).",
+                line=node.line,
+                column=node.column,
+                solution="Tambahkan kasus '_' atau pola binding sebagai fallback agar semua nilai tertangani.",
+            )
 
     # ============= V6.0: Pattern Binding =============
 

@@ -1,13 +1,23 @@
 """
-Modul Audio BroLang
-===================
+Modul Audio BroLang (v11 Upgrade)
+=================================
 
-Wrapper Pygame untuk audio: sound effects dan musik.
+Wrapper Pygame untuk audio: sound effects, musik latar, mixer kanal,
+spatial audio (jarak), dan crossfade musik.
 
 Contoh:
     impor audio
+
     audio.muat_musik("musik/bgm.mp3")
-    audio.mainkan_musik()
+    audio.mainkan_musik(loop=-1)
+    audio.crossfade_musik("musik/boss.mp3", durasi=2.0)
+
+    buat tembak = audio.muat_suara("suara/tembak.wav")
+    audio.mainkan_suara(tembak, volume=0.7)
+
+    # Audio spasial (suara lebih lembut semakin jauh dari pemain)
+    audio.posisi_pemutar(400, 300)            # posisi pemain/listener
+    audio.mainkan_suara_spasial(tembak, 500, 300, jarak_maks=400)
 """
 
 from types import SimpleNamespace
@@ -19,7 +29,16 @@ except ImportError:
 
 _sound_cache = {}
 _music_loaded = False
+_music_volume = 1.0
+_sfx_volume = 1.0
+_master_volume = 1.0
+_listener_x = 0.0
+_listener_y = 0.0
 
+
+# ============================================================
+# Inisialisasi mixer
+# ============================================================
 
 def _ensure_mixer():
     if pygame is None:
@@ -28,7 +47,15 @@ def _ensure_mixer():
         pygame.mixer.init()
 
 
-# --- Musik Latar ---
+def buat():
+    """Helper: pastikan mixer siap (untuk setup cepat audio)."""
+    _ensure_mixer()
+    return True
+
+
+# ============================================================
+# Musik Latar
+# ============================================================
 
 def muat_musik(path: str):
     """Memuat file musik untuk diputar sebagai background.
@@ -77,8 +104,10 @@ def atur_volume_musik(volume: float):
     Contoh:
         audio.atur_volume_musik(0.5)
     """
+    global _music_volume
     _ensure_mixer()
-    pygame.mixer.music.set_volume(max(0.0, min(1.0, float(volume))))
+    _music_volume = max(0.0, min(1.0, float(volume)))
+    pygame.mixer.music.set_volume(_music_volume * _master_volume)
 
 
 def sedang_memutar_musik() -> bool:
@@ -87,7 +116,23 @@ def sedang_memutar_musik() -> bool:
     return pygame.mixer.music.get_busy()
 
 
-# --- Sound Effects ---
+def crossfade_musik(path: str, durasi: float = 2.0, loops: int = -1):
+    """Crossfade musik: fade out musik lama sambil fade in musik baru.
+
+    Contoh:
+        audio.crossfade_musik("musik/boss.mp3", durasi=2.0)
+    """
+    _ensure_mixer()
+    pygame.mixer.music.fadeout(int(durasi * 1000))
+    pygame.time.wait(int(durasi * 1000))
+    muat_musik(path)
+    pygame.mixer.music.play(loops)
+    pygame.mixer.music.set_volume(_music_volume * _master_volume)
+
+
+# ============================================================
+# Sound Effects
+# ============================================================
 
 def muat_suara(path: str):
     """Memuat file sound effect.
@@ -110,25 +155,72 @@ def mainkan_suara(suara, volume: float = 1.0):
         audio.mainkan_suara(tembak, 0.5)
     """
     _ensure_mixer()
-    suara.set_volume(max(0.0, min(1.0, float(volume))))
+    suara.set_volume(max(0.0, min(1.0, float(volume))) * _sfx_volume * _master_volume)
     suara.play()
 
 
 def atur_volume_semua(volume: float):
     """Mengatur volume semua sound effect (0.0 - 1.0)."""
+    global _sfx_volume
     _ensure_mixer()
+    _sfx_volume = max(0.0, min(1.0, float(volume)))
     for snd in _sound_cache.values():
-        snd.set_volume(max(0.0, min(1.0, float(volume))))
+        snd.set_volume(max(0.0, min(1.0, snd.get_volume())) * _sfx_volume * _master_volume)
+
+
+def atur_volume_master(volume: float):
+    """Mengatur volume master seluruh audio (0.0 - 1.0)."""
+    global _master_volume
+    _master_volume = max(0.0, min(1.0, float(volume)))
+    atur_volume_musik(_music_volume)
+    atur_volume_semua(_sfx_volume)
 
 
 # ============================================================
-# v6.7: Synth Audio — buat efek suara prosedural (tanpa file!)
+# Audio Spasial (jarak / listener)
 # ============================================================
-# Membuat WAV bytes secara matematis: nada, laser, ledakan, "blip".
-# Logika murni stdlib Python (math/struct/io/wave) — bisa dipakai
-# tanpa pygame untuk testing, lalu diputar via pygame bila ada.
 
-_SAMPLE_RATE = 22050  # cukup untuk SFX, hemat memori
+def posisi_pemutar(x, y):
+    """Set posisi listener (pemain) untuk audio spasial.
+
+    Suara yang diputar dengan mainkan_suara_spasial akan lebih lembut
+    semakin jauh dari posisi ini.
+    """
+    global _listener_x, _listener_y
+    _listener_x = float(x)
+    _listener_y = float(y)
+
+
+def mainkan_suara_spasial(suara, x, y, jarak_maks=400, volume=1.0):
+    """Memutar sound effect dengan attenuasi jarak dari listener.
+
+    Semakin jauh sumber suara dari listener, semakin lembut suaranya.
+    Jika di luar jarak_maks, suara tidak diputar.
+
+    Contoh:
+        buat tembak = audio.muat_suara("tembak.wav")
+        audio.posisi_pemutar(pemain.x, pemain.y)
+        audio.mainkan_suara_spasial(tembak, musuh.x, musuh.y, jarak_maks=300)
+    """
+    _ensure_mixer()
+    dx = float(x) - _listener_x
+    dy = float(y) - _listener_y
+    jarak = (dx * dx + dy * dy) ** 0.5
+    if jarak > jarak_maks:
+        return 0.0
+    # Attenuasi linear: 1.0 di dekat, 0.0 di batas jarak_maks
+    faktor = max(0.0, 1.0 - jarak / max(jarak_maks, 0.001))
+    vol = max(0.0, min(1.0, float(volume))) * faktor * _sfx_volume * _master_volume
+    suara.set_volume(vol)
+    suara.play()
+    return vol
+
+
+# ============================================================
+# Synth Audio (prosedural, tanpa file)
+# ============================================================
+
+_SAMPLE_RATE = 22050
 
 
 def _buat_wav_bytes(sampel):
@@ -150,7 +242,7 @@ def _buat_wav_bytes(sampel):
 
 
 def nada(frekuensi=440.0, durasi=0.2, volume=0.6, gelombang="sinus"):
-    """Buat WAV nada sederhana — blip/lonceng/pip (v6.7).
+    """Buat WAV nada sederhana — blip/lonceng/pip.
 
     Args:
         frekuensi: Frekuensi nada dalam Hz.
@@ -181,46 +273,43 @@ def nada(frekuensi=440.0, durasi=0.2, volume=0.6, gelombang="sinus"):
             v = 2.0 * ((frekuensi * t) % 1.0) - 1.0
         else:
             v = math.sin(fasa)
-        # Envelope: serangan cepat, lalu decay eksponensial (hindari klik)
         env = math.exp(-3.0 * t / max(durasi, 0.001))
         sampel.append(v * env * volume)
     return _buat_wav_bytes(sampel)
 
 
 def laser(durasi=0.15, volume=0.5):
-    """WAV efek laser sci-fi — sweep frekuensi naik cepat (v6.7)."""
+    """WAV efek laser sci-fi — sweep frekuensi naik cepat."""
     import math
 
     n = max(1, int(durasi * _SAMPLE_RATE))
-    f0, f1 = 900.0, 220.0  # turun seperti laser pew pew
+    f0, f1 = 900.0, 220.0
     sampel = []
     for i in range(n):
         t = i / _SAMPLE_RATE
         p = i / max(n - 1, 1)
-        f = f0 + (f1 - f0) * (p ** 2)  # sweep non-linear
+        f = f0 + (f1 - f0) * (p ** 2)
         fasa = 2 * math.pi * f * t
         v = math.sin(fasa)
-        env = (1.0 - p) ** 1.5  # decay halus
+        env = (1.0 - p) ** 1.5
         sampel.append(v * env * volume)
     return _buat_wav_bytes(sampel)
 
 
 def ledakan(durasi=0.6, volume=0.8):
-    """WAV ledakan — noise dengan lowpass sederhana + decay (v6.7)."""
+    """WAV ledakan — noise dengan lowpass sederhana + decay."""
     import math
     import random
 
     n = max(1, int(durasi * _SAMPLE_RATE))
-    random.seed(42)  # deterministik supaya hasil test stabil
+    random.seed(42)
     sampel = []
     sebelumnya = 0.0
     for i in range(n):
         t = i / _SAMPLE_RATE
         p = i / max(n - 1, 1)
-        # White noise dengan lowpass sederhana (rata-rata dengan sampel lalu)
         noise = random.uniform(-1.0, 1.0)
         sebelumnya = 0.8 * sebelumnya + 0.2 * noise
-        # Getar sub-bass di awal
         bass = math.sin(2 * math.pi * (90 - 60 * p) * t)
         v = 0.7 * bass + 0.3 * sebelumnya
         env = math.exp(-2.5 * p)
@@ -229,7 +318,7 @@ def ledakan(durasi=0.6, volume=0.8):
 
 
 def blip(frekuensi=660.0, durasi=0.06, volume=0.5):
-    """WAV blip pendek untuk UI/skor (v6.7)."""
+    """WAV blip pendek untuk UI/skor."""
     return nada(frekuensi, durasi, volume, gelombang="kotak")
 
 
@@ -241,7 +330,7 @@ def _wav_ke_suara(wav_bytes):
 
 
 def mainkan_wav(wav_bytes, volume=1.0):
-    """Putar WAV bytes yang dibuat synth (v6.7).
+    """Putar WAV bytes yang dibuat synth.
 
     Contoh:
         audio.mainkan_wav(audio.laser())
@@ -249,39 +338,36 @@ def mainkan_wav(wav_bytes, volume=1.0):
     if pygame is None:
         return False
     snd = _wav_ke_suara(wav_bytes)
-    snd.set_volume(max(0.0, min(1.0, float(volume))))
+    snd.set_volume(max(0.0, min(1.0, float(volume))) * _sfx_volume * _master_volume)
     snd.play()
     return True
 
 
 def mainkan_nada(frekuensi=440.0, durasi=0.2, volume=0.6, gelombang="sinus"):
-    """Buat & putar nada langsung (v6.7)."""
+    """Buat & putar nada langsung."""
     return mainkan_wav(nada(frekuensi, durasi, volume, gelombang), volume)
 
 
 def mainkan_laser(volume=0.5):
-    """Buat & putar efek laser langsung (v6.7)."""
+    """Buat & putar efek laser langsung."""
     return mainkan_wav(laser(volume=volume), volume)
 
 
 def mainkan_ledakan(volume=0.8):
-    """Buat & putar efek ledakan langsung (v6.7)."""
+    """Buat & putar efek ledakan langsung."""
     return mainkan_wav(ledakan(volume=volume), volume)
 
 
 def simpan_wav(wav_bytes, path):
-    """Simpan WAV bytes ke file (v6.7)."""
+    """Simpan WAV bytes ke file."""
     with open(path, "wb") as f:
         f.write(wav_bytes)
     return path
 
 
 # ============================================================
-# v6.8: BGM Prosedural — generator musik latar (tanpa file!)
+# BGM Prosedural (generator musik latar)
 # ============================================================
-# Membuat melodi yang bisa di-loop sebagai WAV bytes dari pola nada.
-# Pola bisa memakai nama not ("C4", "A#3", "Bb2") atau frekuensi
-# langsung, dengan dukungan jeda (0) dan durasi lebih dari 1 ketuk.
 
 _NOTA_SEMITON = {
     "C": 0, "C#": 1, "DB": 1, "D": 2, "D#": 3, "EB": 3, "E": 4, "F": 5,
@@ -310,7 +396,7 @@ def _frekuensi_nada(nama):
 
 
 def buat_bgm(pola, tempo=120, gelombang="sinus", volume=0.4):
-    """Buat WAV musik latar yang bisa di-loop (v6.8).
+    """Buat WAV musik latar yang bisa di-loop.
 
     Args:
         pola: daftar nada — tiap elemen bisa:
@@ -346,7 +432,6 @@ def buat_bgm(pola, tempo=120, gelombang="sinus", volume=0.4):
             n = max(1, int(durasi * _SAMPLE_RATE))
             sampel_total.extend([0.0] * n)
             continue
-        # 90% durasi nada + 10% jeda kecil supaya not tidak menumpuk
         n = max(1, int(durasi * 0.9 * _SAMPLE_RATE))
         for i in range(n):
             t = i / _SAMPLE_RATE
@@ -366,7 +451,6 @@ def buat_bgm(pola, tempo=120, gelombang="sinus", volume=0.4):
     return _buat_wav_bytes(sampel_total)
 
 
-# Pola BGM siap pakai (v6.8)
 pola_arcade = ["C5", "E5", "G5", 0, "C5", "E5", "G5", 0,
                "A4", "C5", "E5", 0, "G4", "B4", "D5", 0]
 
@@ -378,7 +462,7 @@ pola_tenang = ["C4", "E4", "G4", "E4", "A4", "G4", "E4", "D4",
 
 
 def mainkan_bgm(pola, tempo=120, gelombang="sinus", volume=0.4, loops=-1):
-    """Generate & putar BGM prosedural sebagai musik loop (v6.8).
+    """Generate & putar BGM prosedural sebagai musik loop.
 
     Butuh pygame — mengembalikan False bila pygame tidak tersedia.
 
@@ -397,8 +481,9 @@ def mainkan_bgm(pola, tempo=120, gelombang="sinus", volume=0.4, loops=-1):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             f.write(wav)
             path = f.name
-        pygame.mixer.music.load(path)  # dimuat penuh ke memori
+        pygame.mixer.music.load(path)
         pygame.mixer.music.play(loops)
+        pygame.mixer.music.set_volume(_music_volume * _master_volume)
     finally:
         if path is not None:
             try:
@@ -409,15 +494,9 @@ def mainkan_bgm(pola, tempo=120, gelombang="sinus", volume=0.4, loops=-1):
 
 
 def hentikan_bgm():
-    """Menghentikan musik latar prosedural (v6.8)."""
+    """Menghentikan musik latar prosedural."""
     _ensure_mixer()
     pygame.mixer.music.stop()
-
-
-def buat():
-    """Helper: pastikan mixer siap (untuk setup cepat audio)."""
-    _ensure_mixer()
-    return True
 
 
 module = SimpleNamespace(
@@ -428,9 +507,14 @@ module = SimpleNamespace(
     lanjutkan_musik=lanjutkan_musik,
     atur_volume_musik=atur_volume_musik,
     sedang_memutar_musik=sedang_memutar_musik,
+    crossfade_musik=crossfade_musik,
     muat_suara=muat_suara,
     mainkan_suara=mainkan_suara,
     atur_volume_semua=atur_volume_semua,
+    atur_volume_master=atur_volume_master,
+    # audio spasial
+    posisi_pemutar=posisi_pemutar,
+    mainkan_suara_spasial=mainkan_suara_spasial,
     # v6.7 synth audio
     nada=nada,
     laser=laser,

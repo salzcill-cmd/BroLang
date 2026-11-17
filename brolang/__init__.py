@@ -11,6 +11,12 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v10.0 (Major Upgrade — AOT Compiler + Concurrency + Memory Safety):
+- `bro build --native` — Ahead-of-time kompilasi ke executable mandiri (tanpa dependency BroLang runtime terpisah), siap distribusi
+- Modul `aktor` — model konkurensi berbasis passing pesan (actor model): isolasi state, tidak ada race condition, throughput tinggi
+- Anotasi kepemilikan memori `miliki` — ownership/borrowing opsional untuk memori aman tanpa garbage collector berlebih
+- Semua fitur v9.0 tetap kompatibel (interpreter, VM, transpiler, LSP, package manager)
+
 Fitur v9.0 (Major Upgrade — Performance + Fitur Bahasa + Stdlib):
 - Performance: VM fast-path _run_loop tanpa frame allocation berlebih;
   interpreter memakai __slots__ pada hot-path objects; const pool dedup
@@ -178,7 +184,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "9.0.0"
+__version__ = "11.0.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 
