@@ -1,3 +1,18 @@
+# Fitur BroLang v12.0
+
+> **BroLang v12.0 — Sistem tipe ditingkatkan dengan type inference dan konsistensi reassignment.** Menandingi TypeScript/Kotlin/Swift dalam keamanan tipe statis sambil tetap gradual (tidak ada false-positive).
+
+## Fitur v12.0 (Sistem Tipe)
+
+| Fitur | Keterangan | Status |
+|-------|-----------|--------|
+| Type inference | `buat x = 5` menyimpulkan tipe `Angka` otomatis dari nilai awal | ✅ |
+| Konsistensi reassignment | `x = ...` dengan tipe konkret berbeda ditolak saat kompilasi | ✅ |
+| Kompatibilitas numerik | Campuran `Angka`↔`Desimal` pada reassignment diizinkan | ✅ |
+| Gradual typing | Tipe tak dikenal diserahkan ke runtime (tidak ada false-positive) | ✅ |
+
+---
+
 # Fitur BroLang v5.0
 
 > **BroLang v5.0 fiturnya makin lengkap.** Dari null coalescing sampe macros, semua ada.

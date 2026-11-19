@@ -11,6 +11,21 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v12.0 (Upgrade Sistem Tipe — Type Inference & Konsistensi Reassignment):
+- `buat x = 5` kini menyimpulkan tipe `Angka` otomatis dari nilai awal (type inference)
+- Reassignment `x = ...` dengan tipe yang konkret berbeda dari tipe awal
+  ditolak pada waktu kompilasi (analyzer), kecuali tipe tak dikenal
+  (diserahke ke runtime) atau campuran numerik `Angka`↔`Desimal` (diizinkan)
+- Menyelesaikan kisaran antara sistem tipe v6.0 (anotasi) dan penegakan
+  konsisten, sehingga BroLang bersaing dengan TypeScript/Kotlin/Swift
+  dalam keamanan tipe statis sambil tetap gradual (tidak ada false-positive)
+- Semua fitur v11.0 tetap kompatibel. 1346 test cases tetap passing.
+
+Fitur v11.0 (Major Upgrade — Library Game Lengkap):
+- 14 modul game ditulis ulang/ditingkatkan: `game` (loop fixed-timestep, scene stack/overlay, transisi fade/slide/wipe/zoom, profil statistik, headless), `grafis` (blend mode, render target offscreen, gradien, perataan teks, clip/viewport, glow), `input` (action mapping, gamepad rumble, geser swipe, fokus), `fisika` (SpatialHash broadphase, AABB, raycast, gravitasi), `sprite` (Atlas, Batcher batching, gambar 9-slice), `partikel` (emiter, gaya tarik/tolak/angin/gravitasi, jejak/trail, warna gradien, pooling), `ui` (tema, stack vertikal/horizontal, kotak gulir, navigasi fokus), `kamera` (zoom transisi cinematic, panning halus, deadzone, rotasi, screen shake, parallax), `audio` (mixer volume master/SFX/musik, audio spasial attenuasi jarak, crossfade musik, synth prosedural, BGM generator), `animasi` (26 easing, tween, sequence, keyframe), `tilemap` (layer objek, platform satu arah, platform bergerak, animasi tile, impor/ekspor JSON), `efek` (cromatic aberration, scanline, bloom, flash, pulsa, guncangan), `vektor` (lerp, proyeksi, refleksi, rotasi, polar)
+- README: badge stdlib 54→65, section library game lengkap
+- Semua fitur v10.0 tetap kompatibel. 1346 test cases tetap passing.
+
 Fitur v10.0 (Major Upgrade — AOT Compiler + Concurrency + Memory Safety):
 - `bro build --native` — Ahead-of-time kompilasi ke executable mandiri (tanpa dependency BroLang runtime terpisah), siap distribusi
 - Modul `aktor` — model konkurensi berbasis passing pesan (actor model): isolasi state, tidak ada race condition, throughput tinggi
@@ -184,7 +199,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "11.0.0"
+__version__ = "12.0.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 

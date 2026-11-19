@@ -240,6 +240,40 @@ class SemanticAnalyzer(ASTVisitor):
             return nilai_tipe in self._TIPE_PEMETAAN[anotasi]
         return True  # alias / kelas user — serahkan ke runtime
 
+    _TIPE_NUMERIK = {"angka", "desimal"}
+
+    def _tipe_cocok(self, tipe_a: Optional[str], tipe_b: Optional[str]) -> bool:
+        """Cek apakah dua tipe dianggap cocok untuk reassignment."""
+        if tipe_a is None or tipe_b is None:
+            return True
+        if tipe_a == tipe_b:
+            return True
+        # Numerik saling compatible (angka <-> desimal)
+        if tipe_a in self._TIPE_NUMERIK and tipe_b in self._TIPE_NUMERIK:
+            return True
+        return False
+
+    def _cek_tipe_reassign(self, info: SymbolInfo, nilai_type: Optional[str],
+                           line: int, column: int, nama: str) -> None:
+        """Terapkan konsistensi tipe saat variabel ditetapkan ulang.
+
+        Hanya error bila tipe lama dan baru KEDUANYA diketahui konkret dan
+        berbeda (non-numerik). Tipe tak dikenal diserahkan ke runtime agar
+        tidak terjadi false-positive.
+        """
+        tipe_lama = info.type_hint
+        if tipe_lama is None or nilai_type is None:
+            return
+        if self._tipe_cocok(tipe_lama, nilai_type):
+            return
+        raise self._error(
+            message=f"Tipe tidak cocok untuk reassignment '{nama}': "
+                    f"dihasilkan {tipe_lama}, tapi diberikan {nilai_type}.",
+            line=line,
+            column=column,
+            solution=f"Gunakan variabel baru atau ubah tipe ke {tipe_lama}.",
+        )
+
     def _error(self, message: str, line: int = 0, column: int = 0,
                solution: str = "", example: str = "") -> SemanticError:
         """Membuat SemanticError."""
@@ -365,7 +399,9 @@ class SemanticAnalyzer(ASTVisitor):
                         example=f"konstanta {name} = 10\n{name} = 20  # error!",
                     )
                 if node.value:
-                    self.visit(node.value)
+                    nilai_type = self.visit(node.value)
+                    self._cek_tipe_reassign(info, nilai_type,
+                                            node.line, node.column, name)
                 self.current_scope.mark_initialized(name)
         else:
             # Array index assignment: list[0] = value
@@ -1381,9 +1417,8 @@ class SemanticAnalyzer(ASTVisitor):
 
     def visit_MultiAssignNode(self, node: MultiAssignNode) -> None:
         """Memeriksa multiple assignment (v7.0): a, b = 1, 2 / a, b = b, a."""
-        for v in node.values:
-            self.visit(v)
-        for name in node.targets:
+        value_types = [self.visit(v) for v in node.values]
+        for i, name in enumerate(node.targets):
             if node.is_declaration:
                 self.current_scope.define(
                     name=name,
@@ -1408,6 +1443,9 @@ class SemanticAnalyzer(ASTVisitor):
                         column=node.column,
                         solution=f"Hapus assignment ke '{name}' atau ubah deklarasi menjadi 'buat {name} = ...'.",
                     )
+                nilai_type = value_types[i] if i < len(value_types) else None
+                self._cek_tipe_reassign(info, nilai_type,
+                                        node.line, node.column, name)
                 self.current_scope.mark_initialized(name)
 
     def visit_ErrorPropagationNode(self, node: ErrorPropagationNode) -> str:
