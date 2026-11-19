@@ -75,10 +75,14 @@ from brolang.ast.nodes import (
     ComprehensionNode,
     FStringNode,
     EnumNode,
+    VariantDef,
     StructNode,
     StructInstanceNode,
     MatchNode,
     WildcardNode,
+    # v12.2 ADT
+    VariantInstanceNode,
+    VariantPatternNode,
     # V3
     AugmentedAssignmentNode,
     TernaryNode,

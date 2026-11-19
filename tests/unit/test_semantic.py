@@ -134,6 +134,64 @@ class TestSemanticOwnership:
             analyze("miliki a, b = 1, 2")
 
 
+class TestSemanticADT:
+    """Test Algebraic Data Types (v12.2): enum varian dengan payload & pola varian."""
+
+    def test_enum_dengan_payload(self):
+        analyzer = analyze("enum Opsi { Sukses(teks), Gagal }")
+        assert len(analyzer.errors) == 0
+
+    def test_enum_varian_tanpa_payload(self):
+        analyzer = analyze("enum Warna { Merah, Biru, Hijau }")
+        assert len(analyzer.errors) == 0
+
+    def test_pola_varian_dengan_binding(self):
+        full = ("enum Opsi { Sukses(teks), Gagal }\n"
+                "fungsi unwrap(o)\n"
+                "    cocokkan o {\n"
+                "        Sukses(x): tulis x\n"
+                "        Gagal(): tulis \"gagal\"\n"
+                "    }\n"
+                "selesai")
+        analyzer = analyze(full)
+        assert len(analyzer.errors) == 0
+
+    def test_pola_varian_salah_jumlah_binding(self):
+        # Sukses(teks) punya 1 field, tapi diberikan 2 binding
+        full = ("enum Opsi { Sukses(teks), Gagal }\n"
+                "fungsi unwrap(o)\n"
+                "    cocokkan o {\n"
+                "        Sukses(x, y): tulis x\n"
+                "        Gagal(): tulis \"gagal\"\n"
+                "    }\n"
+                "selesai")
+        analyzer = analyze(full)
+        assert len(analyzer.errors) > 0
+        assert any("memerlukan" in str(e) for e in analyzer.errors)
+
+    def test_pola_varian_tidak_dikenal(self):
+        full = ("fungsi unwrap(o)\n"
+                "    cocokkan o {\n"
+                "        TidakAda(x): tulis x\n"
+                "    }\n"
+                "selesai")
+        analyzer = analyze(full)
+        assert len(analyzer.errors) > 0
+
+    def test_cocokkan_ekshaustif_semua_varian(self):
+        # Semua varian Opsi (Sukses, Gagal) dicakup -> ekshaustif, tidak warning
+        full = ("enum Opsi { Sukses(teks), Gagal }\n"
+                "fungsi unwrap(o)\n"
+                "    cocokkan o {\n"
+                "        Sukses(x): tulis x\n"
+                "        Gagal(): tulis \"gagal\"\n"
+                "    }\n"
+                "selesai")
+        analyzer = analyze(full)
+        # Tidak ada warning kejelasan karena semua varian tercover
+        assert not any("ekshaustif" in str(w) for w in analyzer.warnings)
+
+
 class TestSemanticContract:
     """Test Design by Contract (v12.1): syarat_awal, syarat_akhiri, invariansi."""
 

@@ -1,3 +1,21 @@
+# Fitur BroLang v12.2
+
+> **BroLang v12.2 — Algebraic Data Types (enum varian dengan payload & pola varian) serta pengecekan kejelasan (exhaustiveness) pada `cocokkan`. Mirip Rust enum / Haskell data type.**
+
+## Fitur v12.2 (Algebraic Data Types)
+
+| Fitur | Keterangan | Status |
+|-------|-----------|--------|
+| `enum Nama { Varian(t1, t2), Varian2 }` | ADT dengan varian yang membawa payload | ✅ |
+| `Varian(arg1, arg2)` | Konstruktor nilai varian | ✅ |
+| `cocokkan v { Varian(x, y): ... }` | Pola varian, bind payload ke variabel | ✅ |
+| Validasi jumlah binding vs field | Analyzer menolak pola varian dengan jumlah binding salah | ✅ |
+| Deteksi varian tak dikenal | Analyzer menolak pola varian yang tidak didefinisikan | ✅ |
+| Cek kejelasan (exhaustiveness) | Semua varian enum tercover → tidak ada peringatan | ✅ |
+| Nilai varian Bandingkan & cetak | BroLangVariant dengan __eq__ dan __repr__ | ✅ |
+
+---
+
 # Fitur BroLang v12.1
 
 > **BroLang v12.1 — Kepemilikan memori (`miliki`) dengan move semantics (Rust-like) dan Design by Contract (pre/post kondisi & invariansi kelas).** Mencegah use-after-move & data race tanpa garbage collector, dan menegakkan kontrak program secara formal — fitur yang dijanjikan sejak v10.0 kini truly diimplementasikan.

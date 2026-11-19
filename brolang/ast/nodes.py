@@ -801,10 +801,18 @@ class FStringNode(ASTNode):
 # ============= V2: Enum =============
 
 @dataclass
-class EnumNode(ASTNode):
-    """Node untuk enum: enum Warna { MERAH, BIRU, HIJAU }"""
+class VariantDef:
+    """Definisi varian enum/ADT: Nama(tipe1, tipe2, ...) atau Nama (tanpa payload)."""
     name: str = ""
-    members: List[str] = field(default_factory=list)
+    fields: List[str] = field(default_factory=list)  # tipe tiap field; kosong = tanpa payload
+
+
+@dataclass
+class EnumNode(ASTNode):
+    """Node untuk enum/ADT: enum Opsi { Ada(teks), Kosong }"""
+    name: str = ""
+    members: List[str] = field(default_factory=list)  # backward compat: varian tanpa payload
+    variants: List[VariantDef] = field(default_factory=list)  # v12.2: varian dengan payload
 
     def get_children(self) -> List[Any]:
         return []
@@ -828,6 +836,24 @@ class StructNode(ASTNode):
 class StructInstanceNode(ASTNode):
     """Node untuk struct instantiation: Titik(10, 20)"""
     struct_name: str = ""
+    args: List[ASTNode] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return self.args
+
+
+# ============= V12.2: ADT Variant Instance =============
+
+@dataclass
+class VariantInstanceNode(ASTNode):
+    """Node untuk instantiasi varian ADT: Ada("hello") atau Kosong.
+
+    variant_name: nama varian (mis. "Ada")
+    enum_name: nama enum pemilik (opsional, mis. "Opsi" dalam Opsi.Ada("x"))
+    args: argumen payload (ekspresi)
+    """
+    variant_name: str = ""
+    enum_name: Optional[str] = None
     args: List[ASTNode] = field(default_factory=list)
 
     def get_children(self) -> List[Any]:
@@ -859,6 +885,20 @@ class MatchNode(ASTNode):
 class WildcardNode(ASTNode):
     """Node untuk wildcard _ dalam match."""
     pass
+
+
+@dataclass
+class VariantPatternNode(ASTNode):
+    """Pola varian dalam match: Ada(x) atau Kosong.
+
+    variant_name: nama varian yang dicocokkan
+    bindings: daftar variabel yang menangkap payload tiap field
+    """
+    variant_name: str = ""
+    bindings: List[str] = field(default_factory=list)
+
+    def get_children(self) -> List[Any]:
+        return []
 
 
 # ============= V3: Augmented Assignment =============

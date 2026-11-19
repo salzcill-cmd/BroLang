@@ -60,8 +60,9 @@ from brolang.ast.nodes import (
     ListNode, IndexNode, ObjectNode, ObjectAccessNode,
     PrintNode, InputNode,
     LambdaNode, ComprehensionNode, FStringNode,
-    EnumNode, StructNode, StructInstanceNode,
-    MatchNode, WildcardNode,
+    EnumNode, VariantDef,
+    StructNode, StructInstanceNode,
+    MatchNode, WildcardNode, VariantPatternNode,
     AugmentedAssignmentNode, TernaryNode, RaiseNode,
     GlobalNode, NonlocalNode,
     PassNode, DelNode, AssertNode,
@@ -1432,16 +1433,80 @@ class Parser:
             # Pola enum `Warna.MERAH` (member access) — BUKAN binding.
             # Bug lama: `cocokkan warna2 { Warna.MERAH: ... }` gagal parse
             # karena identifier dianggap binding lalu token '.' ditolak.
-            if self._peek(1) in (TokenType.TOKEN_DOT, TokenType.TOKEN_LPAREN):
+            if self._peek(1) == TokenType.TOKEN_DOT:
                 # _parse_value_with_guard: parse tanpa ternary agar `jika`
                 # sisa untuk guard case (`Warna.HIJAU jika c`).
                 return self._parse_value_with_guard()
+            # Pola varian ADT `Varian(x, y)` atau `Varian()` — semua argumen
+            # adalah identifier binding. Deteksi lewat lookahead.
+            if self._peek(1) == TokenType.TOKEN_LPAREN and self._looks_like_variant_pattern():
+                return self._parse_variant_pattern()
             tok = self._advance()
             return BindingPatternNode(name=tok.value,
                                       line=tok.line, column=tok.column)
         # Pola literal/ekspresi (perilaku lama). Pakai _parse_value_with_guard
         # agar `1 jika c:` terbaca sebagai case ber-guard, bukan ternary.
         return self._parse_value_with_guard()
+
+    def _looks_like_variant_pattern(self) -> bool:
+        """Cek apakah `Identifier(...)` saat ini adalah pola varian ADT.
+
+        Pola varian = semua argumen di dalam kurung adalah identifier binding
+        (atau kosong untuk `Varian()`). Jika ada ekspresi non-identifier,
+        dianggap nilai ekspresi (bukan pola varian).
+        """
+        idx = self.pos + 1
+        if idx >= len(self.tokens):
+            return False
+        if self.tokens[idx].type != TokenType.TOKEN_LPAREN:
+            return False
+        idx += 1
+        # Lewati NEWLINE
+        while idx < len(self.tokens) and self.tokens[idx].type == TokenType.TOKEN_NEWLINE:
+            idx += 1
+        if idx >= len(self.tokens):
+            return False
+        # `Varian()` kosong — valid pola varian tanpa field
+        if self.tokens[idx].type == TokenType.TOKEN_RPAREN:
+            return True
+        # Harus dimulai dengan IDENTIFIER
+        if self.tokens[idx].type != TokenType.TOKEN_IDENTIFIER:
+            return False
+        idx += 1
+        while True:
+            while idx < len(self.tokens) and self.tokens[idx].type == TokenType.TOKEN_NEWLINE:
+                idx += 1
+            if idx >= len(self.tokens):
+                return False
+            if self.tokens[idx].type == TokenType.TOKEN_RPAREN:
+                return True
+            if self.tokens[idx].type == TokenType.TOKEN_COMMA:
+                idx += 1
+                while idx < len(self.tokens) and self.tokens[idx].type == TokenType.TOKEN_NEWLINE:
+                    idx += 1
+                if idx >= len(self.tokens) or self.tokens[idx].type != TokenType.TOKEN_IDENTIFIER:
+                    return False
+                idx += 1
+                continue
+            return False
+
+    def _parse_variant_pattern(self) -> VariantPatternNode:
+        """Parse pola varian ADT: `Ada(x, y)` atau `Kosong()`."""
+        name_token = self._advance()  # nama varian (IDENTIFIER)
+        self._expect(TokenType.TOKEN_LPAREN, message="Setelah nama varian, harus ada '('.")
+        bindings = []
+        if not self._check(TokenType.TOKEN_RPAREN):
+            bind_token = self._expect(TokenType.TOKEN_IDENTIFIER,
+                                      message="Harus ada nama variabel binding dalam pola varian.")
+            bindings.append(bind_token.value)
+            while self._match(TokenType.TOKEN_COMMA):
+                bind_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                bindings.append(bind_token.value)
+        self._expect(TokenType.TOKEN_RPAREN,
+                     message="Pola varian harus ditutup dengan ')'.",
+                     example="Ada(x, y)")
+        return VariantPatternNode(variant_name=name_token.value, bindings=bindings,
+                                  line=name_token.line, column=name_token.column)
 
     def _parse_object_pattern(self) -> ASTNode:
         """Parse pola objek: {nama, umur} atau {"x": a, "y": b}."""
@@ -1505,7 +1570,7 @@ class Parser:
     # ============= V2: Enum =============
 
     def _parse_enum(self) -> EnumNode:
-        """enum Name { MEMBER1, MEMBER2, ... }"""
+        """enum Name { Varian(t1, t2), Varian2, ... } (v12.2: ADT varian dengan payload)"""
         token = self._advance()  # enum
         name_token = self._expect(
             TokenType.TOKEN_IDENTIFIER,
@@ -1517,23 +1582,46 @@ class Parser:
         self._match(TokenType.TOKEN_INDENT)
 
         members = []
+        variants = []
         if not self._check(TokenType.TOKEN_RBRACE, TokenType.TOKEN_DEDENT):
-            member_token = self._expect(
+            variant_name = self._expect(
                 TokenType.TOKEN_IDENTIFIER,
-                message="Setelah '{', harus ada nama member enum.",
+                message="Setelah '{', harus ada nama varian enum.",
             )
-            members.append(member_token.value)
+            fields = self._parse_enum_variant_fields()
+            members.append(variant_name.value)
+            variants.append(VariantDef(name=variant_name.value, fields=fields))
             while self._match(TokenType.TOKEN_COMMA):
-                member_token = self._expect(TokenType.TOKEN_IDENTIFIER)
-                members.append(member_token.value)
+                variant_name = self._expect(TokenType.TOKEN_IDENTIFIER)
+                fields = self._parse_enum_variant_fields()
+                members.append(variant_name.value)
+                variants.append(VariantDef(name=variant_name.value, fields=fields))
 
         while self._match(TokenType.TOKEN_NEWLINE):
             pass
         self._match(TokenType.TOKEN_DEDENT)
         self._expect(TokenType.TOKEN_RBRACE, message="Enum harus ditutup dengan '}'.")
 
-        return EnumNode(name=name_token.value, members=members,
+        return EnumNode(name=name_token.value, members=members, variants=variants,
                         line=token.line, column=token.column)
+
+    def _parse_enum_variant_fields(self) -> List[str]:
+        """Parse (t1, t2, ...) payload field tipe varian; [] jika tidak ada payload."""
+        fields = []
+        if self._match(TokenType.TOKEN_LPAREN):
+            if not self._check(TokenType.TOKEN_RPAREN):
+                field_token = self._expect(
+                    TokenType.TOKEN_IDENTIFIER,
+                    message="Setelah '(', harus ada nama field payload.",
+                )
+                fields.append(field_token.value)
+                while self._match(TokenType.TOKEN_COMMA):
+                    field_token = self._expect(TokenType.TOKEN_IDENTIFIER)
+                    fields.append(field_token.value)
+            self._expect(TokenType.TOKEN_RPAREN,
+                         message="Payload varian harus ditutup dengan ')'.",
+                         example="Ada(teks, angka)")
+        return fields
 
     # ============= V2: Struct =============
 

@@ -346,3 +346,72 @@ r.ambil(50)
 """
         with pytest.raises(RuntimeError_):
             run(source)
+
+    def test_variant_konstruksi_dan_pencocokan(self):
+        source = """
+enum Opsi {
+    Sukses(teks),
+    Gagal
+}
+
+fungsi unwrap(o)
+    cocokkan o {
+        Sukses(x): tulis "sukses: " + x
+        Gagal(): tulis "gagal"
+    }
+selesai
+
+unwrap(Sukses("halo"))
+unwrap(Gagal())
+"""
+        _, output = run(source)
+        assert "sukses: halo" in output
+        assert "gagal" in output
+
+    def test_variant_payload_binding(self):
+        source = """
+enum Titik2D {
+    Titik(angka, angka)
+}
+
+fungsi jumlah(t)
+    cocokkan t {
+        Titik(x, y): kembali x + y
+    }
+selesai
+
+tulis jumlah(Titik(3, 4))
+"""
+        _, output = run(source)
+        assert "7" in output
+
+    def test_variant_salah_jumlah_argumen(self):
+        source = """
+enum Opsi {
+    Sukses(teks),
+    Gagal
+}
+
+tulis Sukses()
+"""
+        with pytest.raises(RuntimeError_):
+            run(source)
+
+    def test_variant_cocok_tidak_ditemukan(self):
+        source = """
+enum Opsi {
+    Sukses(teks),
+    Gagal
+}
+
+fungsi cek(o)
+    cocokkan o {
+        Sukses(x): kembali 1
+    }
+selesai
+
+tulis cek(Gagal())
+"""
+        _, output = run(source)
+        # Tidak ada case yang cocok (Gagal tidak ada, tidak ada wildcard) -> None dicetak
+        assert "None" in output or output.strip() == ""

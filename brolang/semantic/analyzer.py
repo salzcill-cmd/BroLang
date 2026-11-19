@@ -35,8 +35,9 @@ from brolang.ast.nodes import (
     PrintNode, InputNode,
     ForEachNode,
     LambdaNode, ComprehensionNode, FStringNode,
-    EnumNode, StructNode, StructInstanceNode,
-    MatchNode, WildcardNode,
+    EnumNode, VariantDef,
+    StructNode, StructInstanceNode,
+    MatchNode, WildcardNode, VariantPatternNode,
     AugmentedAssignmentNode, TernaryNode, RaiseNode,
     GlobalNode, NonlocalNode,
     PassNode, DelNode, AssertNode,
@@ -155,6 +156,9 @@ class SemanticAnalyzer(ASTVisitor):
         # v12.1: pelacakan kepemilikan (miliki) — single ownership & move semantics
         self._owned: Set[str] = set()   # variabel dideklarasikan dengan `miliki`
         self._moved: Set[str] = set()   # variabel yang sudah dipindahkan (digunakan setelah pindah = error)
+        # v12.2: pelacakan ADT (Algebraic Data Type) — enum varian dengan payload
+        self._enum_variants: Dict[str, List[VariantDef]] = {}  # nama enum -> daftar varian
+        self._variant_to_enum: Dict[str, str] = {}  # nama varian -> nama enum pemilik
 
     def analyze(self, node: ASTNode) -> bool:
         """Menjalankan analisis semantik pada AST.
@@ -168,6 +172,9 @@ class SemanticAnalyzer(ASTVisitor):
         self._has_errors = False
         self._owned = set()
         self._moved = set()
+        # v12.2: reset pelacakan ADT
+        self._enum_variants = {}
+        self._variant_to_enum = {}
         # Scope global di-reset tiap panggilan supaya analyze() re-entrant
         # (bisa dipanggil berkali-kali pada instance yang sama).
         self.current_scope = SymbolTable(scope_name="global")
@@ -913,6 +920,27 @@ class SemanticAnalyzer(ASTVisitor):
         if isinstance(node.function, IdentifierNode):
             func_name = node.function.name
             info = self.current_scope.lookup(func_name)
+            # v12.2: pemanggilan konstruktor varian ADT: Ada("hello") atau Kosong()
+            if info is None and func_name in self._variant_to_enum:
+                variant_def = None
+                for variants in self._enum_variants.values():
+                    for v in variants:
+                        if v.name == func_name:
+                            variant_def = v
+                            break
+                    if variant_def:
+                        break
+                if len(node.args) != len(variant_def.fields):
+                    raise self._error(
+                        message=f"Varian '{func_name}' memerlukan {len(variant_def.fields)} "
+                                f"argumen, tapi diberikan {len(node.args)}.",
+                        line=node.line,
+                        column=node.column,
+                        solution=f"Gunakan '{func_name}({', '.join(variant_def.fields)})'.",
+                    )
+                for arg in node.args:
+                    self.visit(arg)
+                return self._variant_to_enum[func_name]  # tipe kembalian = nama enum
             if info is None and func_name not in ("input", "len", "angka", "teks", "desimal", "tulis", "range", "tipe", "jumlah", "peta", "saring", "cek_tipe", "pastikan", "zip", "enumerate", "min", "max", "urutkan", "terbalik", "ada", "semua", "isinstance", "punya", "id", "hash", "abs", "round", "panjang", "boolean", "angka_desimal", "hentikan_iterasi"):
                 message = f"Fungsi '{func_name}' belum didefinisikan."
                 message += saran_keyword(func_name)
@@ -1274,7 +1302,7 @@ class SemanticAnalyzer(ASTVisitor):
     # ============= V2: Enum =============
 
     def visit_EnumNode(self, node: EnumNode) -> None:
-        """Memeriksa enum declaration."""
+        """Memeriksa enum declaration (v12.2: ADT varian dengan payload)."""
         self.current_scope.define(
             name=node.name,
             kind="class",
@@ -1282,6 +1310,11 @@ class SemanticAnalyzer(ASTVisitor):
             column=node.column,
             is_initialized=True,
         )
+        # v12.2: daftarkan semua varian dengan field-nya untuk pemeriksaan
+        # kejelasan (exhaustiveness) pada `cocokkan`.
+        self._enum_variants[node.name] = list(node.variants)
+        for variant in node.variants:
+            self._variant_to_enum[variant.name] = node.name
 
     # ============= V2: Struct =============
 
@@ -1312,14 +1345,24 @@ class SemanticAnalyzer(ASTVisitor):
     # ============= V2: Match/Case =============
 
     def visit_MatchNode(self, node: MatchNode) -> None:
-        """Memeriksa match/case (v6.0: binding pattern + guard)."""
+        """Memeriksa match/case (v6.0: binding pattern + guard; v12.2: pola varian ADT)."""
         self.visit(node.value)
         guards = getattr(node, 'guards', None) or []
+        # v12.2: pelacakan varian ADT yang dicakup untuk cek kejelasan (exhaustiveness)
+        covered_variants: Set[str] = set()
+        covered_enums: Set[str] = set()
         for idx, (pattern, body) in enumerate(node.cases):
             self._enter_scope("match_case")
             # Pola binding (v6.0) mendefinisikan variabel yang dipakai
             # di body & guard: `[a, b]: ...` atau `x jika x > 10: ...`
-            if not isinstance(pattern, WildcardNode):
+            if isinstance(pattern, VariantPatternNode):
+                # v12.2: pola varian ADT — validasi varian dikenal & bind field
+                self._visit_variant_pattern(pattern)
+                enum_name = self._variant_to_enum.get(pattern.variant_name)
+                if enum_name:
+                    covered_variants.add(pattern.variant_name)
+                    covered_enums.add(enum_name)
+            elif not isinstance(pattern, WildcardNode):
                 self.visit(pattern)
             if idx < len(guards) and guards[idx] is not None:
                 self.visit(guards[idx])
@@ -1331,13 +1374,18 @@ class SemanticAnalyzer(ASTVisitor):
             for stmt in node.default_case:
                 self.visit(stmt)
             self._exit_scope()
-        # v11.0: cek kejelasan (exhaustiveness) — pola menangkap semua
-        # (Wildcard `_` atau Binding identifier) atau default_case wajib ada
-        # agar tidak ada nilai yang terlewat waktu berjalan.
+        # v11.0 + v12.2: cek kejelasan (exhaustiveness)
         has_catch_all = bool(node.default_case)
         if not has_catch_all:
             for pattern, _body in node.cases:
                 if isinstance(pattern, (WildcardNode, BindingPatternNode)):
+                    has_catch_all = True
+                    break
+        # v12.2: jika semua varian dari satu enum tercover, dianggap ekshaustif
+        if not has_catch_all and covered_enums:
+            for enum_name in covered_enums:
+                all_variants = {v.name for v in self._enum_variants.get(enum_name, [])}
+                if all_variants and all_variants <= covered_variants:
                     has_catch_all = True
                     break
         if not has_catch_all and node.cases:
@@ -1347,6 +1395,47 @@ class SemanticAnalyzer(ASTVisitor):
                 line=node.line,
                 column=node.column,
                 solution="Tambahkan kasus '_' atau pola binding sebagai fallback agar semua nilai tertangani.",
+            )
+
+    def _visit_variant_pattern(self, node: VariantPatternNode) -> None:
+        """Validasi pola varian ADT dan bind field-nya ke variabel."""
+        enum_name = self._variant_to_enum.get(node.variant_name)
+        if enum_name is None:
+            # Cek apakah varian dikenal sebagai member enum tanpa payload
+            if node.variant_name not in self._variant_to_enum:
+                raise self._error(
+                    message=f"Varian '{node.variant_name}' tidak dikenal dalam enum mana pun.",
+                    line=node.line,
+                    column=node.column,
+                    solution=f"Definisikan varian '{node.variant_name}' dalam enum, atau gunakan pola binding/_.",
+                )
+        variant_def = None
+        for enum_name, variants in self._enum_variants.items():
+            for v in variants:
+                if v.name == node.variant_name:
+                    variant_def = v
+                    break
+            if variant_def:
+                break
+        if variant_def is None:
+            return  # varian tanpa payload (member enum lama) — tidak ada field untuk bind
+        if len(node.bindings) != len(variant_def.fields):
+            raise self._error(
+                message=f"Varian '{node.variant_name}' memerlukan {len(variant_def.fields)} "
+                        f"binding, tapi diberikan {len(node.bindings)}.",
+                line=node.line,
+                column=node.column,
+                solution=f"Gunakan pola '{node.variant_name}({', '.join(variant_def.fields)})'.",
+            )
+        # Bind setiap payload field ke variabel binding
+        for bind_name, field_type in zip(node.bindings, variant_def.fields):
+            self.current_scope.define(
+                name=bind_name,
+                kind="variable",
+                line=node.line,
+                column=node.column,
+                type_hint=field_type,
+                is_initialized=True,
             )
 
     # ============= V6.0: Pattern Binding =============

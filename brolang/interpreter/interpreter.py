@@ -61,10 +61,12 @@ from brolang.ast.nodes import (
     ComprehensionNode,
     FStringNode,
     EnumNode,
+    VariantDef,
     StructNode,
     StructInstanceNode,
     MatchNode,
     WildcardNode,
+    VariantPatternNode,
     AugmentedAssignmentNode,
     TernaryNode,
     RaiseNode,
@@ -490,6 +492,34 @@ class BroLangInstance:
         self.attributes[name] = value
 
 
+# ============= V12.2: ADT Variant Value =============
+
+class BroLangVariant:
+    """Nilai varian ADT: Ada("hello") atau Kosong.
+
+    variant_name: nama varian (mis. "Ada")
+    enum_name: nama enum pemilik (opsional)
+    args: daftar nilai payload
+    """
+
+    def __init__(self, variant_name: str, enum_name: Optional[str], args: List[Any]):
+        self.variant_name = variant_name
+        self.enum_name = enum_name
+        self.args = list(args)
+
+    def __repr__(self) -> str:
+        if self.args:
+            return f"{self.variant_name}({', '.join(repr(a) for a in self.args)})"
+        return self.variant_name
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, BroLangVariant):
+            return False
+        return self.variant_name == other.variant_name and self.args == other.args
+
+
+# ============= V2: Generator =============
+
 class BroLangGenerator:
     """Generator object yang bisa di-iterate.
 
@@ -729,6 +759,9 @@ class Interpreter(ASTVisitor):
         self.output: List[str] = []
         self._current_class_name: Optional[str] = None
         self.is_main: bool = False
+        # v12.2: pelacakan varian ADT (enum dengan payload)
+        self._enum_variants: Dict[str, List[VariantDef]] = {}
+        self._variant_to_enum: Dict[str, str] = {}
 
         # Register built-in functions
         for name, func in BUILTINS.items():
@@ -1890,6 +1923,26 @@ class Interpreter(ASTVisitor):
                         return func(*args, **kwargs)
                 env = env.parent
 
+            # v12.2: konstruktor varian ADT: Sukses("hello") atau Gagal()
+            if func_name in self._variant_to_enum:
+                variant_def = None
+                for variants in self._enum_variants.values():
+                    for v in variants:
+                        if v.name == func_name:
+                            variant_def = v
+                            break
+                    if variant_def:
+                        break
+                if len(args) != len(variant_def.fields):
+                    raise RuntimeError_(
+                        message=f"Varian '{func_name}' memerlukan {len(variant_def.fields)} "
+                                f"argumen, tapi diberikan {len(args)}.",
+                        line=node.line,
+                        column=node.column,
+                        solution=f"Gunakan '{func_name}({', '.join(variant_def.fields)})'.",
+                    )
+                return BroLangVariant(func_name, self._variant_to_enum[func_name], args)
+
             raise NameError_(
                 message=f"Fungsi '{func_name}' tidak ditemukan." + saran_keyword(func_name),
                 line=node.line,
@@ -2733,7 +2786,7 @@ class Interpreter(ASTVisitor):
     # ============= V2: Enum =============
 
     def visit_EnumNode(self, node: EnumNode) -> None:
-        """Enum declaration: enum Warna { MERAH, BIRU, HIJAU }"""
+        """Enum declaration: enum Warna { MERAH, BIRU, HIJAU } (v12.2: ADT varian dengan payload)"""
         enum_members = {}
         enum_class = type(
             node.name,
@@ -2755,6 +2808,10 @@ class Interpreter(ASTVisitor):
         enum_class._members = enum_members
         enum_class._member_names = node.members
         self.current_env.variables[node.name] = enum_class
+        # v12.2: daftarkan varian untuk konstruktor ADT & pencocokan pola
+        self._enum_variants[node.name] = list(node.variants)
+        for variant in node.variants:
+            self._variant_to_enum[variant.name] = node.name
 
     # ============= V2: Struct =============
 
@@ -2881,6 +2938,18 @@ class Interpreter(ASTVisitor):
             bindings[pattern.name] = value
             return True
         if isinstance(pattern, WildcardNode):
+            return True
+        if isinstance(pattern, VariantPatternNode):
+            # v12.2: pola varian ADT — cocokkan jika value adalah BroLangVariant
+            # dengan nama varian yang sama; bind payload ke variabel binding.
+            if not isinstance(value, BroLangVariant):
+                return False
+            if value.variant_name != pattern.variant_name:
+                return False
+            if len(value.args) != len(pattern.bindings):
+                return False
+            for bind_name, arg_val in zip(pattern.bindings, value.args):
+                bindings[bind_name] = arg_val
             return True
         # Literal / expression pattern (perilaku lama)
         pattern_val = self.visit(pattern)

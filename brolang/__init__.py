@@ -11,6 +11,18 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v12.2 (Algebraic Data Types — Enum Varian dengan Payload & Pola Varian):
+- `enum Nama { Varian(t1, t2), Varian2 }` mendeklarasikan ADT dengan varian yang
+  membawa payload (mirip Rust enum / Haskell data type).
+- `Varian(arg1, arg2)` membangun nilai varian; `cocokkan v { Varian(x, y): ... }`
+  mencocokkan pola varian dan me-bind payload ke variabel.
+- Analyzer validasi jumlah binding vs field varian, deteksi varian tak dikenal,
+  dan cek kejelasan (exhaustiveness): jika semua varian dari satu enum tercover
+  oleh pola varian (atau ada wildcard/default), tidak ada peringatan.
+- Interpreter merepresentasikan nilai varian sebagai objek BroLangVariant dengan
+  __eq__ dan __repr__, sehingga varian bisa dibandingkan dan dicetak.
+- Semua fitur v12.1 tetap kompatibel. 1383 test cases tetap passing.
+
 Fitur v12.1 (Kepemilikan Memori & Design by Contract):
 - Kata kunci `miliki x = nilai` mendeklarasikan variabel dengan kepemilikan tunggal (single ownership).
 - `buat y = x` memindahkan milik dari `x` ke `y` (move): `x` tidak bisa digunakan lagi (use-after-move = error saat kompilasi oleh analyzer DAN runtime oleh interpreter).
@@ -207,7 +219,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "12.1.0"
+__version__ = "12.2.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 
