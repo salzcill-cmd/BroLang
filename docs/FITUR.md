@@ -1,13 +1,23 @@
-# Fitur BroLang v12.2
+# Fitur BroLang v12.3
 
-> **BroLang v12.2 — Algebraic Data Types (enum varian dengan payload & pola varian) serta pengecekan kejelasan (exhaustiveness) pada `cocokkan`. Mirip Rust enum / Haskell data type.**
+> **BroLang v12.3 — Sistem Belajar Adaptif (`bro belajar` ditingkatkan): progres tersimpan, keahlian per-konsep, spaced repetition, petunjuk adaptif, deteksi pola kesalahan, dan latihan mandiri.**
 
-## Fitur v12.2 (Algebraic Data Types)
+## Fitur v12.3 (Sistem Belajar Adaptif)
 
 | Fitur | Keterangan | Status |
 |-------|-----------|--------|
-| `enum Nama { Varian(t1, t2), Varian2 }` | ADT dengan varian yang membawa payload | ✅ |
-| `Varian(arg1, arg2)` | Konstruktor nilai varian | ✅ |
+| `bro belajar` | Jalur belajar terstruktur (8 bab) dengan progres tersimpan otomatis | ✅ |
+| Progres tersimpan | ~/.brolang/belajar_progress.json — lanjutkan kapan saja | ✅ |
+| Keahlian per-konsep | Level 0 (baru) → 3 (ahli) dengan rasio keberhasilan | ✅ |
+| `bro belajar --ulang` | Spaced repetition konsep lemah (1m → 10m → 1j → 1h) | ✅ |
+| Petunjuk adaptif | Bertingkat (samar → jelas) sesuai percobaan salah | ✅ |
+| Deteksi pola kesalahan | `print(` → `tulis(`, lupa `selesai`, `=` vs `==`, dll. | ✅ |
+| Umpan balik kualitas kode | Variabel tidak terpakai, titik koma berlebih | ✅ |
+| `bro belajar --latihan <konsep>` | Latihan mandiri bebas tanpa tekanan poin | ✅ |
+
+---
+
+# Fitur BroLang v12.2
 | `cocokkan v { Varian(x, y): ... }` | Pola varian, bind payload ke variabel | ✅ |
 | Validasi jumlah binding vs field | Analyzer menolak pola varian dengan jumlah binding salah | ✅ |
 | Deteksi varian tak dikenal | Analyzer menolak pola varian yang tidak didefinisikan | ✅ |

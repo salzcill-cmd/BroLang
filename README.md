@@ -5,7 +5,7 @@
   <img src="https://img.shields.io/badge/status-production%20ready-brightgreen?style=for-the-badge" alt="status"/>
 </p>
 
-<h1 align="center">BroLang v12.2</h1>
+<h1 align="center">BroLang v12.3</h1>
 
 <p align="center">
   <b>Bahasa pemrograman buat yang males nulis syntax panjang</b><br>

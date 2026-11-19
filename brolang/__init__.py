@@ -11,6 +11,22 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
+Fitur v12.3 (Sistem Belajar Adaptif — `bro belajar` Ditingkatkan):
+- Progres belajar disimpan otomatis ke ~/.brolang/belajar_progress.json — lanjutkan
+  kapan saja tanpa kehilangan poin.
+- Pelacakan keahlian per-konsep (0=baru ... 3=ahli), bukan hanya per-bab, dengan
+  rasio keberhasilan dan jadwal review (spaced repetition).
+- `bro belajar --ulang`: mode ulangan menampilkan konsep yang sudah waktunya
+  direview kembali (1 menit → 10 menit → 1 jam → 1 hari).
+- Petunjuk adaptif bertingkat (level 0 samar → level 3 jelas) menyesuaikan dengan
+  banyaknya percobaan salah.
+- Deteksi pola kesalahan umum dengan umpan balik spesifik (contoh: `print(` →
+  `tulis(`, lupa `selesai`, pakai `=` untuk bandingkan).
+- Umpan balik kualitas kode ringan (variabel tidak terpakai, titik koma berlebih).
+- Mode latihan mandiri (`bro belajar --latihan <konsep>`): coba konsep bebas
+  tanpa tekanan poin.
+- Semua fitur v12.2 tetap kompatibel. 1406 test cases tetap passing.
+
 Fitur v12.2 (Algebraic Data Types — Enum Varian dengan Payload & Pola Varian):
 - `enum Nama { Varian(t1, t2), Varian2 }` mendeklarasikan ADT dengan varian yang
   membawa payload (mirip Rust enum / Haskell data type).
@@ -219,7 +235,7 @@ Penggunaan:
     interpreter.interpret(ast)
 """
 
-__version__ = "12.2.0"
+__version__ = "12.3.0"
 __author__ = "BroLang Team"
 __license__ = "MIT"
 
