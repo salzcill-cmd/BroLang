@@ -123,12 +123,13 @@ class IdentifierNode(ASTNode):
 
 @dataclass
 class AssignmentNode(ASTNode):
-    """Node untuk assignment: buat x = nilai (v6.0: buat x: Tipe = nilai; v6.5: konstanta)"""
+    """Node untuk assignment: buat x = nilai (v6.0: buat x: Tipe = nilai; v6.5: konstanta; v12.1: miliki x = nilai untuk kepemilikan tunggal / move semantics)"""
     target: ASTNode = field(default_factory=lambda: IdentifierNode(""))
     value: ASTNode = field(default_factory=lambda: NumberNode())
     is_declaration: bool = True
-    type_annotation: Optional[str] = None  # v6.0: 'buat x: Angka = 5'
+    type_annotation: Optional[str] = None  # v6.0: 'buat x: Tipe = nilai'
     is_const: bool = False  # v6.5: 'konstanta x = 5' (immutable)
+    is_owned: bool = False  # v12.1: 'miliki x = nilai' (single ownership; dipindahkan/dropped)
 
     def get_children(self) -> List[Any]:
         return [self.target, self.value]

@@ -49,6 +49,21 @@ class TestInterpreterVariable:
         _, output = run("buat x = 42\ntulis x")
         assert "42" in output
 
+    def test_miliki_move(self):
+        # `miliki x` dipindahkan ke `y`; `y` bernilai 5
+        _, output = run("miliki x = 5\nbuat y = x\ntulis y")
+        assert "5" in output
+
+    def test_miliki_use_after_move(self):
+        # Menggunakan `x` setelah dipindahkan = runtime error
+        with pytest.raises(RuntimeError_):
+            run("miliki x = 5\nbuat y = x\ntulis x")
+
+    def test_non_miliki_copy_semantik(self):
+        # Variabel biasa (`buat`) menggunakan semantik salin, `x` tetap bisa dibaca
+        _, output = run("buat x = 5\nbuat y = x\ntulis x")
+        assert "5" in output
+
 
 class TestInterpreterArithmetic:
     """Test arithmetic operations."""

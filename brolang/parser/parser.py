@@ -227,6 +227,8 @@ class Parser:
             return self._maybe_guard(self._parse_assignment())
         elif token_type == TokenType.TOKEN_KONSTANTA:
             return self._maybe_guard(self._parse_assignment(is_const=True))
+        elif token_type == TokenType.TOKEN_MILIKI:
+            return self._maybe_guard(self._parse_assignment(is_owned=True))
         elif token_type == TokenType.TOKEN_TULIS:
             return self._maybe_guard(self._parse_print())
         elif token_type == TokenType.TOKEN_JIKA:
@@ -372,20 +374,21 @@ class Parser:
 
     # ============= Assignment =============
 
-    def _parse_assignment(self, is_const: bool = False) -> AssignmentNode:
-        """buat identifier (. identifier)? = expression | konstanta identifier = expression (v6.5)"""
-        token = self._advance()  # buat / konstanta
+    def _parse_assignment(self, is_const: bool = False, is_owned: bool = False) -> AssignmentNode:
+        """buat identifier = expression | konstanta identifier = expression |
+        miliki identifier = expression (v12.1: miliki = single ownership / move semantics)"""
+        token = self._advance()  # buat / konstanta / miliki
 
         # Destructuring assignment: buat [a, b] = list, buat {x, y} = objek,
         # atau buat (a, b) = tuple (v6.6 — sintaks ini sudah didokumentasikan
         # di docs/GAME.md tapi belum pernah berfungsi).
         if self._check(TokenType.TOKEN_LBRACKET) or self._check(TokenType.TOKEN_LBRACE) \
                 or self._check(TokenType.TOKEN_LPAREN):
-            if is_const:
+            if is_const or is_owned:
                 raise self._error(
-                    message="'konstanta' tidak mendukung destructuring.",
-                    solution="Deklarasikan satu konstanta per baris, mis. konstanta A = 1.",
-                    example="konstanta A = 1\nkonstanta B = 2",
+                    message=f"'{token.value}' tidak mendukung destructuring.",
+                    solution="Deklarasikan satu variabel per baris, mis. miliki x = nilai.",
+                    example="miliki x = nilai",
                 )
             if self._check(TokenType.TOKEN_LBRACKET):
                 buka, tutup, is_arr = TokenType.TOKEN_LBRACKET, TokenType.TOKEN_RBRACKET, True
@@ -407,6 +410,12 @@ class Parser:
         # v7.0: buat a, b = 1, 2 — deklarasi ganda (koma belum dikonsumsi;
         # _parse_multi_assign_from yang memproses sisa daftar target).
         if self._check(TokenType.TOKEN_COMMA):
+            if is_owned:
+                raise self._error(
+                    message="'miliki' tidak mendukung deklarasi ganda.",
+                    solution="Deklarasikan satu variabel miliki per baris, mis. miliki x = nilai.",
+                    example="miliki x = nilai",
+                )
             return self._parse_multi_assign_from(
                 token, [id_token.value], is_declaration=True, is_const=is_const
             )
@@ -444,6 +453,7 @@ class Parser:
             is_declaration=True,
             type_annotation=type_annotation,
             is_const=is_const,
+            is_owned=is_owned,
             line=token.line,
             column=token.column,
         )

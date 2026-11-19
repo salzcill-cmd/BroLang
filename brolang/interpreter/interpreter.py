@@ -221,13 +221,27 @@ class Environment:
     should_break: bool = False
     should_continue: bool = False
     constants: Set[str] = field(default_factory=set)  # v6.5: nama variabel immutable
+    # v12.1: pelacakan kepemilikan (miliki) — single ownership & move semantics
+    _owned: Set[str] = field(default_factory=set)   # variabel dideklarasikan dengan `miliki`
+    _moved: Set[str] = field(default_factory=set)   # variabel yang sudah dipindahkan
 
-    def define_variable(self, name: str, value: Any, is_const: bool = False) -> None:
+    def define_variable(self, name: str, value: Any, is_const: bool = False,
+                        is_owned: bool = False) -> None:
         self.variables[name] = value
         if is_const:
             self.constants.add(name)
+        if is_owned:
+            self._owned.add(name)
 
     def get_variable(self, name: str) -> Any:
+        # v12.1: variabel yang sudah dipindahkan tidak bisa dibaca lagi
+        if name in self._moved:
+            raise RuntimeError_(
+                message=f"Variabel '{name}' sudah dipindahkan (move) dan tidak bisa digunakan lagi.",
+                line=0,
+                column=0,
+                solution=f"Buat salinan sebelum memindahkan, atau gunakan variabel yang belum dipindahkan.",
+            )
         if name in self.variables:
             return self.variables[name]
         if self.parent is not None:
@@ -238,6 +252,10 @@ class Environment:
             column=0,
             solution=f"Pastikan '{name}' sudah dideklarasikan dengan 'buat'.",
         )
+
+    def mark_moved(self, name: str) -> None:
+        """Tandai variabel sebagai dipindahkan (move) — tidak bisa dibaca lagi."""
+        self._moved.add(name)
 
     def set_variable(self, name: str, value: Any, line: int = 0, column: int = 0) -> None:
         if name in self.variables:
@@ -1010,6 +1028,11 @@ class Interpreter(ASTVisitor):
 
     def visit_AssignmentNode(self, node: AssignmentNode) -> Any:
         """Assignment: buat x = value atau x = value. (v6.0: cek anotasi tipe)"""
+        # v12.1: deteksi move dari variabel miliki sebelum nilai dievaluasi
+        source_name = None
+        if isinstance(node.value, (VariableNode, IdentifierNode)):
+            source_name = node.value.name
+
         value = self.visit(node.value) if node.value else None
 
         # Type enforcement v6.0: buat x: Angka = 5
@@ -1027,9 +1050,20 @@ class Interpreter(ASTVisitor):
             name = node.target.name
             if node.is_declaration:
                 # v6.5: `konstanta x = 5` — variabel immutable
-                self.current_env.define_variable(name, value, is_const=node.is_const)
+                # v12.1: `miliki x = ...` — variabel kepemilikan tunggal
+                self.current_env.define_variable(
+                    name, value, is_const=node.is_const, is_owned=node.is_owned
+                )
+                # Move: `buat y = x` memindahkan milik dari x ke y
+                if (source_name and source_name in self.current_env._owned
+                        and source_name != name):
+                    self.current_env.mark_moved(source_name)
             else:
                 self.current_env.set_variable(name, value, line=node.line, column=node.column)
+                # Move: `y = x` memindahkan milik dari x ke y
+                if (source_name and source_name in self.current_env._owned
+                        and source_name != name):
+                    self.current_env.mark_moved(source_name)
             return value
         elif isinstance(node.target, IndexNode):
             # Array/dict assignment: list[index] = value atau dict[key] = value

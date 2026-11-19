@@ -150,6 +150,9 @@ class SemanticAnalyzer(ASTVisitor):
         self._has_errors: bool = False
         self._loop_depth: int = 0
         self._current_return_type: Optional[str] = None  # v6.0: `fungsi f() -> Tipe`
+        # v12.1: pelacakan kepemilikan (miliki) — single ownership & move semantics
+        self._owned: Set[str] = set()   # variabel dideklarasikan dengan `miliki`
+        self._moved: Set[str] = set()   # variabel yang sudah dipindahkan (digunakan setelah pindah = error)
 
     def analyze(self, node: ASTNode) -> bool:
         """Menjalankan analisis semantik pada AST.
@@ -161,6 +164,8 @@ class SemanticAnalyzer(ASTVisitor):
             bool: True jika tidak ada error
         """
         self._has_errors = False
+        self._owned = set()
+        self._moved = set()
         # Scope global di-reset tiap panggilan supaya analyze() re-entrant
         # (bisa dipanggil berkali-kali pada instance yang sama).
         self.current_scope = SymbolTable(scope_name="global")
@@ -274,6 +279,22 @@ class SemanticAnalyzer(ASTVisitor):
             solution=f"Gunakan variabel baru atau ubah tipe ke {tipe_lama}.",
         )
 
+    def _catat_pindah(self, value_node: Optional[ASTNode], target_name: Optional[str] = None) -> None:
+        """Tandai variabel sumber sebagai dipindahkan (move) bila value adalah
+        referensi langsung ke variabel `miliki` (dan bukan assignment ke diri sendiri).
+
+        Setelah dipindahkan, variabel sumber tidak bisa dibaca lagi (use-after-move = error).
+        """
+        if value_node is None:
+            return
+        src = None
+        if isinstance(value_node, VariableNode):
+            src = value_node.name
+        elif isinstance(value_node, IdentifierNode):
+            src = value_node.name
+        if src and src in self._owned and src != target_name:
+            self._moved.add(src)
+
     def _error(self, message: str, line: int = 0, column: int = 0,
                solution: str = "", example: str = "") -> SemanticError:
         """Membuat SemanticError."""
@@ -347,9 +368,27 @@ class SemanticAnalyzer(ASTVisitor):
             )
         if not info.is_initialized and info.kind == "variable":
             pass  # Warn but don't error for now
+        # v12.1: variabel yang sudah dipindahkan (move) tidak bisa dibaca lagi
+        if info.kind == "variable" and node.name in self._moved:
+            raise self._error(
+                message=f"Variabel '{node.name}' sudah dipindahkan (move) dan tidak bisa digunakan lagi.",
+                line=node.line,
+                column=node.column,
+                solution=f"Buat salinan sebelum memindahkan, atau gunakan variabel yang belum dipindahkan.",
+                example=f"miliki {node.name} = nilai\nbuat y = {node.name}  # {node.name} dipindahkan",
+            )
         return info.type_hint
 
     def visit_VariableNode(self, node: VariableNode) -> None:
+        # v12.1: variabel yang sudah dipindahkan (move) tidak bisa dibaca lagi
+        if node.name in self._moved:
+            raise self._error(
+                message=f"Variabel '{node.name}' sudah dipindahkan (move) dan tidak bisa digunakan lagi.",
+                line=node.line,
+                column=node.column,
+                solution=f"Buat salinan sebelum memindahkan, atau gunakan variabel yang belum dipindahkan.",
+                example=f"miliki {node.name} = nilai\nbuat y = {node.name}  # {node.name} dipindahkan",
+            )
         self.visit_IdentifierNode(IdentifierNode(name=node.name, line=node.line, column=node.column))
 
     def visit_AssignmentNode(self, node: AssignmentNode) -> None:
@@ -370,6 +409,7 @@ class SemanticAnalyzer(ASTVisitor):
                         solution=f"Ubah nilai menjadi {node.type_annotation} atau ubah anotasi tipe.",
                     )
                 # v6.5: `konstanta x = 5` — tandai sebagai immutable
+                # v12.1: `miliki x = 5` — tandai sebagai kepemilikan tunggal
                 self.current_scope.define(
                     name=name,
                     kind="variable",
@@ -379,6 +419,10 @@ class SemanticAnalyzer(ASTVisitor):
                     is_initialized=True,
                     is_const=node.is_const,
                 )
+                if node.is_owned:
+                    self._owned.add(name)
+                # Move: `buat y = x` dipindahkan dari variabel miliki x
+                self._catat_pindah(node.value, name)
             else:
                 # Assignment to existing variable
                 info = self.current_scope.lookup(name)
@@ -402,6 +446,8 @@ class SemanticAnalyzer(ASTVisitor):
                     nilai_type = self.visit(node.value)
                     self._cek_tipe_reassign(info, nilai_type,
                                             node.line, node.column, name)
+                    # Move: `y = x` dipindahkan dari variabel miliki x
+                    self._catat_pindah(node.value, name)
                 self.current_scope.mark_initialized(name)
         else:
             # Array index assignment: list[0] = value

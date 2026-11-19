@@ -6,7 +6,7 @@ import pytest
 from brolang.lexer import Lexer
 from brolang.parser import Parser
 from brolang.semantic import SemanticAnalyzer
-from brolang.exceptions import SemanticError
+from brolang.exceptions import SemanticError, ParserError
 
 
 def analyze(source: str) -> SemanticAnalyzer:
@@ -95,3 +95,40 @@ x = ambil()
 """
         analyzer = analyze(code)
         assert len(analyzer.errors) == 0
+
+
+class TestSemanticOwnership:
+    """Test kepemilikan tunggal `miliki` dengan move semantics (v12.1)."""
+
+    def test_miliki_deklarasi(self):
+        analyzer = analyze("miliki x = 5")
+        assert len(analyzer.errors) == 0
+
+    def test_pindah_milik(self):
+        # `buat y = x` memindahkan milik dari x (miliki) ke y — tidak error
+        analyzer = analyze("miliki x = 5\nbuat y = x")
+        assert len(analyzer.errors) == 0
+
+    def test_pakai_setelah_pindah(self):
+        # Menggunakan x setelah dipindahkan = error
+        analyzer = analyze("miliki x = 5\nbuat y = x\ntulis x")
+        assert len(analyzer.errors) > 0
+        assert any("sudah dipindahkan" in str(e) for e in analyzer.errors)
+
+    def test_assign_ulang_miliki(self):
+        # Variabel miliki bisa ditetapkan ulang (nilai lama di-drop)
+        analyzer = analyze("miliki x = 5\nx = 10")
+        assert len(analyzer.errors) == 0
+
+    def test_non_miliki_bisa_dibaca_setelah_diassign(self):
+        # Variabel biasa (bukan miliki) tetap bisa dibaca setelah dijadikan nilai lain
+        analyzer = analyze("buat x = 5\nbuat y = x\ntulis x")
+        assert len(analyzer.errors) == 0
+
+    def test_miliki_dengan_destructuring_ditolak(self):
+        with pytest.raises(ParserError):
+            analyze("miliki [a, b] = [1, 2]")
+
+    def test_miliki_deklarasi_ganda_ditolak(self):
+        with pytest.raises(ParserError):
+            analyze("miliki a, b = 1, 2")

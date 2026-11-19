@@ -250,6 +250,9 @@ class TokenType(Enum):
     # v9.0 Keywords — Enhanced yield
     TOKEN_HASILKAN_KE = auto()  # hasilkan_ke (yield to target / send)
 
+    # v12.1 Keywords — Ownership (miliki / pinjam, Rust-like single ownership)
+    TOKEN_MILIKI = auto()  # miliki (variabel dengan kepemilikan tunggal / move semantics)
+
     # Special
     TOKEN_EOF = auto()
 
@@ -346,6 +349,7 @@ KEYWORDS: dict[str, TokenType] = {
     "kelas_error": TokenType.TOKEN_KELAS_ERROR,
     # v6.5 keywords — Fitur Bahasa
     "konstanta": TokenType.TOKEN_KONSTANTA,
+    "miliki": TokenType.TOKEN_MILIKI,
     "ulangi": TokenType.TOKEN_ULANGI,
     "sampai": TokenType.TOKEN_SAMPAI,
     # 'langkah' sengaja tidak di sini — soft keyword (lihat komentar di atas).

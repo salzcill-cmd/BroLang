@@ -1,3 +1,19 @@
+# Fitur BroLang v12.1
+
+> **BroLang v12.1 — Kepemilikan memori (`miliki`) dengan move semantics (Rust-like).** Mencegah use-after-move & data race tanpa garbage collector — fitur yang dijanjikan sejak v10.0 kini truly diimplementasikan.
+
+## Fitur v12.1 (Kepemilikan Memori)
+
+| Fitur | Keterangan | Status |
+|-------|-----------|--------|
+| `miliki x = nilai` | Deklarasi variabel dengan kepemilikan tunggal (single ownership) | ✅ |
+| Move semantics | `buat y = x` memindahkan milik; `x` tidak bisa digunakan lagi | ✅ |
+| Use-after-move error | Terdeteksi oleh analyzer (kompilasi) dan interpreter (runtime) | ✅ |
+| Reassign owned | Variabel miliki bisa ditetapkan ulang (nilai lama di-drop) | ✅ |
+| Copy semantics | Variabel biasa (`buat`) salin nilai, tidak memindahkan | ✅ |
+
+---
+
 # Fitur BroLang v12.0
 
 > **BroLang v12.0 — Sistem tipe ditingkatkan dengan type inference dan konsistensi reassignment.** Menandingi TypeScript/Kotlin/Swift dalam keamanan tipe statis sambil tetap gradual (tidak ada false-positive).
