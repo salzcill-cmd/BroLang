@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/1346-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
+  <img src="https://img.shields.io/badge/1406-Tests%20Passing-brightgreen?style=flat-square" alt="tests"/>
   <img src="https://img.shields.io/badge/115+-AST%20Nodes-blue?style=flat-square" alt="ast"/>
   <img src="https://img.shields.io/badge/135+Token%20Types-purple?style=flat-square" alt="tokens"/>
   <img src="https://img.shields.io/badge/65+-Stdlib%20Modules-orange?style=flat-square" alt="modules"/>
@@ -45,31 +45,116 @@ chmod +x install.sh
 
 ### Cek apakah udah jalan
 ```bash
-bro --version    # BroLang 11.0.0
+bro --version    # BroLang 12.3.0
 echo 'tulis "Halo Dunia!"' > halo.bro
 bro halo.bro
 ```
 
 ---
 
+## Apa yang Baru di v12.3? 🚀
+
+### Sistem Belajar Adaptif (`bro belajar`) 🎓
+Mode belajar interaktif yang telah ditingkatkan sepenuhnya:
+- **Progres tersimpan otomatis** ke `~/.brolang/belajar_progress.json` — lanjutkan kapan saja tanpa kehilangan poin.
+- **Keahlian per-konsep** (level 0 = baru → 3 = ahli) dengan rasio keberhasilan, bukan hanya per-bab.
+- **`bro belajar --ulang`**: spaced repetition — konsep yang belum mahir ditampilkan ulang dengan jeda semakin panjang (1 menit → 10 menit → 1 jam → 1 hari).
+- **Petunjuk adaptif bertingkat** (level 0 samar → level 3 jelas) menyesuaikan dengan banyaknya percobaan salah.
+- **Deteksi pola kesalahan umum** dengan umpan balik spesifik (contoh: `print(` → `tulis(`, lupa `selesai`, pakai `=` untuk bandingkan).
+- **Umpan balik kualitas kode ringan** (variabel tidak terpakai, titik koma berlebih).
+- **Mode latihan mandiri** (`bro belajar --latihan <konsep>`): coba konsep bebas tanpa tekanan poin.
+
+Contoh:
+```bash
+bro belajar           # jalur terstruktur (8 bab)
+bro belajar --ulang   # ulangi konsep yang perlu diperkuat
+bro belajar --latihan variabel  # latihan mandiri konsep bebas
+```
+
+---
+
+## Apa yang Baru di v12.2? 🚀
+
+### Algebraic Data Types (ADT) 🧬
+Deklarasikan enum dengan varian yang membawa payload, mirip Rust enum / Haskell data type:
+```bro
+enum Opsi {
+    Sukses(teks),
+    Gagal
+}
+
+fungsi unwrap(o)
+    cocokkan o {
+        Sukses(x): tulis "sukses: " + x
+        Gagal(): tulis "gagal"
+    }
+selesai
+
+unwrap(Sukses("halo"))  # sukses: halo
+unwrap(Gagal())         # gagal
+```
+- `Varian(arg1, arg2)` membangun nilai varian.
+- `cocokkan v { Varian(x, y): ... }` mencocokkan pola varian dan me-bind payload ke variabel.
+- Analyzer validasi jumlah binding vs field varian, deteksi varian tak dikenal, dan cek kejelasan (exhaustiveness): jika semua varian dari satu enum tercover oleh pola varian (atau ada wildcard/default), tidak ada peringatan.
+- Nilai varian direpresentasikan sebagai objek dengan `__eq__` dan `__repr__`, sehingga bisa dibandingkan dan dicetak.
+
+---
+
+## Apa yang Baru di v12.1? 🚀
+
+### Kepemilikan Memori (`miliki`) / Move Semantics (Rust-like) 🧠
+Fitur yang dijanjikan sejak v10.0 kini truly diimplementasikan:
+```bro
+miliki x = 5        # variabel kepemilikan tunggal
+buat y = x          # memindahkan milik dari x ke y (move)
+tulis x             # ERROR: x sudah dipindahkan (use-after-move)
+tulis y             # 5
+```
+- `buat y = x` memindahkan milik dari `x` ke `y`; `x` tidak bisa digunakan lagi (use-after-move = error di analyzer compile-time DAN interpreter runtime).
+- Variabel miliki bisa ditetapkan ulang (nilai lama di-drop); variabel biasa (`buat`) pakai semantik salin.
+- Mencegah data race & use-after-free style bug tanpa garbage collector.
+
+### Design by Contract 📋
+Precondition, postcondition, dan class invariant (menandingi Eiffel/Dafny):
+```bro
+fungsi bagi(a, b)
+    syarat_awal b != 0
+    syarat_akhiri hasil != 0 atau a == 0
+    kembali a / b
+selesai
+
+kelas Rekening
+    fungsi __init__(awal)
+        buat self.saldo = awal
+    selesai
+    invariansi self.saldo >= 0
+    fungsi ambil(jumlah)
+        syarat_awal jumlah > 0
+        syarat_awal jumlah <= self.saldo
+        self.saldo = self.saldo - jumlah
+    selesai
+selesai
+```
+- `syarat_awal` dicek sebelum body fungsi dieksekusi.
+- `syarat_akhiri` dicek setelah return; variabel `hasil` merujuk nilai kembalian.
+- `invariansi` dicek setelah setiap statement di dalam method kelas.
+- Dicek oleh analyzer (kompilasi) DAN interpreter (runtime).
+
+---
+
+## Apa yang Baru di v12.0? 🚀
+
+### Sistem Tipe — Type Inference & Konsistensi Reassignment 🏷️
+- `buat x = 5` menyimpulkan tipe `Angka` otomatis dari nilai awal (type inference).
+- Reassignment `x = ...` dengan tipe konkret berbeda dari tipe awal ditolak pada waktu kompilasi (analyzer), kecuali tipe tak dikenal (diserahke ke runtime) atau campuran numerik `Angka`↔`Desimal` (diizinkan).
+- Menyelesaikan kisaran antara sistem tipe v6.0 (anotasi) dan penegakan konsisten, sehingga BroLang bersaing dengan TypeScript/Kotlin/Swift dalam keamanan tipe statis sambil tetap gradual (tidak ada false-positive).
+
+---
+
 ## Apa yang Baru di v11.0? 🚀
 
-### Interop C (FFI) 🔗
-- **Modul `ffi`** — muat pustaka C bersama (`.so`/`.dll`) dan panggil fungsi C langsung dari BroLang via `ctypes`. Akses seluruh ekosistem C tanpa menulis wrapper Python. Dukungan tipe `int`, `float`, `double`, `teks` (`char*`), `pointer`, dan buffer mentah.
-
-### Keamanan Pattern Matching 🛡️
-- **Exhaustiveness checking** — `cocokkan` sekarang memeriksa apakah semua kasus ditangani; jika tidak ada wildcard `_` / pola binding sebagai fallback, analyzer akan memberikan peringatan agar tidak ada kasus yang terlewat waktu berjalan.
-
-### Type inference yang lebih tajam 🧠
-- `buat x = 5` menyimpulkan tipe `angka` dan menyimpannya di symbol table, sehingga penggunaan selanjutnya diperiksa konsisten — kurang boilerplate, aman seperti bahasa dengan anotasi penuh.
-
-### Tooling & Distribusi 📦
-- **Bytecode cache otomatis** — `bro run` menyimpan kode terkompilasi di `~/.brolang/cache/`; run berikutnya melewati parse/compile jika sumber tidak berubah (startup lebih cepat).
-- **`bro pack <file> <folder>`** — bundel file `.bro` + paket runtime `brolang/` ke folder distribusi tunggal dengan peluncur `run.sh` / `run.bat`, siap dibagikan tanpa memasang BroLang di target machine.
-
-Semua fitur v11.0 kompatibel dengan interpreter, transpiler, dan VM. 1346 test cases tetap passing.
-
-### Library Game (Upgrade Lengkap) 🎮
+### Library Game Lengkap 🎮
+14 modul game ditulis ulang/ditingkatkan:
 - **`game`** — fixed-timestep loop, scene stack/overlay, transisi (fade/slide/wipe/zoom), pause/resume, profil statistik, headless mode, screenshot, resize
 - **`grafis`** — blend modes, offscreen render targets, gradien, perataan teks, clip/viewport, glow, draw-call counter
 - **`input`** — action mapping (`atur_peta_aksi`), gamepad rumble, swipe gesture, focus events
@@ -96,10 +181,7 @@ Semua modul game ditulis ulang/ditingkatkan agar BroLang menjadi salah satu baha
 ### Konkurensi Berbasis Aktor 🧵
 - **Modul `aktor`** — model actor (passing pesan): setiap aktor punya state terisolasi, berkomunikasi lewat `aktor.kirim` / `aktor.tanya`, tidak ada state bersama, **tidak ada race condition**, tidak perlu lock manual. Cocok untuk game loop, server, dan tugas bersamaan.
 
-### Tooling 🛠️
-- **`bro build --native -o <out>`** — hasilkan executable tunggal siap distribusi.
-
-Semua fitur v10.0 tersedia di interpreter, transpiler, dan VM. 1346 test cases tetap passing.
+Semua fitur v10.0 tersedia di interpreter, transpiler, dan VM.
 
 ---
 
@@ -121,655 +203,18 @@ Semua fitur v10.0 tersedia di interpreter, transpiler, dan VM. 1346 test cases t
 ### Tooling 🛠️
 - **`bro info`** — tampilkan info versi/proyek, dependensi, dan jumlah file `.bro`
 
-Semua fitur v9.0 tersedia di interpreter. 1346 test cases tetap passing.
-
+---
 
 ## Apa yang Baru di v8.2? ✨
 
 ### `properti` Decorator — Getter/Clean Setter
-
-Sintaks bersih untuk getter/setter di kelas, mirip Python `@property`:
-
-```bro
-kelas Suhu
-    fungsi __init__(self, derajat)
-        self._derajat = derajat
-    selesai
-
-    @properti
-    fungsi derajat(self)
-        kembali self._derajat
-    selesai
-
-    @derajat.setter
-    fungsi set_derajat(self, v)
-        self._derajat = v
-    selesai
-selesai
-
-buat s = Suhu(36)
-tulis s.derajat       # 36 (getter)
-s.derajat = 37        # setter
-tulis s.derajat       # 37
-```
+Sintaks bersih untuk getter/setter di kelas, mirip Python `@property`.
 
 ### 4 Modul Stdlib Baru 🧩
-
-**`statistik`** — Fungsi statistik dasar:
-```bro
-impor statistik
-buat data = [10, 20, 30, 40, 50]
-tulis statistik.rerata(data)          # 30.0
-tulis statistik.median(data)          # 30
-tulis statistik.modus([1, 1, 2, 3])   # [1]
-tulis statistik.simpangan_baku(data)  # 14.14...
-tulis statistik.korelasi(x, y)        # Korelasi Pearson
-tulis statistik.ringkasan(data)       # Ringkasan lengkap
-```
-
-**`zaman`** — Timer & stopwatch:
-```bro
-impor zaman
-
-# Stopwatch
-buat sw = zaman.Stopwatch()
-sw.mulai()
-# ... kode ... sw.berhenti()
-tulis sw.detik                           # waktu berlalu (detik)
-tulis zaman.uman(3725)                   # "1j 2m 5d"
-
-# Timer countdown
-buat timer = zaman.Timer(5.0)
-timer.mulai()
-tulis timer.sisa()                       # sisa waktu
-tulis timer.habis                        # sudah habis?
-
-# Waktu berlalu
-tulis zaman.berlalu(t0)                  # detik sejak t0
-```
-
-**`penampilan`** — Pretty print & format data:
-```bro
-impor penampilan
-tulis penampilan.angka(1234567)          # "1,234,567"
-tulis penampilan.tabel([{"nama": "Budi"}])  # Tabel ASCII
-tulis penampilan.pohon(objek)            # Pohon / tree view
-tulis penampilan.horizontal(0.7)         # [███████░░░] 70%
-tulis penampilan.json_indented(objek)    # JSON terformat
-```
-
-**`warna`** — Warna terminal ANSI, gradient, kotak:
-```bro
-impor warna
-tulis warna.merah("Error!")              # Teks merah
-tulis warna.hijau("Sukses!")             # Teks hijau
-tulis warna.gradient("Halo!", (255,0,0), (0,0,255))  # Gradient RGB
-tulis warna.kotak("Penting")             # Kotak di sekitar teks
-tulis warna.rainbow("BroLang!")          # Teks pelangi
-tulis warna.rgb_to_hex(255, 128, 0)       # "#ff8000"
-```
-
-Semua fitur v8.2 tersedia di interpreter. 58 test cases baru.
-
----
-
-## Apa yang Baru di v8.1? 🎮
-
-### Game Dev Upgrade
-
-**Object Pooling** — gunakan ulang bullet/partikel/musuh, hindari lag GC:
-
-```bro
-impor kumpulan_objek
-buat pool = kumpulan_objek.KumpulanObjek(lalu() {"aktif": salah}, ukuran_awal=20)
-buat peluru = pool.ambil()     # pinjam
-pool.kembalikan(peluru)        # kembalikan
-```
-
-**Simpan/Muat Game** — slot save, checkpoint, metadata:
-
-```bro
-impor simpan_game
-simpan_game.simpan("slot1", {"level": 3, "nyawa": 5}, label="Level 3")
-buat data = simpan_game.muat("slot1", default={"level": 1})
-simpan_game.checkpoint({"level": 4})   # auto-save
-```
-
-**Sistem Dialog** — efek mesin ketik + pilihan bercabang:
-
-```bro
-impor dialog
-buat d = dialog.Dialog(["Halo, pengembara!", "Selamat datang."],
-                       nama_pembicara="Kepala Desa", kecepatan=40)
-d.update(dt)
-buat habis = d.lanjut()
-```
-
-**AI Musuh (FSM + Steering)** — mesin status & kejar/lari/tiba/jelajah:
-
-```bro
-impor ai
-buat mesin = ai.FSM("jaga")
-mesin.tambah_status("kejar", masuk=lalu() tulis "Mengejar!" selesai)
-mesin.ganti_status("kejar")
-buat (vx, vy) = ai.kejar(100, 100, 300, 300, 120)
-```
-
-**Tilemap Lanjutan** — platform satu arah & platform bergerak:
-
-```bro
-impor tilemap
-tileset.atur_satu_arah(2)      # tile id 2 = platform satu arah
-buat mendarat = lantai.cek_lantai_satu_arah(px, py, kecepatan_y)
-buat plat = lantai.tambah_platform_bergerak(0, 300, 320, 300, kecepatan=80)
-lantai.dorong_bodi(pemain, dt)
-```
-
-**Quest & Achievement** — progres, status, simpan/muat:
-
-```bro
-impor misi
-buat q = misi.Misi("cari_kunci", "Cari 5 Kunci", tujuan=5)
-q.tambah_progres(5)            # True (baru selesai)
-buat manajer = misi.ManajerMisi()
-manajer.buat_misi("m1", "Misi 1", tujuan=3)
-```
-
-Semua modul v8.1 tersedia di interpreter, transpiler, dan VM.
-Detail: `docs/GAME_V81.md`.
-
----
-
-## Apa yang Baru di v8.0?
-
-### Fitur Bahasa Modern 🧩
-
-**Spread objek** — sebarkan isi objek ke objek literal, campur bebas
-sama pasangan kunci-nilai:
-
-```bro
-buat pengaturan = {"suara": 80, "bahasa": "id"}
-buat pemain = {...pengaturan, "nama": "Budi"}
-# {'suara': 80, 'bahasa': 'id', 'nama': 'Budi'}
-
-buat a = {"x": 1, "y": 2}
-buat b = {...a, "y": 99}     # kunci item belakang menimpa
-# {'x': 1, 'y': 99}
-```
-
-**Null-coalescing assignment `??=`** — isi cuma kalau nilainya `kosong`
-(short-circuit, nilai kanan ga dievaluasi kalau ga perlu):
-
-```bro
-buat nama = kosong
-nama ??= "Anonim"          # Anonim
-
-buat skor = 100
-skor ??= 0                 # ga berubah (sudah terisi)
-
-akun.nama ??= "Budi"       # atribut objek
-cache[0] ??= 42            # index list
-```
-
-**`kecuali (TipeA, TipeB)`** — satu klausa buat banyak tipe error:
-
-```bro
-coba
-    buat hasil = 100 / x
-kecuali (TypeError, ZeroDivisionError) sebagai e
-    tulis "tertangkap"
-selesai
-```
-
-Mendukung tipe bawaan **dan `kelas_error` kustom** — dan v8.0 memperbaiki
-VM supaya `kelas_error` + `lempar` + `kecuali` berfungsi penuh di mesin
-bytecode (sebelumnya dibuang diam-diam), konsisten dengan interpreter &
-transpiler.
-
-### Performa VM ⚡
-Optimasi hot path bytecode VM: fast path `_execute` tanpa try/except,
-alokasi frame sesuai ukuran, fast path `_call_function`, dan `LOAD_GLOBAL`
-satu dict op. Fibonacci rekursif ~15% lebih cepat, loop ~10% lebih cepat.
-
-Detail: `docs/FITUR_V80.md`.
-
----
-
-## Apa yang Baru di v6.9?
-
-### Guard Clause untuk Semua Statement 🧩
-
-Guard clause (v6.8) diperluas ke **semua statement sederhana** — statement hanya dijalankan saat kondisi benar:
-
-```bro
-fungsi cek(x)
-    tulis x jika x > 0           # print bersyarat
-    kembali x * 2 jika x > 0     # early return (v6.8)
-selesai
-
-buat skor = 0
-skor = 100 jika benar           # reassignment bersyarat
-skor += 10 jika menang          # augmented bersyarat
-
-kelas Akun
-    fungsi beri_bonus(self, n)
-        self.bonus += n jika n > 0   # atribut objek ber-guard
-        kembali self.bonus
-    selesai
-selesai
-
-buat data = [1, 2, 3]
-data[1] += 10 jika benar        # index list ber-guard
-
-lempar "stok habis" jika stok <= 0   # raise bersyarat
-log(pesan) jika mode_debug           # panggilan fungsi bersyarat
-hapus cache jika basi                # delete bersyarat
-```
-
-Statement yang didukung: `tulis`, `buat` (deklarasi + destructuring),
-reassignment, augmented assignment, atribut objek, index list, `lempar`,
-`hapus`, pemanggilan fungsi, dan `hasilkan` (yield). Tidak ambigu dengan
-ternary — `a jika b lainnya c` tetap ternary:
-
-```bro
-buat a = 5 jika benar lainnya 99   # ternary → a = 5
-buat b = 5 jika salah lainnya 99   # ternary → b = 99
-```
-
-Detail: `docs/FITUR_V69.md`.
-
----
-
-## Apa yang Baru di v6.8?
-
-### Fitur Bahasa Baru 🧩
-
-**Guard clause** — `kembali`, `hentikan`, dan `lanjutkan` bisa diberi kondisi:
-
-```bro
-fungsi cek(x)
-    kembali "negatif" jika x < 0
-    kembali "nol" jika x == 0
-    kembali "positif"
-selesai
-
-tulis cek(-5), cek(0), cek(7)   # negatif nol positif
-
-untuk i dari 1 sampai 10 lakukan
-    lanjutkan jika i % 2 == 0   # skip genap
-    hentikan jika i > 5         # break bersyarat
-    tulis i                     # 1 3 5
-selesai
-```
-Tidak ambigu dengan ternary: `kembali a jika b lainnya c` tetap ternary.
-
-**Floor division `//`** — pembagian dibulatkan ke bawah:
-
-```bro
-tulis 17 // 5      # 3
-buat x = 10
-x //= 3
-tulis x            # 3
-```
-
-**Augmented assignment pada atribut & index:**
-
-```bro
-kelas Akun
-    fungsi __init__(self)
-        self.total = 0
-    selesai
-    fungsi naik(self, n)
-        self.total += n        # atribut objek
-        kembali self.total
-    selesai
-selesai
-
-buat data = [1, 2, 3]
-data[1] += 10                  # index list → [1, 12, 3]
-```
-
-### Game Dev 🎮
-**`audio` BGM prosedural** — musik latar tanpa file eksternal:
-
-```bro
-impor audio
-
-buat bgm = audio.buat_bgm(audio.pola_arcade)   # pola siap pakai
-audio.mainkan_bgm(audio.pola_epik, 120)        # putar loop (butuh pygame)
-audio.hentikan_bgm()
-```
-Pola bisa pakai nama not (`"C4"`, `"A#3"`), frekuensi, tuple `(nada, ketukan)`, atau jeda `0`.
-
-### Perbaikan VM ⚙️
-`x %= y` dan `x **= y` yang tadinya diam-diam menjadi `x = y` di VM kini benar; loop dengan guard `hentikan jika` tidak lagi memotong body.
-
-Detail: `docs/FITUR_V68.md`.
-
----
-
-## Apa yang Baru di v6.7?
-
-### Fitur Bahasa Modern 🧩
-
-**Rest parameter `...nama`** — fungsi menampung semua sisa argumen:
-
-```bro
-fungsi jumlahkan(...angka)
-    buat total = 0
-    untuk setiap n dalam angka lakukan
-        total = total + n
-    selesai
-    kembali total
-selesai
-
-tulis jumlahkan(1, 2, 3, 4, 5)   # 15
-```
-
-**Spread call `f(...args)`** — bongkar list jadi argumen:
-
-```bro
-fungsi kali3(a, b, c)
-    kembali a * b * c
-selesai
-
-buat nilai = [2, 3, 4]
-tulis kali3(...nilai)            # 24
-```
-
-**Spread list `[...a, 1]`** — gabungkan list di literal:
-
-```bro
-buat gabung = [...dasar, 3, 4]   # [1, 2, 3, 4]
-```
-
-**Multiple return `kembali a, b`** — beberapa nilai sekaligus:
-
-```bro
-fungsi bagi_dan_sisa(a, b)
-    kembali a / b, a % b
-selesai
-
-buat [hasil, sisa] = bagi_dan_sisa(17, 5)   # 3.4 2
-```
-
-### Bytecode VM kini lengkap ⚙️
-Range-for, destructuring, pipeline, dan for-each (`untuk setiap`) yang
-sebelumnya `NotImplementedError` / diam-diam dilewati di VM bytecode kini
-berfungsi penuh — konsisten dengan interpreter & transpiler.
-
-### Game Dev 🎮
-- **`efek.Guncangan`** — screen shake trauma-based (memudar alami, testable tanpa pygame)
-- **`audio` synth** — `nada()` / `laser()` / `ledakan()` / `blip()` buat WAV procedural tanpa file eksternal
-
-Detail: `docs/FITUR_V67.md`.
-
----
-
-## Apa yang Baru di v6.6?
-
-### Upgrade Library Game Komprehensif 🎮
-**2 modul baru** + **8 modul ditingkatkan** — buat bikin game 2D makin gampang:
-
-**Modul baru `jalur`** — pathfinding A* + navigasi waypoint:
-```bro
-impor jalur
-
-buat rute = jalur.cari_jalur(denah, (1, 1), (10, 5))   # A* di tilemap
-jika rute maka
-    tulis jalur.panjang_jalur(rute)
-selesai
-
-buat penjaga = jalur.Patroli([(100, 100), (500, 100)], kecepatan=120,
-                             mode="bolak-balik")        # patroli waypoint
-penjaga.update(dt)
-```
-
-**Modul baru `efek`** — efek layar instan:
-```bro
-impor efek
-
-buat kilat = efek.buat_flash("putih", durasi=0.15)      # flash layar
-buat dmg = efek.TeksMelayang("-25", x, y, warna="merah")  # damage number
-buat vin = efek.Vignette(kekuatan=0.4)                   # vignette
-```
-
-**Fisika AABB + raycast:** collider persegi (`set_persegi`), tabrakan campuran,
-`dunia.raycast(x1, y1, x2, y2)`, `dunia.cari_bodi_di_area(...)`.
-
-**Partikel:** gradien warna seumur hidup (`warna_awal`/`warna_akhir`),
-tekstur partikel, emiter siap pakai `buat_trail` / `buat_asap` / `buat_bintang`.
-
-**Tilemap:** tile animasi (`atur_animasi` + `peta.update(dt)`), layer objek
-(`tambah_objek`, `cari_objek`), `cek_lantai` untuk platformer.
-
-**Kamera:** parallax layers (`screen_parallax`), deadzone follow
-(`set_target(pemain, deadzone=(120, 80))`), `set_lerp`.
-
-**Game loop:** fixed timestep fisika (`game.atur_fisika(fungsi, 1/120)`),
-screenshot (`tangkap_layar`), resize jendela.
-
-**Grafis:** gradien vertikal/horizontal, `glow_lingkaran`, perataan teks
-(`tengah`/`kanan`), `gambar_gambar_alpha`.
-
-**UI:** `Tooltip`, `Tombol` bergambar, `DaftarSkor` (high score persisten),
-navigasi fokus keyboard.
-
-**Sprite:** `ikuti_patroli`, `rotasi_ke_titik`, `tampilkan`/`sembunyikan`.
-
-Bonus: sintaks `buat (x, y) = fungsi()` yang selama ini ada di dokumentasi
-kini benar-benar berfungsi.
-
-```bash
-bro examples/game_v66.bro     # showcase lengkap semua fitur v6.6
-```
-
-Detail: `docs/GAME_V66.md`.
-
----
-
-## Apa yang Baru di v6.5?
-
-### Fitur Bahasa Baru 🧩
-
-**`konstanta`** — variabel immutable, nilai tidak bisa diubah setelah deklarasi:
-
-```bro
-konstanta PI = 3.14
-konstanta NAMA = "BroLang"
-
-PI = 3.15   # error: Konstanta 'PI' tidak bisa diubah
-```
-
-**`ulangi ... sampai`** — do-until loop, body jalan minimal satu kali:
-
-```bro
-buat tebakan = 0
-ulangi
-    tebakan = tebakan + 1
-    tulis "Percobaan ke-" + teks(tebakan)
-sampai tebakan >= 3
-```
-
-**`untuk i dari A sampai B`** — range for loop (inklusif, bisa `langkah`):
-
-```bro
-untuk i dari 1 sampai 10 lakukan
-    tulis i
-selesai
-
-untuk i dari 10 sampai 2 langkah -2 lakukan
-    tulis i
-selesai
-```
-
-Semua fitur berjalan konsisten di interpreter, transpiler (`bro run`),
-dan compiler (`bro build`). Detail: `docs/FITUR_V65.md`.
-
----
-
-## Apa yang Baru di v6.3?
-
-### Performance Boost ⚡
-Tiga lapis optimasi bikin BroLang makin kencang:
-
-- **Peephole optimizer** di bytecode VM — constant folding (`2 + 3 * 4` jadi satu konstanta), removal NOP, remap jump otomatis
-- **Method cache** — pemanggilan method di inheritance chain di-cache (invalidasi otomatis saat monkey-patch)
-- **Fast path interpreter** — operator biner pada angka/teks tidak lagi mengecek operator overloading
-
-```bash
-bro benchmark benchmarks/fibonacci.bro --repeat 3
-# Transpiler 11x-151x lebih cepat dari VM per kasus
-```
-
-Benchmark publik ada di folder `benchmarks/` + docs `docs/PERFORMANCE.md`.
-
-### Tooling Proyek Modern 🛠️
-
-```bash
-bro init myapp          # scaffolding proyek lengkap
-cd myapp
-bro run                 # jalankan entry point dari brolang.json (tanpa argumen)
-bro test                # jalankan test
-```
-
-Struktur yang dibuat: `brolang.json`, `src/main.bro`, `tests/`, `docs/`, `.gitignore`.
-
-### Web Framework 🌐
-Bikin API backend langsung dari BroLang — tanpa dependency eksternal:
-
-```bro
-impor web_server
-
-fungsi halaman(req)
-    kembali req.kirim_json({"pesan": "Halo Dunia!"})
-selesai
-
-buat app = web_server.Buat()
-app.get("/", halaman)
-app.get("/pengguna/{id}", detail)   # parameter dinamis
-app.jalankan(8000)                   # http://127.0.0.1:8000
-```
-
-Routing GET/POST/PUT/DELETE, query string, body JSON, static files, CORS.
-Contoh lengkap: `examples/web_api.bro`.
-
----
-
-## Apa yang Baru di v6.4?
-
-### Keamanan, Arsip & Terminal UX 🔐
-Tiga modul stdlib baru — semuanya murni stdlib Python, tanpa dependency eksternal:
-
-**`kripto`** — Keamanan & kriptografi:
-```bro
-impor kripto
-
-tulis kripto.sha256("halo dunia")       # 64 karakter hex
-tulis kripto.base64_encode("BroLang")   # QnJvTGFuZw==
-
-buat hash = kripto.hash_password("rahasia123")   # PBKDF2 + salt acak
-tulis kripto.cek_password("rahasia123", hash)    # True
-buat api_key = kripto.token(32)                  # token crypto-grade
-```
-
-**`arsip`** — ZIP & kompresi:
-```bro
-impor arsip
-
-arsip.buat_zip("backup.zip", ["a.txt", "b.txt"])
-tulis arsip.daftar_zip("backup.zip")
-arsip.ekstrak_zip("backup.zip", "restore/")
-buat padat = arsip.kompres("teks panjang ...")   # lebih pendek (zlib)
-```
-
-**`terminal`** — UX terminal untuk program CLI:
-```bro
-impor terminal
-
-tulis terminal.hijau("sukses")
-terminal.sukses("Deploy berhasil")
-tulis terminal.bilah_progress(7, 10)             # [███████░░░] 70%
-buat nama = terminal.tanya("Nama kamu? ", "anonim")
-```
-
-### Tooling: `bro test` lebih pintar 🧪
-- `bro test --nama <filter>` — hanya jalankan file tes yang namanya mengandung filter
-- `bro test --detail` — tampilkan status ✓/✗ + durasi tiap file
-- Ringkasan total dengan waktu eksekusi
-
-### Perintah baru `bro upgrade` 🔄
-`bro upgrade` — update BroLang ke versi terbaru langsung dari GitHub
-(git pull + install ulang otomatis).
-
-Contoh lengkap: `examples/kripto.bro`, `examples/arsip.bro`, `examples/terminal.bro`.
-
----
-
-## Apa yang Baru di v6.2?
-
-### Scene Lifecycle + Transisi 🎬
-Scene sekarang punya siklus hidup penuh: `on_masuk` / `on_keluar`, transisi **fade** antar scene, dan tumpukan scene untuk **overlay menu pause**.
-
-```bro
-impor game
-
-# Lifecycle: setup saat scene aktif, cleanup saat diganti
-game.tambah_scene("main", update_main, gambar_main,
-                   on_masuk=muat_level, on_keluar=simpan_skor)
-
-# Transisi fade antar scene
-game.ganti_scene("main", transisi="fade", durasi=1.0, warna="hitam")
-
-# Overlay menu pause di atas gameplay (scene bawah tetap digambar)
-game.dorong_scene("pause", transisi="fade")
-game.pop_scene(transisi="fade")
-```
-
-### UI Komponen Baru 🖱️
-Empat komponen UI baru siap pakai: **KotakTeks** (input teks), **Slider**, **KotakCentang** (checkbox), dan **DaftarPilih** (dropdown).
-
-```bro
-impor ui
-
-buat nama = ui.KotakTeks(200, 150, 250, 40, placeholder="Nama pemain")
-buat volume = ui.Slider(200, 300, 250, nilai=50, min=0, maks=100)
-buat musik = ui.KotakCentang(200, 400, label="Aktifkan musik", dicentang=True)
-buat level = ui.DaftarPilih(200, 500, 200, opsi=["Mudah", "Sedang", "Sulit"])
-
-nama.update(mx, my, klik)          # fokus via klik
-nama.tambah_karakter("A")          # terima karakter dari input keyboard
-volume.update(mx, my, ditekan)     # drag
-musik.update(mx, my, klik)         # toggle
-level.update(mx, my, klik)         # buka/pilih opsi
-```
-
-Semua komponen logika-nya jalan **tanpa pygame** (hanya render yang butuh pygame) — gampang di-test.
-
-### 5 Modul Stdlib Baru 🧩
-Modul yang selama ini hanya dijanjikan di dokumentasi kini **benar-benar ada**: `angka`, `sistem`, `sistem_operasi`, `web`, dan `database`.
-
-```bro
-impor angka
-impor sistem
-impor web
-impor database
-
-tulis angka.pi                  # 3.141592653589793 (konstanta langsung)
-tulis angka.sqr(16)             # 4.0
-tulis sistem.platform()         # linux / windows / darwin
-
-buat respon = web.get("https://api.example.com/data")
-tulis respon.status             # 200
-tulis respon.json               # body ter-parse sebagai objek
-
-buat db = database.buka("data.db")
-db.eksekusi_sql("CREATE TABLE IF NOT EXISTS t (id INTEGER, nama TEXT)")
-db.eksekusi_sql("INSERT INTO t (id, nama) VALUES (?, ?)", 1, "Budi")
-tulis db.query("SELECT * FROM t")[0]["nama"]    # Budi
-```
-
-Plus `sistem_operasi` untuk operasi file/folder & jalur (`list_dir`, `buat_folder`, `pindah`, `gabung_jalur`, dll).
+**`statistik`** — rerata, median, modus, simpangan baku, korelasi, ringkasan.  
+**`zaman`** — Timer & stopwatch.  
+**`penampilan`** — Pretty print & format data (angka, tabel, pohon, progress bar, JSON).  
+**`warna`** — Warna terminal ANSI, gradient, kotak, rainbow.
 
 ---
 
@@ -782,7 +227,6 @@ bro belajar
 ```
 
 Tutorial interaktif di terminal — 8 bab bertingkat:
-
 1. 🖨️ Halo Dunia
 2. 📦 Variabel
 3. ➕ Operasi Matematika
@@ -798,587 +242,6 @@ Setiap bab ada materi singkat + latihan soal yang **dicek otomatis** (dijalankan
 - Pesan error memberi saran keyword: `print` → *"mungkin maksudmu 'tulis'?"*, `null` → *"mungkin maksudmu 'kosong'?"*
 - Hint kesalahan umum: `jika x = 5 maka` → *"pakai '==' untuk membandingkan"*, titik koma `;` → *"tidak perlu dipakai"*
 - REPL makin pintar: blok `jika`/`fungsi` multi-baris berfungsi, hasil ekspresi muncul (`2 + 3` → `=> 5`), perintah `bantuan`/`tips`/`contoh`
-
----
-
-## Apa yang Baru di v6.0?
-
-### Type System Lengkap 🏷️
-Anotasi tipe di variabel, parameter, dan return value — diverifikasi otomatis (ditolak kalau salah).
-
-```bro
-buat umur: Angka = 25          # anotasi variabel
-buat nama: Teks = "Budi"
-
-fungsi kali2(a: Angka) -> Angka   # anotasi parameter & return
-    kembali a * 2
-selesai
-
-tulis kali2(21)                # 42
-
-# Union, generik, dan alias
-buat nilai: Angka | Teks = "lima"     # union type
-buat angka2: Daftar<Angka> = [1, 2, 3]  # generic
-
-tipe ID = Angka                        # type alias
-buat kode: ID = 12345
-```
-
-```bro
-buat umur: Angka = "salah"   # Error: Tipe tidak cocok untuk 'umur'
-```
-Mismatch tipe ditolak di **dua lapis**: analyzer statis (sebelum jalan) dan interpreter (saat runtime). Kelas user juga bisa dipakai sebagai tipe parameter (`fungsi info(m: Mobil)`).
-
-### Pattern Matching Modern 🎯
-`cocokkan` kini bisa membongkar list/objek langsung di polanya.
-
-```bro
-buat data = [1, 2]
-cocokkan data {
-    [a, b]: tulis a + b              # pola list → bind elemen → 3
-    _: tulis "lain"
-}
-
-buat orang = {"nama": "Ani", "umur": 20}
-cocokkan orang {
-    {"nama": n, "umur": u}: tulis "Nama: " + n + ", Umur: " + teks(u)
-    _: tulis "siapa?"
-}
-
-buat skor = 15
-cocokkan skor {
-    x jika x > 10: tulis "tinggi"     # guard condition
-    _: tulis "rendah"
-}
-```
-Pola: list `[a, b]`, objek `{"nama": n}`, binding `n:`, literal, wildcard `_`, plus guard `jika`. Bekerja sama di interpreter **dan** transpiler.
-
-### Error Handling Profesional 🚨
-Custom error class — `kelas_error` dengan field sendiri + hierarki + fallback.
-
-```bro
-kelas_error SaldoTidakCukup extends Kesalahan
-    fungsi __init__(pesan, saldo)
-        self.pesan = pesan
-        self.saldo = saldo
-    selesai
-selesai
-
-coba
-    lempar SaldoTidakCukup("Saldo tidak cukup", 5000)
-kecuali SaldoTidakCukup sebagai e
-    tulis "Tertangkap: " + e.pesan + ", saldo=" + teks(e.saldo)
-selesai
-```
-
-Hierarki error didukung: `kecuali Induk sebagai e` menangkap semua turunannya, dan `kecuali lainnya sebagai e` jadi fallback. Konsisten di interpreter & transpiler. Error CLI juga makin profesional — `bro run` menampilkan baris/kolom, baris sumber dengan penanda `^`, solusi, dan stack trace.
-
-### Ekosistem Stdlib + Package Registry 🌐
-Enam modul baru siap pakai:
-
-```bro
-impor tanggal
-impor catat
-impor lingkungan
-impor proses
-impor csv
-impor registri
-
-tulis tanggal.selisih_hari("2026-08-07", "2026-08-01")   # 6
-
-buat hasil = proses.jalankan("echo halo")
-tulis hasil.keluaran                                  # halo
-
-impor csv
-buat data = [{"nama": "Budi", "umur": 20}]
-csv.tulis("data.csv", data)
-tulis csv.baca("data.csv")[0]["nama"]                 # Budi
-```
-
-**Package Registry Online**: `registri.jalankan_async(port)` menjalankan registry HTTP lokal — `bro pkg publish` / `bro pkg install` / `cari_remote` sekarang bisa lewat jaringan.
-
----
-
-## Apa yang Baru di v5.5?
-
-### Operator Overloading 🧮
-Kelas BroLang sekarang bisa mendefinisikan perilaku operator sendiri — nggak perlu fungsi bantu manual.
-
-```bro
-kelas Titik
-    fungsi __init__(x, y)
-        self.x = x
-        self.y = y
-    selesai
-    fungsi _tambah_(lain)
-        kembali Titik(self.x + lain.x, self.y + lain.y)
-    selesai
-    fungsi _sama_(lain)
-        kembali self.x == lain.x dan self.y == lain.y
-    selesai
-    fungsi _teks_()
-        kembali "(" + teks(self.x) + ", " + teks(self.y) + ")"
-    selesai
-selesai
-
-buat a = Titik(1, 2)
-buat b = Titik(3, 4)
-tulis a + b              # (4, 6)
-tulis a == Titik(1, 2)   # True
-```
-Method yang bisa di-overload: `_tambah_` (+), `_kurang_` (-), `_kali_` (*), `_bagi_` (/), `_modulo_` (%), `_pangkat_` (**), `_sama_` (==), `_tidak_sama_` (!=), `_kurang_dari_` (<), `_lebih_dari_` (>), `_kurang_sama_` (<=), `_lebih_sama_` (>=), `_negasi_` (-), `_positif_` (+), `_dalam_` (dalam), `_teks_` (print/konversi), `_panjang_` (panjang()), `_index_`/`_index_set_` (`[]`). Bekerja konsisten di interpreter **dan** transpiler.
-
-### Threading (`sejajar`) 🧵
-Jalankan fungsi di background thread supaya game loop / program utama tetap responsif.
-
-```bro
-impor sejajar
-
-fungsi hitung(x)
-    kembali x * 2
-selesai
-
-buat t = sejajar.jalankan(hitung, 21)      # background thread
-buat hasil = t.hasil()                      # 42 (blokir sampai selesai)
-
-tulis sejajar.peta_sejajar(hitung, [1, 2, 3, 4])   # [2, 4, 6, 8]
-```
-API: `jalankan`, `tunggu`, `tunggu_semua`, `peta_sejajar`, `atur_thread`/`jumlah_thread`, objek `Tugas` (`selesai()`/`hasil()`/`batal()`). Fungsi BroLang otomatis di-serialisasi biar aman; callable Python murni jalan paralel penuh.
-
-### LSP & Tooling ⚡
-Language server makin pintar: auto-completion mencakup **keyword + semua builtin + simbol di dokumen + member modul** (setelah titik), **go-to-definition** lompat ke baris deklarasi, dan **hover** menampilkan info tipe simbol. Cocok dipasang di VS Code / editor yang mendukung LSP.
-
----
-
-## Apa yang Baru di v5.4?
-
-### Full Upgrade Library Game 🎮
-Semua modul game di-*full update* — 14 modul game lengkap buat bikin game 2D ala Python Arcade/Pygame:
-
-| Modul | Fitur baru |
-|-------|-----------|
-| `sprite` | **Diperbaiki total** (sebelumnya SyntaxError, ga bisa di-import!) — gambar, sprite sheet, animasi frame, rotasi, flip, alpha, z-order, collider kotak/lingkaran, GrupSprite |
-| `partikel` 🆕 | Particle system: ledakan, hujan, semburan, emisi otomatis, gravitasi partikel |
-| `ui` 🆕 | Tombol (hover+klik+callback), Label, Panel, Bar (health/progress bar) |
-| `game` | Pause/resume, dt-clamp anti-lag, FPS display, background color, reset state |
-| `input` | **Fix konflik event dengan game loop**, scroll wheel, mouse just-pressed, gamepad/joystick |
-| `grafis` | Rounded rect, teks multi-baris, poligon bebas, ellipse, offscreen surface |
-| `animasi` | **Fix easing elastic/bounce crash** + 26 jenis easing + callback on_selesai |
-| `fisika` | Radius per-bodi (bukan hardcode 16), gravitasi configurable, ground detection |
-| `tilemap` | **Fix solid_map** setelah bulk-load, `dari_file`, rendering warna fallback |
-| `kamera` | Reset, pan, rotasi, batas world otomatis, `buat_layar_penuh` |
-| `vektor` | Sudut derajat, `dari_polar`, proyeksi, refleksi, midpoint |
-| `waktu` | Timer, Stopwatch, FPS counter, delta otomatis |
-
-```
-impor game
-impor sprite
-impor ui
-impor partikel
-
-buat pemain = sprite.Sprite(kosong, 100, 300, lebar=34, tinggi=40)
-pemain.warna = "langit"
-buat tombol = ui.Tombol("MULAI", 300, 330, 200, 60)
-buat hp = ui.Bar(100, 100, 10, 42, 220, 18)
-buat efek = partikel.buat_emiter(0, 0)
-```
-
-Coba game showcase lengkapnya:
-```bash
-bro examples/game_arena.bro
-```
-Platformer arena dengan tilemap solid, musuh patroli, tembakan, ledakan partikel, health bar, tombol menu, kamera shake, dan pause — semua pakai API baru.
-
-### Interpreter: Atribut Objek Stdlib
-Objek stdlib (Sprite, Vec2, ui, dll) sekarang bisa **diset atributnya** (`pemain.warna = "merah"`, `pemain.vel_x = 100`) — konsisten dengan transpiler yang sudah mendukungnya sebelumnya.
-
----
-
-## Apa yang Baru di v5.3?
-
-### Visualisasi Data (`visualisasi`)
-```
-impor visualisasi
-
-buat penjualan = {"Senin": 12, "Selasa": 45, "Rabu": 23, "Kamis": 67, "Jumat": 34}
-
-# Chart ASCII langsung di terminal
-# Senin  │ ███████ 12
-# Selasa │ ███████████████████████████ 45
-# ...
-tulis visualisasi.batang(penjualan, judul="Penjualan Mingguan", satuan="unit")
-
-# Chart SVG + laporan HTML untuk dibuka di browser
-buat svg = visualisasi.batang_svg(penjualan, judul="Penjualan Mingguan")
-visualisasi.simpan_svg("penjualan.svg", svg)
-visualisasi.simpan_html("laporan.html", [svg], judul="Laporan Penjualan")
-```
-Modul `visualisasi` menyediakan 5 jenis chart (bar, garis, pie/donut, scatter, histogram) dalam tiga format: **ASCII** buat tampil langsung di terminal, **SVG/HTML** buat laporan profesional, dan **GUI jendela native** buat tampilan ala game.
-
-### GUI Chart (Pygame) 🎮
-```
-# pip install pygame-ce  (sekali saja)
-impor visualisasi
-
-buat chart1 = {"jenis": "batang", "data": [12, 45, 23], "judul": "Penjualan"}
-buat chart2 = {"jenis": "kue", "data": {"A": 30, "B": 40}, "judul": "Pasar"}
-visualisasi.tampilkan_jendela([chart1, chart2], judul="Dashboard")
-```
-Chart tampil di jendela gelap ala game: animasi masuk, hover tooltip, navigasi keyboard (panah ganti chart, `1-9` lompat, `F` fullscreen, `S` screenshot, `ESC` tutup). Data bisa berupa list nilai, list pasangan `[label, nilai]`, atau objek `{label: nilai}`.
-
----
-
-## Apa yang Baru di v5.2?
-
-### Keyword Arguments
-```
-fungsi sapa(nama, umur=0)
-    kembali "Halo " + nama + " umur " + teks(umur)
-selesai
-
-tulis sapa(nama="Budi")              # Halo Budi umur 0
-tulis sapa(nama="Ani", umur=25)     # Halo Ani umur 25
-tulis sapa("Citra", umur=30)        # Halo Citra umur 30
-```
-Argumen bernama bikin pemanggilan fungsi lebih jelas & ga perlu inget urutan parameter. Bisa dipakai di fungsi, method, lambda, dan constructor kelas.
-
-### Pipeline Operator (`|>`)
-```
-fungsi kali2(x)
-    kembali x * 2
-selesai
-
-buat hasil = 21 |> kali2            # 42 — nilai dikirim ke fungsi berikutnya
-buat genap = [1, 2, 3, 4] |> saring(lalu(x) x % 2 == 0)  # [2, 4]
-buat plus1 = [1, 2, 3] |> peta(lalu(x) x + 1)           # [2, 3, 4]
-```
-Komposisi fungsi ala Elixir/F# — baca dari kiri ke kanan, ga perlu nested call.
-
-### Destructuring Assignment
-```
-buat [a, b, c] = [1, 2, 3]
-tulis a, b, c     # 1 2 3
-
-buat {x, y} = {"x": 10, "y": 20}
-tulis x, y        # 10 20
-```
-Unpacking list & objek langsung ke variabel, kayak Python/JS.
-
-### Package Manager (BroPM)
-```bash
-bro pkg init                    # Bikin project + manifest brolang.json
-bro pkg install <nama|git-url>  # Install package
-bro pkg publish                 # Publish ke registry lokal
-bro pkg search <kata>           # Cari package
-```
-```
-impor paket-ku
-tulis paket-ku.fungsi_utama()
-```
-Package manager beneran jalan: manifest `brolang.json`, install dari folder lokal / git URL / registry, dan package yang terinstall bisa langsung di-`impor` dari kode BroLang.
-
-### Benchmark Command
-```bash
-bro benchmark <file>   # bandingkan Interpreter vs Transpiler vs Bytecode VM
-bro bench <file>
-```
-Ukur performa ketiga mesin eksekusi BroLang dalam satu command.
-
-### VM Optimasi
-Bytecode VM sekarang punya builtin cache (fast path `LOAD_GLOBAL`/`CALL_BUILTIN`) plus perbaikan stack discipline `STORE_LOCAL`/`STORE_GLOBAL` yang bikin for-loop & assignment berjalan benar dan lebih cepat.
-
----
-
-## Apa yang Baru di v5.0?
-
-### Null Coalescing (`??`)
-```
-buat nama = kosong
-tulis nama ?? "Anonim"   # Anonim
-```
-Kalo nilainya `kosong`, otomatis ganti ke default. Ga perlu nulis `jika` panjang-panjang.
-
-### Higher-Order Functions
-```
-buat angka = [1, 2, 3, 4, 5]
-tulis peta(angka, lalu(x) x * 2)     # [2, 4, 6, 8, 10]
-tulis saring(angka, lalu(x) x > 3)   # [4, 5]
-tulis kurangi(angka, lalu(a, b) a + b, 0)  # 15
-```
-`peta`, `saring`, `kurangi` — fungsi tinggi level kayak di Python tapi pake bahasa Indonesia.
-
-### Result & Option Types
-```
-buat hasil = Benar(42)
-buat error = Salah("ada yang salah")
-
-buat nilai = Ada(100)
-buat kosong = Kosong()
-```
-Buat handle error dengan rapi, mirip Rust tapi versi santai.
-
-### Macros
-```
-makro Logger()
-    tulis "[LOG] Program jalan!"
-selesai
-
-Logger()
-```
-Bikin macro gampang, tinggal `makro` terus isi badannya.
-
-### Namespaces
-```
-ruang nama Matematika
-    fungsi tambah(a, b)
-        kembali a + b
-    selesai
-selesai
-
-pakai Matematika
-tulis Matematika.tambah(2, 3)   # 5
-```
-Organisasi kode biar ga berantakan.
-
-### For-Each
-```
-buat buah = ["apel", "mangga", "jeruk"]
-untuk setiap item dalam buah lakukan
-    tulis item
-selesai
-```
-Lebih pendek dari `untuk i dalam range(...)`.
-
-### Interfaces
-```
-antarmuka DapatJalankan {
-    fungsi jalankan()
-}
-
-kelas Robot(DapatJalankan)
-    fungsi jalankan()
-        tulis "Robot jalan!"
-    selesai
-selesai
-```
-Kalo ga implement method wajib, langsung error.
-
-### Abstract Classes
-```
-abstrak kelas Hewan {
-    fungsi suara()
-}
-
-buat hewan = Hewan()  # error! ga bisa langsung bikin instance
-```
-Harus diwarisi dulu sebelum bisa dipake.
-
-### Access Modifiers
-```
-kelas Keamanan
-    privat fungsi rahasia()
-        tulis "jangan liat!"
-    selesai
-
-    fungsi buka()
-        self.rahasia()  # bisa dari dalam kelas
-    selesai
-selesai
-
-buat k = Keamanan()
-k.buka()        # bisa
-k.rahasia()     # error! privat
-```
-`privat` beneran diproteksi, `publik` bisa diakses dari mana aja, `terlindungi` cuma bisa dari kelas turunan.
-
-### Chained Comparisons
-```
-buat x = 5
-jika 0 < x < 10 maka
-    tulis "dalam range"
-selesai
-```
-Ga perlu pake `dan` lagi buat range checking.
-
-### Generators
-```
-fungsi gen_sampai(n)
-    buat i = 0
-    selama i < n lakukan
-        hasilkan i
-        i = i + 1
-    selesai
-selesai
-
-untuk angka dalam gen_sampai(5) lakukan
-    tulis(angka)
-selesai
-```
-`hasilkan` bikin fungsi jadi generator — value dikirim satu per satu.
-
-### Iterator Protocol
-```
-kelas Rentang
-    fungsi __init__(mulai, akhir)
-        self.mulai = mulai
-        self.akhir = akhir
-    selesai
-
-    fungsi __iter__()
-        self._current = self.mulai
-        kembali self
-    selesai
-
-    fungsi __next__()
-        jika self._current >= self.akhir maka
-            hentikan_iterasi()
-        selesai
-        buat val = self._current
-        self._current = self._current + 1
-        kembali val
-    selesai
-selesai
-```
-Bikin objek iterable sendiri pake `__iter__`/`__next__`, sama kayak Python.
-
-### Properties (Getter/Setter)
-```
-kelas Suhu
-    fungsi __init__(derajat)
-        self._derajat = derajat
-    selesai
-
-    fungsi _derajat()
-        kembali self._derajat
-    selesai
-
-    fungsi _derajat_set(nilai)
-        self._derajat = nilai
-    selesai
-selesai
-
-buat s = Suhu(36)
-tulis(s.get("derajat"))     # 36
-s.set("derajat", 37)
-tulis(s.get("derajat"))     # 37
-```
-Convention: `_<nama>()` buat getter, `_<nama>_set(v)` buat setter.
-
-### Static Methods
-```
-kelas Kalkulator
-    statis fungsi tambah(a, b)
-        kembali a + b
-    selesai
-selesai
-
-tulis(Kalkulator.tambah(3, 4))  # 7
-```
-`statis` bikin method bisa dipanggil tanpa bikin instance.
-
-### String Interpolation
-```
-buat nama = "Bro"
-buat umur = 5
-
-# Dollar variable
-tulis("Halo $nama, umur $umur tahun!")
-
-# Dollar expression
-tulis("2 + 3 = ${2 + 3}")
-
-# F-string
-tulis(f"Halo {nama}, umur {umur} tahun!")
-```
-Dua cara: `$variable` buat simpel, `f"..."` buat expression.
-
-### Type Checking
-```
-tulis(cek_tipe(42))          # int
-tulis(cek_tipe(42, "angka")) # True
-pastikan(42 == 42, "Harus sama!")  # assert
-```
-
----
-
-## Semua Fitur (v4.0 + v5.0 + v5.2 + v5.3 + v5.4 + v5.5 + v6.0)
-
-### v6.0
-- Type system lengkap: `buat x: Angka = 5`, `fungsi f(a: Angka) -> Teks`, union `Angka | Teks`, generik `Daftar<Angka>`, alias tipe
-- Pattern matching modern: pola list `[a, b]`, pola objek `{"nama": n}`, binding, guard `x jika x > 10`
-- Error handling profesional: `kelas_error` custom error class + hierarki + `kecuali lainnya`
-- Modul baru: `tanggal`, `catat`, `lingkungan`, `proses`, `csv`, `registri` (package registry online)
-- CLI error display profesional: baris/kolom, penanda `^`, solusi, stack trace
-- Analyzer: dukungan kelas_error & pattern binding + cek tipe statis (mismatch ditolak di `bro run`)
-
-### v5.5
-- Operator overloading: `_tambah_`, `_kurang_`, `_sama_`, `_teks_`, `_panjang_`, `_index_`, dll.
-- Modul `sejajar`: threading/parallel — `jalankan`, `tunggu`, `peta_sejajar`, objek `Tugas`
-- LSP: completion pintar, go-to-definition, hover
-
-### v5.4
-- **Full upgrade library game** (14 modul): sprite ditulis ulang, `partikel` 🆕, `ui` 🆕, input event fix, tilemap fix, fisika radius configurable, kamera rotasi, 26 easing animasi, Timer/Stopwatch/FPS
-- `examples/game_arena.bro`: showcase platformer (sprite + fisika + partikel + UI + tilemap + kamera)
-- Interpreter: atribut objek stdlib bisa diset (`pemain.warna = "merah"`)
-
-### v5.3
-- Modul `visualisasi`: chart ASCII + SVG + HTML (bar, garis, pie, scatter, histogram)
-- Export laporan: `simpan_svg`, `simpan_html`, `simpan_txt`
-- **GUI chart (Pygame)**: `tampilkan_jendela` / `tampilkan_batang` / dll. + `simpan_png`
-  - Jendela native ala game: animasi, tooltip, keyboard nav, fullscreen, screenshot
-
-### v5.2
-- Keyword arguments: `sapa(nama="Budi", umur=25)`
-- Pipeline operator: `nilai |> fungsi`
-- Destructuring assignment: `buat [a, b] = list` / `buat {x, y} = objek`
-- Package manager: `bro pkg init/install/remove/list/search/publish/info`
-- Package import: `impor <paket>` untuk package terinstall
-- Benchmark CLI: `bro benchmark <file>`
-
-### v5.0
-
-### Basic
-- `buat` variabel, `fungsi`, `kelas`, `muat` module
-- Tipe data: angka, teks, boolean, list, tuple, set, objek, kosong
-- Operator: aritmatika, perbandingan, logika, bitwise
-- Percabangan: `jika...maka...lainnya...selesai`
-- Perulangan: `untuk`, `selama`, `hentikan`, `lanjutkan`
-
-### Functions
-- Default parameters, lambda (`lalu`), closures
-- List comprehension, keyword arguments, argument labels
-- Variadic functions (`...`), recursion
-
-### OOP
-- Class, inheritensi, `super()`, dataclass
-- Multiple inheritance, property
-
-### Advanced
-- `try...kecuali...selesai` error handling
-- `lempar` exception, `final` block
-- `global` / `nonlokal` scope
-- `cocokkan` (match/case), dekorator
-- Async/await, generators, context manager
-- Enum, struct, ternary expression
-
-### v5.0
-- Null coalescing `??`
-- Higher-order functions (`peta`, `saring`, `kurangi`)
-- Result & Option types (`Benar`/`Salah`, `Ada`/`Kosong`)
-- Macros (`makro`)
-- Namespaces (`ruang nama` + `pakai`)
-- Interfaces (`antarmuka`)
-- Abstract classes (`abstrak kelas`)
-- Access modifiers (`publik`, `privat`, `terlindungi`)
-- For-each (`untuk setiap ... dalam ... lakukan`)
-- Chained comparisons (`0 < x < 10`)
-- Generators (`hasilkan`)
-- Iterator protocol (`__iter__`/`__next__`/`hentikan_iterasi()`)
-- Properties (`_<nama>()` getter, `_<nama>_set(v)` setter)
-- Static methods (`statis fungsi`)
-- String interpolation (`$variable` / `f"..."`)
-- Type checking (`cek_tipe`/`pastikan`)
-- Class inheritance syntax (`kelas Nama(Parent)`)
 
 ---
 
@@ -1468,7 +331,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 
 ---
 
-## Standard Library (43+ modules)
+## Standard Library (65+ modules)
 
 | Module | Fungsi |
 |--------|--------|
@@ -1521,6 +384,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | `terminal` | UX CLI: warna ANSI, gaya teks, progress bar, prompt, pesan status (v6.4) |
 | `jalur` | Pathfinding A* + navigasi: cari_jalur, IkutiJalur, Patroli waypoint (v6.6) |
 | `efek` | Efek layar: Flash, Vignette, TeksMelayang, Pulsa (v6.6) + Guncangan screen shake (v6.7) |
+| `belajar` | Sistem belajar adaptif: progres tersimpan, keahlian per-konsep, spaced repetition, petunjuk adaptif (v12.3) |
 
 ---
 
@@ -1543,7 +407,7 @@ Full API game (sprite, partikel, ui, fisika, tilemap, kamera, dll): baca [docs/G
 | [Fitur v6.0](docs/FITUR_V60.md) | Type system, pattern matching modern, kelas_error, stdlib baru, package registry online |
 | [Fitur v5.0](docs/FITUR.md) | Semua fitur lengkap |
 | [Game Development](docs/GAME.md) | Bikin game pake BroLang |
-| [Standard Library](docs/STDLIB.md) | 43+ module built-in |
+| [Standard Library](docs/STDLIB.md) | 65+ module built-in |
 | [CLI Tools](docs/CLI.md) | Compiler, formatter, profiler |
 | [Arsitektur](docs/ARSITEKTUR.md) | Pipeline eksekusi |
 
@@ -1566,6 +430,8 @@ bro run-game <file>    # Jalankan game
 bro benchmark <file>   # Benchmark interpreter vs transpiler vs VM
 bro upgrade            # Update BroLang ke versi terbaru dari GitHub (v6.4)
 bro belajar            # Belajar coding interaktif untuk pemula 🎓
+bro belajar --ulang    # Mode ulangan (spaced repetition) konsep lemah
+bro belajar --latihan <konsep>  # Latihan mandiri konsep bebas
 bro pkg <cmd>          # Package manager (init/install/publish/dll)
 bro pack <file> <out>  # Bundel .bro + runtime ke folder distribusi (v11.0)
 ```
@@ -1594,20 +460,20 @@ bro examples/visualisasi_gui.bro   # khusus jendela chart ala game
 Source Code (.bro)
     ↓
 ┌─────────┐
-│  Lexer  │ ← Tokenisasi (130+ tokens)
+│  Lexer  │ ← Tokenisasi (135+ tokens)
 └─────────┘
     ↓
 ┌──────────┐
-│  Parser  │ ← Bikin AST (110+ nodes)
+│  Parser  │ ← Bikin AST (115+ nodes)
 └──────────┘
     ↓
 ┌─────────────────────┐
-│ SemanticAnalyzer    │ ← Cek tipe & scope
+│ SemanticAnalyzer    │ ← Cek tipe, scope, kontrak, kepemilikan
 └─────────────────────┘
     ↓
-┌────────────┐
-│ Optimizer  │ ← Dead code elim, constant folding
-└────────────┘
+┌─────────────┐
+│ Optimizer   │ ← Dead code elim, constant folding
+└─────────────┘
     ↓
 ┌─────────────┐
 │ Interpreter │ ← Eksekusi langsung
@@ -1630,7 +496,7 @@ python3 -m pytest tests/ -v
 python3 -m pytest tests/unit/test_v5_language.py -v
 ```
 
-**1346 test cases, semua passing!** (termasuk demo contoh v9.0; 58 test v8.2: properti decorator, statistik, zaman, penampilan, warna; 48 test v8.1: object pooling, simpan/muat, dialog, AI FSM+steering, platform satu arah & bergerak, quest/achievement; 32 test v8.0: spread objek, ??=, kecuali multi-tipe + error kustom di VM, konsistensi VM; 32 test v7.2; 10 test yield di dalam `coba`/`tangkap` di generator; 8 test perbaikan `hasilkandari` yield-from; 43 test v6.9: guard clause statement umum; 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4)
+**1406 test cases, semua passing!** (termasuk demo contoh v9.0; 58 test v8.2: properti decorator, statistik, zaman, penampilan, warna; 48 test v8.1: object pooling, simpan/muat, dialog, AI FSM+steering, platform satu arah & bergerak, quest/achievement; 32 test v8.0: spread objek, ??=, kecuali multi-tipe + error kustom di VM, konsistensi VM; 32 test v7.2; 10 test yield di dalam `coba`/`tangkap` di generator; 8 test perbaikan `hasilkandari` yield-from; 43 test v6.9: guard clause statement umum; 55 test v6.8: guard clause, floor division, augmented pada atribut/index, BGM prosedural; 59 test v6.7: rest/spread parameter, multiple return, VM lengkap; 65 test v6.6 game dev: pathfinding A*, efek layar, fisika AABB + raycast, partikel gradien, tilemap animasi, parallax, fixed timestep, Tooltip/DaftarSkor; 43 test v6.2 game dev; 61 test library game v5.4; output-consistency; visualisasi; ramah pemula; dan modul stdlib v6.0/v6.4; 23 test belajar v12.3)
 
 ---
 
@@ -1654,9 +520,10 @@ MIT License — Bebas pake, dimodif, disebar.
 
 Dibuat dengan ❤️ oleh [salzcill-cmd](https://github.com/salzcill-cmd)
 
-> **BroLang v9.0** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
+> **BroLang v12.3** — Bahasa pemrograman buat yang males nulis syntax panjang 🇮🇩
 
 <p align="center">
   <img src="https://img.shields.io/badge/Made%20with-Python-yellow?style=for-the-badge&logo=python&logoColor=white" alt="python"/>
   <img src="https://img.shields.io/badge/Made%20with-❤️-red?style=for-the-badge" alt="love"/>
 </p>
+```
