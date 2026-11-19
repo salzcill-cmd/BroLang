@@ -46,6 +46,8 @@ from brolang.ast.nodes import (
     FunctionNode,
     ReturnNode,
     CallNode,
+    # v12.1 Design by Contract
+    ContractClause,
     # Classes
     ClassNode,
     AttributeNode,

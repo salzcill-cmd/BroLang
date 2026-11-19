@@ -132,3 +132,41 @@ class TestSemanticOwnership:
     def test_miliki_deklarasi_ganda_ditolak(self):
         with pytest.raises(ParserError):
             analyze("miliki a, b = 1, 2")
+
+
+class TestSemanticContract:
+    """Test Design by Contract (v12.1): syarat_awal, syarat_akhiri, invariansi."""
+
+    def test_syarat_awal(self):
+        analyzer = analyze("fungsi bagi(a, b)\n    syarat_awal b != 0\n    kembali a / b\nselesai")
+        assert len(analyzer.errors) == 0
+
+    def test_syarat_akhiri(self):
+        analyzer = analyze("fungsi absolut(x)\n    syarat_akhiri hasil >= 0\n    kembali x\nselesai")
+        assert len(analyzer.errors) == 0
+
+    def test_invariansi_kelas(self):
+        analyzer = analyze("""kelas Rekening
+    fungsi __init__(awal)
+        buat self.saldo = awal
+    selesai
+    invariansi self.saldo >= 0
+    fungsi setor(jumlah)
+        syarat_awal jumlah > 0
+        self.saldo = self.saldo + jumlah
+    selesai
+selesai""")
+        assert len(analyzer.errors) == 0
+
+    def test_banyak_syarat_awal(self):
+        analyzer = analyze("""fungsi bagi(a, b)
+    syarat_awal b != 0
+    syarat_awal a >= 0
+    kembali a / b
+selesai""")
+        assert len(analyzer.errors) == 0
+
+    def test_syarat_akhiri_dengan_hasil(self):
+        # `hasil` di postcondition harus diterima analyzer
+        analyzer = analyze("fungsi kuadrat(x)\n    syarat_akhiri hasil >= 0\n    kembali x * x\nselesai")
+        assert len(analyzer.errors) == 0

@@ -25,6 +25,8 @@ from brolang.ast.nodes import (
     IfNode, WhileNode, ForNode, DoUntilNode, RangeForNode,
     BreakNode, ContinueNode,
     FunctionNode, ReturnNode, CallNode,
+    # v12.1 Design by Contract
+    ContractClause,
     ClassNode, MethodNode, AttributeNode,
     ImportNode, FromImportNode,
     TryNode, CatchNode,
@@ -694,6 +696,26 @@ class SemanticAnalyzer(ASTVisitor):
         if node.message:
             self.visit(node.message)
 
+    def visit_ContractClause(self, node: ContractClause) -> None:
+        """Memeriksa klausa kontrak (v12.1 Design by Contract).
+
+        Syarat_awal / syarat_akhiri / invariansi harus berupa ekspresi
+        boolean yang valid. `hasil` di postcondition dianggap variabel
+        kosong yang merujuk pada nilai kembalian fungsi.
+        """
+        # `hasil` di postcondition harus didefinisikan SEBELUM kondisi
+        # dicek, agar analyzer tidak melaporkan 'belum didefinisikan'
+        if node.clause_type == "post":
+            self.current_scope.define(
+                name="hasil",
+                kind="variable",
+                line=node.line,
+                column=node.column,
+                is_initialized=True,
+                type_hint=None,
+            )
+        self.visit(node.condition)
+
     def visit_TupleNode(self, node: TupleNode) -> str:
         """Tuple literal type."""
         for elem in node.elements:
@@ -784,6 +806,12 @@ class SemanticAnalyzer(ASTVisitor):
         # v6.0: return type `fungsi f() -> Angka` — cek di visit_ReturnNode
         old_return_type = self._current_return_type
         self._current_return_type = getattr(node, 'return_type', None)
+
+        # v12.1 Design by Contract — cek syarat_awal & syarat_akhiri
+        for clause in getattr(node, 'preconditions', []):
+            self.visit(clause)
+        for clause in getattr(node, 'postconditions', []):
+            self.visit(clause)
 
         # Validasi: default parameter tidak boleh mendahului parameter non-default
         seen_default = False
@@ -942,6 +970,10 @@ class SemanticAnalyzer(ASTVisitor):
             column=node.column,
             is_initialized=True,
         )
+
+        # v12.1 Design by Contract — cek invariansi kelas
+        for clause in getattr(node, 'invariants', []):
+            self.visit(clause)
 
         # Parse methods
         for stmt in node.body:

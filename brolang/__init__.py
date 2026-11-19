@@ -11,12 +11,13 @@ BroLang adalah bahasa pemrograman modern yang dirancang untuk:
 Filosofi:
     "Belajar coding harus semudah membaca bahasa manusia."
 
-Fitur v12.1 (Kepemilikan Memori — `miliki` / Move Semantics, Rust-like):
+Fitur v12.1 (Kepemilikan Memori & Design by Contract):
 - Kata kunci `miliki x = nilai` mendeklarasikan variabel dengan kepemilikan tunggal (single ownership).
 - `buat y = x` memindahkan milik dari `x` ke `y` (move): `x` tidak bisa digunakan lagi (use-after-move = error saat kompilasi oleh analyzer DAN runtime oleh interpreter).
 - Variabel miliki bisa ditetapkan ulang (nilai lama di-drop); variabel biasa (`buat`) menggunakan semantik salin.
 - Mencegah data race & use-after-free style bug tanpa garbage collector — fitur yang dijanjikan sejak v10.0 kini truly diimplementasikan.
-- Semua fitur v12.0 tetap kompatibel. 1359 test cases tetap passing.
+- Design by Contract: `syarat_awal` (precondition), `syarat_akhiri` (postcondition dengan variabel `hasil`), dan `invariansi` (class invariant). Dicek oleh analyzer saat kompilasi DAN oleh interpreter saat runtime — menandingi Eiffel/Dafny dalam keakuratan kontrak program.
+- Semua fitur v12.0 tetap kompatibel. 1373 test cases tetap passing.
 
 Fitur v12.0 (Upgrade Sistem Tipe — Type Inference & Konsistensi Reassignment):
 - `buat x = 5` kini menyimpulkan tipe `Angka` otomatis dari nilai awal (type inference)

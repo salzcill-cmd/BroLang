@@ -395,6 +395,7 @@ class BroLangClass:
         required_interfaces: Optional[List[str]] = None,
         method_access: Optional[Dict[str, str]] = None,
         properties: Optional[Dict[str, Any]] = None,  # v8.2
+        invariants: Optional[List] = None,  # v12.1 Design by Contract
     ):
         self.name = name
         self.methods = methods
@@ -404,6 +405,7 @@ class BroLangClass:
         self.required_interfaces = required_interfaces or []
         self.method_access = method_access or {}  # name -> "publik"/"privat"/"terlindungi"
         self.properties = properties or {}  # v8.2: {nama: _Property}
+        self.invariants = invariants or []  # v12.1: klausa invariansi kelas
 
     def get_method(self, name: str) -> Optional[Callable]:
         if name in self.methods:
@@ -1656,6 +1658,57 @@ class Interpreter(ASTVisitor):
                 column=node.column,
             )
 
+    def _cek_kontrak(self, clauses, return_value=None, line=0, column=0, nama_fungsi=""):
+        """Cek klausa kontrak (v12.1 Design by Contract).
+
+        - pre: dievaluasi sebelum body dieksekusi.
+        - post: dievaluasi setelah return, dengan `hasil` = nilai kembalian.
+        - invariant: dievaluasi setelah method kelas selesai.
+        """
+        for clause in clauses:
+            if clause.clause_type == "post":
+                self.current_env.define_variable("hasil", return_value)
+            elif "hasil" not in self.current_env.variables:
+                self.current_env.define_variable("hasil", None)
+            condition = self.visit(clause.condition)
+            if not condition:
+                tipe = {
+                    "pre": "syarat_awal (precondition)",
+                    "post": "syarat_akhiri (postcondition)",
+                    "invariant": "invariansi (class invariant)",
+                }.get(clause.clause_type, "kontrak")
+                raise RuntimeError_(
+                    message=f"Kontrak {tipe} gagal pada '{nama_fungsi}'.",
+                    line=line,
+                    column=column,
+                    solution=f"Periksa kondisi kontrak.",
+                )
+
+    def _cek_invariansi(self, class_name, method_name=""):
+        """Cek invariansi kelas setelah setiap statement di dalam method (v12.1)."""
+        # Cari kelas dengan melintasi environment parent (global env menyimpan kelas)
+        env = self.current_env
+        klass = None
+        while env is not None:
+            klass = env.classes.get(class_name)
+            if klass is not None:
+                break
+            env = env.parent
+        if klass is None:
+            return
+        invariants = getattr(klass, 'invariants', [])
+        if not invariants:
+            return
+        for clause in invariants:
+            condition = self.visit(clause.condition)
+            if not condition:
+                raise RuntimeError_(
+                    message=f"Invariansi kelas '{class_name}' gagal pada method '{method_name}'.",
+                    line=clause.line,
+                    column=clause.column,
+                    solution=f"Periksa kondisi invariansi: {clause.condition}",
+                )
+
     def visit_FunctionNode(self, node: FunctionNode) -> None:
         """Deklarasi fungsi dengan closure support."""
         closure_env = self.current_env
@@ -1670,6 +1723,14 @@ class Interpreter(ASTVisitor):
             ):
                 self.current_env.define_variable(param, val)
 
+            # v12.1 Design by Contract — cek syarat_awal sebelum body
+            self._cek_kontrak(
+                node.preconditions,
+                line=node.line,
+                column=node.column,
+                nama_fungsi=node.name,
+            )
+
             try:
                 result = None
                 for stmt in node.body:
@@ -1677,10 +1738,26 @@ class Interpreter(ASTVisitor):
                     if self.current_env.should_return:
                         result = self.current_env.return_value
                         break
+                # v12.1 Design by Contract — cek syarat_akhiri setelah return
+                self._cek_kontrak(
+                    node.postconditions,
+                    return_value=result,
+                    line=node.line,
+                    column=node.column,
+                    nama_fungsi=node.name,
+                )
                 self._pop_env()
                 self.current_env = old_env
                 return result
             except ReturnException as e:
+                # v12.1 Design by Contract — cek syarat_akhiri saat ReturnException
+                self._cek_kontrak(
+                    node.postconditions,
+                    return_value=e.value,
+                    line=node.line,
+                    column=node.column,
+                    nama_fungsi=node.name,
+                )
                 self._pop_env()
                 self.current_env = old_env
                 return e.value
@@ -1904,6 +1981,7 @@ class Interpreter(ASTVisitor):
             abstract_methods=abstract_methods,
             required_interfaces=required_interfaces,
             method_access=method_access,
+            invariants=getattr(node, 'invariants', []),
             properties=properties,
         )
 
@@ -2045,6 +2123,14 @@ class Interpreter(ASTVisitor):
                 ):
                     self.current_env.define_variable(param, val)
 
+                # v12.1 Design by Contract — cek syarat_awal (static method)
+                self._cek_kontrak(
+                    getattr(node, 'preconditions', []),
+                    line=node.line,
+                    column=node.column,
+                    nama_fungsi=f"{owner_class_name}.{node.name}",
+                )
+
                 try:
                     result = None
                     for stmt in node.body:
@@ -2052,11 +2138,26 @@ class Interpreter(ASTVisitor):
                         if self.current_env.should_return:
                             result = self.current_env.return_value
                             break
+                    # v12.1 Design by Contract — cek syarat_akhiri (static method)
+                    self._cek_kontrak(
+                        getattr(node, 'postconditions', []),
+                        return_value=result,
+                        line=node.line,
+                        column=node.column,
+                        nama_fungsi=f"{owner_class_name}.{node.name}",
+                    )
                     self._pop_env()
                     self.current_env = old_env
                     self._current_class_name = old_class_name
                     return result
                 except ReturnException as e:
+                    self._cek_kontrak(
+                        getattr(node, 'postconditions', []),
+                        return_value=e.value,
+                        line=node.line,
+                        column=node.column,
+                        nama_fungsi=f"{owner_class_name}.{node.name}",
+                    )
                     self._pop_env()
                     self.current_env = old_env
                     self._current_class_name = old_class_name
@@ -2090,6 +2191,14 @@ class Interpreter(ASTVisitor):
             ):
                 self.current_env.define_variable(param, val)
 
+            # v12.1 Design by Contract — cek syarat_awal (instance method)
+            self._cek_kontrak(
+                getattr(node, 'preconditions', []),
+                line=node.line,
+                column=node.column,
+                nama_fungsi=f"{owner_class_name}.{node.name}",
+            )
+
             try:
                 result = None
                 for stmt in node.body:
@@ -2097,11 +2206,29 @@ class Interpreter(ASTVisitor):
                     if self.current_env.should_return:
                         result = self.current_env.return_value
                         break
+                    # v12.1 Design by Contract — cek invariansi setelah setiap statement
+                    self._cek_invariansi(owner_class_name, node.name)
+                # v12.1 Design by Contract — cek syarat_akhiri (instance method)
+                self._cek_kontrak(
+                    getattr(node, 'postconditions', []),
+                    return_value=result,
+                    line=node.line,
+                    column=node.column,
+                    nama_fungsi=f"{owner_class_name}.{node.name}",
+                )
                 self._pop_env()
                 self.current_env = old_env
                 self._current_class_name = old_class_name
                 return result
             except ReturnException as e:
+                # v12.1 Design by Contract — cek syarat_akhiri saat ReturnException
+                self._cek_kontrak(
+                    getattr(node, 'postconditions', []),
+                    return_value=e.value,
+                    line=node.line,
+                    column=node.column,
+                    nama_fungsi=f"{owner_class_name}.{node.name}",
+                )
                 self._pop_env()
                 self.current_env = old_env
                 self._current_class_name = old_class_name

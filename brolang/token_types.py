@@ -253,6 +253,11 @@ class TokenType(Enum):
     # v12.1 Keywords — Ownership (miliki / pinjam, Rust-like single ownership)
     TOKEN_MILIKI = auto()  # miliki (variabel dengan kepemilikan tunggal / move semantics)
 
+    # v12.1 Keywords — Design by Contract (pre/post kondisi & invariansi kelas)
+    TOKEN_SYARAT_AWAL = auto()   # syarat_awal (precondition fungsi)
+    TOKEN_SYARAT_AKHIR = auto()  # syarat_akhiri (postcondition fungsi)
+    TOKEN_INVARIASI = auto()     # invariansi (class invariant)
+
     # Special
     TOKEN_EOF = auto()
 
@@ -350,6 +355,9 @@ KEYWORDS: dict[str, TokenType] = {
     # v6.5 keywords — Fitur Bahasa
     "konstanta": TokenType.TOKEN_KONSTANTA,
     "miliki": TokenType.TOKEN_MILIKI,
+    "syarat_awal": TokenType.TOKEN_SYARAT_AWAL,
+    "syarat_akhiri": TokenType.TOKEN_SYARAT_AKHIR,
+    "invariansi": TokenType.TOKEN_INVARIASI,
     "ulangi": TokenType.TOKEN_ULANGI,
     "sampai": TokenType.TOKEN_SAMPAI,
     # 'langkah' sengaja tidak di sini — soft keyword (lihat komentar di atas).

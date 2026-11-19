@@ -52,6 +52,8 @@ from brolang.ast.nodes import (
     AssignmentNode, BinaryOpNode, UnaryOpNode,
     IfNode, WhileNode, ForNode, BreakNode, ContinueNode,
     FunctionNode, ReturnNode, CallNode,
+    # v12.1 Design by Contract
+    ContractClause,
     ClassNode, MethodNode, AttributeNode,
     ImportNode, FromImportNode,
     TryNode, CatchNode,
@@ -264,6 +266,12 @@ class Parser:
             return self._parse_enum()
         elif token_type == TokenType.TOKEN_STRUKTUR:
             return self._parse_struct()
+        elif token_type == TokenType.TOKEN_SYARAT_AWAL:
+            return self._parse_contract_clause("pre")
+        elif token_type == TokenType.TOKEN_SYARAT_AKHIR:
+            return self._parse_contract_clause("post")
+        elif token_type == TokenType.TOKEN_INVARIASI:
+            return self._parse_contract_clause("invariant")
         elif token_type == TokenType.TOKEN_KEMBALI:
             return self._parse_return()
         elif token_type == TokenType.TOKEN_HASILKAN:
@@ -956,6 +964,21 @@ class Parser:
 
         body = self._parse_block()
 
+        # v12.1 Design by Contract — pisahkan syarat_awal / syarat_akhiri
+        # dari isi body (mereka di-parse sebagai statement oleh _parse_block)
+        preconditions = []
+        postconditions = []
+        regular_body = []
+        for stmt in body:
+            if isinstance(stmt, ContractClause):
+                if stmt.clause_type == "pre":
+                    preconditions.append(stmt)
+                elif stmt.clause_type == "post":
+                    postconditions.append(stmt)
+            else:
+                regular_body.append(stmt)
+        body = regular_body
+
         self._expect(
             TokenType.TOKEN_SELESAI,
             message="Fungsi harus ditutup dengan 'selesai'.",
@@ -969,6 +992,8 @@ class Parser:
             param_types=param_types,
             return_type=return_type,
             rest_param=rest_param,
+            preconditions=preconditions,
+            postconditions=postconditions,
             body=body,
             line=token.line,
             column=token.column,
@@ -1114,6 +1139,16 @@ class Parser:
 
         body = self._parse_block()
 
+        # v12.1 Design by Contract — pisahkan invariansi dari body
+        invariants = []
+        regular_body = []
+        for stmt in body:
+            if isinstance(stmt, ContractClause) and stmt.clause_type == "invariant":
+                invariants.append(stmt)
+            else:
+                regular_body.append(stmt)
+        body = regular_body
+
         # Parse methods from body, handling statis modifier and decorators (v8.2)
         methods = []
         for stmt in body:
@@ -1144,6 +1179,7 @@ class Parser:
             name=name,
             parent=parent,
             methods=methods,
+            invariants=invariants,
             body=body,
             line=token.line,
             column=token.column,
@@ -1531,6 +1567,22 @@ class Parser:
 
         return StructNode(name=name_token.value, fields=fields,
                           line=token.line, column=token.column)
+
+    def _parse_contract_clause(self, clause_type: str) -> ContractClause:
+        """Parse klausa kontrak: syarat_awal / syarat_akhiri / invariansi.
+
+        Format: syarat_awal <ekspresi>
+                syarat_akhiri <ekspresi>
+                invariansi <ekspresi>
+        """
+        token = self._advance()  # syarat_awal / syarat_akhiri / invariansi
+        condition = self._parse_expression()
+        return ContractClause(
+            clause_type=clause_type,
+            condition=condition,
+            line=token.line,
+            column=token.column,
+        )
 
     # ============= V2: Lambda =============
 

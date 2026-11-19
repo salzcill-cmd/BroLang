@@ -380,9 +380,27 @@ class FunctionNode(ASTNode):
     param_types: List[Optional[str]] = field(default_factory=list)  # v6.0
     return_type: Optional[str] = None  # v6.0: 'fungsi f() -> Angka'
     rest_param: Optional[str] = None  # v6.7: 'fungsi f(a, ...sisa)' — menangkap sisa argumen
+    # v12.1 Design by Contract — pre & post kondisi
+    preconditions: List["ContractClause"] = field(default_factory=list)
+    postconditions: List["ContractClause"] = field(default_factory=list)
 
     def get_children(self) -> List[Any]:
         return self.body
+
+
+@dataclass
+class ContractClause(ASTNode):
+    """Node untuk klausa kontrak: syarat_awal / syarat_akhiri / invariansi.
+
+    clause_type: 'pre' | 'post' | 'invariant'
+    condition: ekspresi boolean yang harus terpenuhi.
+    Untuk postcondition, variabel `hasil` merujuk pada nilai kembalian fungsi.
+    """
+    clause_type: str = "pre"
+    condition: ASTNode = field(default_factory=lambda: BooleanNode(True))
+
+    def get_children(self) -> List[Any]:
+        return [self.condition]
 
 
 # ============= V6.7: Spread Operator =============
@@ -542,6 +560,8 @@ class ClassNode(ASTNode):
     parent: Optional[str] = None
     methods: List["MethodNode"] = field(default_factory=list)
     body: List[ASTNode] = field(default_factory=list)
+    # v12.1 Design by Contract — invarian kelas
+    invariants: List["ContractClause"] = field(default_factory=list)
 
     def get_children(self) -> List[Any]:
         return self.body

@@ -283,3 +283,66 @@ class TestInterpreterErrors:
     def test_zero_division(self):
         with pytest.raises(ZeroDivisionError_):
             run("tulis 1 / 0")
+
+    def test_syarat_awal_terpenuhi(self):
+        _, output = run("fungsi bagi(a, b)\n    syarat_awal b != 0\n    kembali a / b\nselesai\ntulis bagi(10, 2)")
+        assert "5.0" in output
+
+    def test_syarat_awal_dilanggar(self):
+        with pytest.raises(RuntimeError_):
+            run("fungsi bagi(a, b)\n    syarat_awal b != 0\n    kembali a / b\nselesai\ntulis bagi(10, 0)")
+
+    def test_syarat_akhiri_terpenuhi(self):
+        _, output = run("fungsi absolut(x)\n    syarat_akhiri hasil >= 0\n    jika x < 0 maka\n        kembali -x\n    lainnya\n        kembali x\n    selesai\nselesai\ntulis absolut(-5)")
+        assert "5" in output
+
+    def test_syarat_akhiri_dilanggar(self):
+        with pytest.raises(RuntimeError_):
+            run("fungsi abs(x)\n    syarat_akhiri hasil >= 0\n    kembali x\nselesai\ntulis abs(-5)")
+
+    def test_invariansi_kelas(self):
+        source = """
+kelas Rekening
+    fungsi __init__(awal)
+        buat self.saldo = awal
+    selesai
+    invariansi self.saldo >= 0
+    fungsi setor(jumlah)
+        syarat_awal jumlah > 0
+        self.saldo = self.saldo + jumlah
+    selesai
+    fungsi ambil(jumlah)
+        syarat_awal jumlah > 0
+        syarat_awal jumlah <= self.saldo
+        self.saldo = self.saldo - jumlah
+    selesai
+selesai
+buat r = Rekening(100)
+r.setor(50)
+r.ambil(30)
+tulis r.saldo
+"""
+        _, output = run(source)
+        assert "120" in output
+
+    def test_invariansi_dilanggar(self):
+        # Invariansi self.saldo >= 0 harus mencegah penarikan melebihi saldo
+        source = """
+kelas Rekening
+    fungsi __init__(awal)
+        buat self.saldo = awal
+    selesai
+    invariansi self.saldo >= 0
+    fungsi setor(jumlah)
+        self.saldo = self.saldo + jumlah
+    selesai
+    fungsi ambil(jumlah)
+        self.saldo = self.saldo - jumlah
+    selesai
+selesai
+buat r = Rekening(10)
+r.setor(5)
+r.ambil(50)
+"""
+        with pytest.raises(RuntimeError_):
+            run(source)

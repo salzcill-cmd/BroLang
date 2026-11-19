@@ -1,6 +1,6 @@
 # Fitur BroLang v12.1
 
-> **BroLang v12.1 — Kepemilikan memori (`miliki`) dengan move semantics (Rust-like).** Mencegah use-after-move & data race tanpa garbage collector — fitur yang dijanjikan sejak v10.0 kini truly diimplementasikan.
+> **BroLang v12.1 — Kepemilikan memori (`miliki`) dengan move semantics (Rust-like) dan Design by Contract (pre/post kondisi & invariansi kelas).** Mencegah use-after-move & data race tanpa garbage collector, dan menegakkan kontrak program secara formal — fitur yang dijanjikan sejak v10.0 kini truly diimplementasikan.
 
 ## Fitur v12.1 (Kepemilikan Memori)
 
@@ -11,6 +11,16 @@
 | Use-after-move error | Terdeteksi oleh analyzer (kompilasi) dan interpreter (runtime) | ✅ |
 | Reassign owned | Variabel miliki bisa ditetapkan ulang (nilai lama di-drop) | ✅ |
 | Copy semantics | Variabel biasa (`buat`) salin nilai, tidak memindahkan | ✅ |
+
+## Fitur v12.1 (Design by Contract)
+
+| Fitur | Keterangan | Status |
+|-------|-----------|--------|
+| `syarat_awal <ekspresi>` | Precondition — dicek sebelum body fungsi dieksekusi | ✅ |
+| `syarat_akhiri <ekspresi>` | Postcondition — dicek setelah return, `hasil` = nilai kembalian | ✅ |
+| `invariansi <ekspresi>` | Class invariant — dicek setelah setiap statement di method | ✅ |
+| Analyzer enforcement | Error saat kompilasi bila kontrak melanggar | ✅ |
+| Interpreter enforcement | RuntimeError saat kontrak melanggar saat dieksekusi | ✅ |
 
 ---
 
